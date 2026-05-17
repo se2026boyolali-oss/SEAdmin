@@ -116,11 +116,11 @@ const Dashboard = () => {
                     subtitle="Membutuhkan Penugasan"
                 />
                 <StatCard 
-                    title="Rata-rata Progres" 
+                    title="Persentase Progres" 
                     value={`${stats.progress}%`} 
                     icon={TrendingUp} 
                     colorClass="bg-amber-50 text-amber-600"
-                    subtitle="Kecukupan Petugas Lapangan"
+                    subtitle="SLS yang Sudah Dialokasikan"
                 />
             </div>
 
