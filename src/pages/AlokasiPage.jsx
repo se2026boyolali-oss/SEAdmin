@@ -420,55 +420,78 @@ const AllocationViewContent = ({
                                     </div>
 
                                     {/* LIST PCL DI BAWAH PML */}
-                                    <div className="pl-4 space-y-2 border-l-2 border-slate-100">
-                                        {bawahan.map(pcl => {
-                                            const mySls = slsList.filter(s => s.petugas_id === pcl.email);
-                                            const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
-                                            const myDesas = [...new Set(mySls.map(s => s.nmdesa))];
-                                            const isOver = workload > bebanIdeal * 1.1;
+<div className="pl-4 space-y-2 border-l-2 border-slate-100">
+    {bawahan.map(pcl => {
+        const mySls = slsList.filter(s => s.petugas_id === pcl.email);
+        const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
+        const myDesas = [...new Set(mySls.map(s => s.nmdesa))];
+        
+        // 1. Definisikan kondisi status baru
+        const isWarning = workload >= 1.05 * bebanIdeal && workload <= bebanIdeal * 1.15;
+        const isOver = workload > bebanIdeal * 1.15;
 
-                                            return (
-                                                <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${isOver ? 'border-rose-200 bg-rose-50' : 'border-slate-100 bg-white'}`}>
-                                                    <div className="flex justify-between items-start mb-1.5">
-                                                        <div className="flex flex-col">
-                                                            <span className="text-xs font-extrabold text-slate-800 uppercase leading-none mb-1">{pcl.nama_petugas}</span>
-                                                            {/* Lokasi Desa PCL */}
-                                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
-                                                                {myDesas.length > 0 && (
-                                                                    <span className="text-[8px] font-black text-slate-400 uppercase shrink-0">
-                                                                        Desa Tugas :
-                                                                    </span>
-                                                                )}
+        // 2. Tentukan warna background dan border kartu secara dinamis
+        let cardStyle = 'border-slate-100 bg-white';
+        let progressColor = 'bg-emerald-500';
 
-                                                                <div className="flex flex-wrap gap-1">
-                                                                    {myDesas.map((d) => (
-                                                                        <span
-                                                                            key={d}
-                                                                            className="text-[8px] text-slate-600 font-bold uppercase"
-                                                                        >
-                                                                            {d}{myDesas.length > 1 && d !== myDesas[myDesas.length - 1] ? "," : ""}
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <div className="text-[10px] font-black text-slate-700">Perkiraan Beban Muatan : {workload}</div>
-                                                            <div className="text-[8px] text-slate-400 font-bold uppercase leading-none">Jumlah SLS tugas : {mySls.length} SLS</div>
-                                                        </div>
-                                                    </div>
+        if (isOver) {
+            cardStyle = 'border-rose-200 bg-rose-50';
+            progressColor = 'bg-rose-500';
+        } else if (isWarning) {
+            cardStyle = 'border-amber-200 bg-amber-50/60';
+            progressColor = 'bg-amber-500';
+        }
 
-                                                    {/* Progress Bar Beban */}
-                                                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                                        <div
-                                                            className={`h-full transition-all duration-500 ${isOver ? 'bg-rose-500' : 'bg-emerald-500'}`}
-                                                            style={{ width: `${Math.min((workload / bebanIdeal) * 100, 100)}%` }}
-                                                        ></div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
+        // 3. Kalkulasi lebar progress bar dengan batas maksimal 1.2 dari beban ideal
+        const maxBudget = bebanIdeal * 1.2;
+        const progressPercentage = Math.min((workload / maxBudget) * 100, 100);
+
+        return (
+            <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${cardStyle}`}>
+                <div className="flex justify-between items-start mb-1.5">
+                    <div className="flex flex-col">
+                        <span className="text-xs font-extrabold text-slate-800 uppercase leading-none mb-1">
+                            {pcl.nama_petugas}
+                        </span>
+                        
+                        {/* Lokasi Desa PCL */}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+                            {myDesas.length > 0 && (
+                                <span className="text-[8px] font-black text-slate-400 uppercase shrink-0">
+                                    Desa Tugas :
+                                </span>
+                            )}
+
+                            <div className="flex flex-wrap gap-1">
+                                {myDesas.map((d) => (
+                                    <span
+                                        key={d}
+                                        className="text-[8px] text-slate-600 font-bold uppercase"
+                                    >
+                                        {d}{myDesas.length > 1 && d !== myDesas[myDesas.length - 1] ? "," : ""}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="text-right">
+                        <div className="text-[10px] font-black text-slate-700">Perkiraan Beban Muatan : {workload}</div>
+                        <div className="text-[8px] text-slate-400 font-bold uppercase leading-none">Jumlah SLS tugas : {mySls.length} SLS</div>
+                    </div>
+                </div>
+
+                {/* Progress Bar Beban */}
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                    <div
+                        className={`h-full transition-all duration-500 ${progressColor}`}
+                        style={{ width: `${progressPercentage}%` }}
+                    ></div>
+                </div>
+            </div>
+        );
+    })}
+</div>
                                 </div>
                             );
                         })}
