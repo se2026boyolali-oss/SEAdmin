@@ -2,21 +2,27 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import { Trash2, Search, UserMinus, ShieldAlert } from 'lucide-react';
 
 export default function SettingsPage() {
   const { profile, allowAllocation, setAllowAllocation } = useAuth();
   
-  // State Manajemen User
+  // State Manajemen User (Pegawai Organik)
   const [usersList, setUsersList] = useState([]);
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('pegawai');
   
+  // State Baru: Manajemen Petugas Lapangan (PML/PCL)
+  const [petugasList, setPetugasList] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loadingPetugas, setLoadingPetugas] = useState(false);
+
   const [loadingUser, setLoadingUser] = useState(false);
   const [loadingToggle, setLoadingToggle] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
-  // Ambil daftar user dari tabel app_users jika login sebagai Admin
+  // 1. Ambil daftar user dari tabel app_users
   const fetchUsers = async () => {
     if (profile?.role !== 'admin') return;
     const { data, error } = await supabase
@@ -28,27 +34,66 @@ export default function SettingsPage() {
     if (!error && data) setUsersList(data);
   };
 
+  // 2. Ambil daftar petugas lapangan (PML/PCL) dengan batasan limit agar ringan
+  const fetchPetugas = async () => {
+    if (profile?.role !== 'admin') return;
+    setLoadingPetugas(true);
+    try {
+      let query = supabase
+        .from('petugas')
+        .select('*')
+        .order('nama_petugas', { ascending: true })
+        .limit(100); // Batasi 100 data awal untuk efisiensi UI
+
+      if (searchQuery.trim() !== '') {
+        // Jika ada pencarian, cari berdasarkan nama atau email
+        query = supabase
+          .from('petugas')
+          .select('*')
+          .or(`nama_petugas.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
+          .order('nama_petugas', { ascending: true });
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setPetugasList(data || []);
+    } catch (error) {
+      console.error("Gagal memuat petugas:", error.message);
+    } finally {
+      setLoadingPetugas(false);
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
+    fetchPetugas();
   }, [profile]);
+
+  // Trigger pencarian otomatis saat Admin mengetik nama petugas
+  useEffect(() => {
+    const delayDebounce = setTimeout(() => {
+      fetchPetugas();
+    }, 400); // Debounce 400ms agar tidak over-request ke Supabase
+
+    return () => clearTimeout(delayDebounce);
+  }, [searchQuery]);
 
   // Aksi Menambah Pegawai/Admin Terpusat
   const handleAddUser = async (e) => {
     e.preventDefault();
     setMessage({ text: '', type: '' });
     setLoadingUser(true);
-
     const targetEmail = email.toLowerCase().trim();
 
     try {
       const { error } = await supabase
         .from('app_users')
         .insert({
-          id: null, // NULL di awal karena belum aktivasi auth
+          id: null,
           email: targetEmail,
           nama_pengguna: nama.trim(),
           role: role,
-          kecamatan_tugas: null, // Pegawai/Admin tidak dikunci ke kecamatan tertentu
+          kecamatan_tugas: null,
           is_first_login: true
         });
 
@@ -61,11 +106,46 @@ export default function SettingsPage() {
       setNama('');
       setEmail('');
       setRole('pegawai');
-      fetchUsers(); // Refresh tabel data
+      fetchUsers();
     } catch (error) {
       setMessage({ text: error.message, type: 'error' });
     } finally {
       setLoadingUser(false);
+    }
+  };
+
+  // 3. AKSI HAPUS PETUGAS LAPANGAN (PML / PCL)
+  const handleDeletePetugas = async (targetEmail, targetNama) => {
+    const konfirmasi = window.confirm(
+      `⚠️ PERINGATAN MUTLAK!\n\nApakah Anda yakin ingin menghapus petugas bernama:\n"${targetNama}" (${targetEmail})?\n\nTindakan ini akan menghapus akun aksesnya dan mengosongkan status alokasi yang bersangkutan jika sudah terlanjur diplot.`
+    );
+
+    if (!konfirmasi) return;
+
+    setMessage({ text: '', type: '' });
+    try {
+      // Langkah A: Hapus data dari tabel utama petugas
+      const { error: deleteError } = await supabase
+        .from('petugas')
+        .delete()
+        .eq('email', targetEmail);
+
+      if (deleteError) throw deleteError;
+
+      // Langkah B: Hapus juga dari app_users jika petugas tersebut sudah terlanjur aktivasi akun login
+      await supabase
+        .from('app_users')
+        .delete()
+        .eq('email', targetEmail);
+
+      setMessage({ 
+        text: `Sukses menghapus petugas ${targetNama} dari ekosistem aplikasi.`, 
+        type: 'success' 
+      });
+      
+      fetchPetugas(); // Refresh list petugas
+    } catch (error) {
+      setMessage({ text: `Gagal menghapus petugas: ${error.message}`, type: 'error' });
     }
   };
 
@@ -83,7 +163,7 @@ export default function SettingsPage() {
 
       if (error) throw error;
 
-      setAllowAllocation(nextState); // Update state global di context
+      setAllowAllocation(nextState);
       setMessage({ 
         text: `Pengisian Alokasi berhasil diubah menjadi: ${nextState ? 'DIIZINKAN (ON)' : 'DIKUNCI (OFF)'}`, 
         type: 'success' 
@@ -95,7 +175,6 @@ export default function SettingsPage() {
     }
   };
 
-  // Proteksi Halaman: Jika bukan admin, blokir akses halaman pengaturan ini
   if (profile?.role !== 'admin') {
     return (
       <div className="p-8 text-center">
@@ -106,14 +185,13 @@ export default function SettingsPage() {
     );
   }
 
-  return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8">
+return (
+    <div className="p-6 max-w-7xl mx-auto space-y-8 bg-slate-50 min-h-screen">
       <div>
         <h1 className="text-2xl font-black text-slate-900 tracking-tight">PENGATURAN SISTEM</h1>
-        <p className="text-slate-500 text-sm">Pengaturan Manajemen SE 2026.</p>
+        <p className="text-slate-500 text-sm font-medium">Pusat Kendali Administrasi Sensus Ekonomi 2026</p>
       </div>
 
-      {/* Kotak Notifikasi Respon */}
       {message.text && (
         <div className={`p-4 rounded-xl border-l-4 font-semibold text-sm ${
           message.type === 'success' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-rose-50 border-rose-500 text-rose-700'
@@ -134,14 +212,11 @@ export default function SettingsPage() {
               {allowAllocation ? '● Diizinkan (Buka Akses)' : '■ Dikunci (Waktu Habis)'}
             </span>
           </div>
-          
           <button
             onClick={handleToggleAllocation}
             disabled={loadingToggle}
             className={`px-4 py-2 rounded-xl text-xs font-bold shadow-sm text-white transition-all ${
-              allowAllocation 
-                ? 'bg-rose-600 hover:bg-rose-700 focus:ring-rose-500' 
-                : 'bg-emerald-600 hover:bg-emerald-700 focus:ring-emerald-500'
+              allowAllocation ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'
             } disabled:bg-slate-300`}
           >
             {loadingToggle ? 'Memproses...' : allowAllocation ? 'Kunci Alokasi (OFF)' : 'Buka Alokasi (ON)'}
@@ -149,32 +224,33 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* PANEL 2: MANAJEMEN PENDAFTARAN USER BARU */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Kolom Kiri: Form Input Tambah Pegawai */}
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-1 h-fit">
-          <h2 className="text-lg font-bold text-slate-800 mb-4">Daftarkan Pegawai Organik</h2>
-          <form onSubmit={handleAddUser} className="space-y-4">
+      {/* LAYOUT BARU: FORM DAN TABEL DIGABUNG SECARA VERTIKAL AGAR LEBIH PLONG */}
+      <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+        
+        {/* FORM INLINE COMPACT (Berjejer ke samping di layar besar, rapi ke bawah di layar HP) */}
+        <div className="border-b border-slate-100 pb-6">
+          <h2 className="text-lg font-bold text-slate-800 mb-4">Daftarkan Pegawai Organik Baru</h2>
+          <form onSubmit={handleAddUser} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
             <div>
-              <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">Nama Lengkap</label>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Nama Lengkap</label>
               <input
-                type="text" required placeholder="Nama Lengkap"
-                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm"
+                type="text" required placeholder="Nama Lengkap & Gelar"
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
                 value={nama} onChange={(e) => setNama(e.target.value)}
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">Email BPS</label>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Email Resmi BPS</label>
               <input
                 type="email" required placeholder="contoh@bps.go.id"
-                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm"
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
                 value={email} onChange={(e) => setEmail(e.target.value)}
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">Hak Akses Peran</label>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Hak Akses Peran</label>
               <select
-                className="mt-1 block w-full px-3 py-2 border border-slate-300 bg-white rounded-xl focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm"
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
                 value={role} onChange={(e) => setRole(e.target.value)}
               >
                 <option value="pegawai">Pegawai Organik</option>
@@ -183,56 +259,129 @@ export default function SettingsPage() {
             </div>
             <button
               type="submit" disabled={loadingUser}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-4 rounded-xl shadow-sm text-sm transition-all disabled:bg-slate-300"
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-4 rounded-xl shadow-sm text-xs transition-all h-[34px] disabled:bg-slate-300"
             >
-              {loadingUser ? 'Menyimpan...' : 'Kunci & Daftarkan Data'}
+              {loadingUser ? 'Menyimpan...' : '⚡ Daftarkan Akun'}
             </button>
           </form>
-        </section>
+        </div>
 
-        {/* Kolom Kanan: Tabel Daftar Pegawai Terdaftar */}
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
-          <h2 className="text-lg font-bold text-slate-800 mb-4">Daftar Akun Terdaftar</h2>
-          <div className="overflow-x-auto">
+        {/* TABEL DAFTAR PEGAWAI INTERNAL */}
+        <div>
+          <h2 className="text-base font-bold text-slate-800 mb-3">Daftar Akun Terdaftar (Internal BPS)</h2>
+          <div className="overflow-x-auto max-h-[300px] overflow-y-auto border border-slate-100 rounded-xl">
             <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50">
+              <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Nama / Email</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Peran</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Aktivasi Login</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Nama / Email</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Peran</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Aktivasi Login</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-slate-100 text-sm">
+              <tbody className="bg-white divide-y divide-slate-100 text-xs">
                 {usersList.map((usr) => (
-                  <tr key={usr.email}>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="font-semibold text-slate-800">{usr.nama_pengguna}</div>
-                      <div className="text-xs text-slate-400">{usr.email}</div>
+                  <tr key={usr.email} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <div className="font-bold text-slate-800">{usr.nama_pengguna}</div>
+                      <div className="text-[11px] text-slate-400 font-mono">{usr.email}</div>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide ${
-                        usr.role === 'admin' ? 'bg-amber-100 text-amber-800' : usr.role === 'pegawai' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-800'
-                      }`}>
-                        {usr.role}
-                      </span>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
+                        usr.role === 'admin' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
+                      }`}>{usr.role}</span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-4 py-2.5 whitespace-nowrap">
                       <span className={`text-xs font-bold ${usr.is_first_login ? 'text-amber-500' : 'text-emerald-500'}`}>
                         {usr.is_first_login ? '⌛ Menunggu Aktivasi' : '✓ Sudah Aktif'}
                       </span>
                     </td>
                   </tr>
                 ))}
-                {usersList.length === 0 && (
-                  <tr>
-                    <td colSpan="3" className="px-4 py-8 text-center text-slate-400 font-medium">Belum ada pegawai kedinasan yang didaftarkan.</td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
+
+      {/* PANEL 3: PEMBERSIHAN / HAPUS PETUGAS MITRA (PML/PCL) */}
+      {/* ... (Tabel Hapus Petugas Lapangan Anda di bawah tetap dibiarkan seperti sebelumnya) ... */}
+
+      {/* PANEL 3 BARU: PEMBERSIHAN / HAPUS PETUGAS MITRA (PML/PCL) */}
+      <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <UserMinus className="text-rose-500" size={20} />
+              Manajemen Eliminasi Petugas Lapangan (PML / PCL)
+            </h2>
+            <p className="text-slate-500 text-xs mt-0.5">Cari dan hapus data petugas eksternal yang mengundurkan diri atau tidak terpakai dari sistem.</p>
+          </div>
+          
+          {/* Input Live Search */}
+          <div className="relative max-w-xs w-full">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+              <Search size={16} />
+            </span>
+            <input
+              type="text"
+              placeholder="Cari nama atau email petugas..."
+              className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-rose-500 focus:bg-white transition-all"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Tabel Petugas Eksternal */}
+        <div className="overflow-x-auto max-h-[400px] overflow-y-auto border border-slate-100 rounded-xl">
+          <table className="min-w-full divide-y divide-slate-200">
+            <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+              <tr>
+                <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Nama Lengkap / Email</th>
+                <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Kecamatan</th>
+                <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Posisi</th>
+                <th className="px-4 py-2.5 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-slate-100 text-xs">
+              {petugasList.map((ptg) => (
+                <tr key={ptg.email} className="hover:bg-slate-50/60 transition-colors">
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    <div className="font-bold text-slate-700">{ptg.nama_petugas}</div>
+                    <div className="text-[11px] text-slate-400 font-mono">{ptg.email}</div>
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap font-medium text-slate-600 uppercase tracking-wide">
+                    {ptg.kecamatan_tugas || '-'}
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
+                      ptg.posisi_tugas === 'PML' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-teal-50 text-teal-700 border border-teal-200'
+                    }`}>
+                      {ptg.posisi_tugas}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap text-center">
+                    <button
+                      onClick={() => handleDeletePetugas(ptg.email, ptg.nama_petugas)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                      title="Hapus Petugas Permanen"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {petugasList.length === 0 && (
+                <tr>
+                  <td colSpan="4" className="px-4 py-10 text-center text-slate-400 font-medium">
+                    {loadingPetugas ? 'Memuat database petugas...' : 'Data petugas tidak ditemukan.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

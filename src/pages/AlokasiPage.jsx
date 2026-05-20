@@ -60,7 +60,7 @@ const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
 
 // --- KOMPONEN UTAMA ---
 export default function AlokasiPage() {
-    const { profile, allowAllocation } = useAuth(); // <-- Mengambil data profil yang login
+    const { user, profile, allowAllocation } = useAuth(); // <-- Mengambil data profil yang login
     const [currentLevel, setCurrentLevel] = useState('kecamatan');
     const [rightPanelMode, setRightPanelMode] = useState('desa');
     const [selectedKec, setSelectedKec] = useState(null);
@@ -174,7 +174,13 @@ useEffect(() => {
         } catch (err) { console.error(err); } finally { setLoading(false); }
     };
 
-    const handleBulkAssign = async (pclEmail) => {
+const handleBulkAssign = async (pclEmail) => {
+        // 1. PROTEKSI SAKELAR GLOBAL: Jika alokasi dikunci Admin, blokir aksi
+        if (!allowAllocation) {
+            alert("Maaf, pengisian atau perubahan alokasi telah dikunci oleh Admin.");
+            return;
+        }
+
         if (selectedSlsIds.length === 0) return;
 
         if (pclEmail === "" && pclEmail !== null) {
@@ -183,16 +189,33 @@ useEffect(() => {
         }
 
         setLoading(true);
+
+        // --- FORMULASI WAKTU UTC+7 (WIB) ---
+        // Membuat string waktu lokal Jakarta dengan format ISO tanpa huruf 'Z' di ujungnya
+        const sekarangWib = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).replace(" ", "T");
+
         try {
+          	// Ambil data 'profile' dari useAuth() di atas komponen Anda
+          	// const { user, profile, allowAllocation } = useAuth();
+
+            // 2. JALANKAN UPDATE: Sertakan kolom alokasi dan audit trail versi baru
             const { error } = await supabase.from('muatan_sls')
-                .update({ petugas_id: pclEmail })
+                .update({ 
+                    petugas_id: pclEmail,
+                    // --- REVISI KOLOM AUDIT ---
+                    edited_at: sekarangWib,                            // Jam otomatis +7 (Asia/Jakarta)
+                    edited_by: profile?.nama_pengguna || 'Sistem BPS'  // Menyimpan NAMA LENGKAP saja
+                })
                 .in('idsubsls', selectedSlsIds);
 
             if (error) throw error;
 
+            // 3. RESET STATE & REFRESH DATA
             setSelectedSlsIds([]);
             setTempSelectedPcl("");
             await refreshCurrentData();
+
+            alert(`Berhasil memperbarui alokasi untuk ${selectedSlsIds.length} SLS.`);
 
         } catch (err) {
             alert("Gagal: " + err.message);
