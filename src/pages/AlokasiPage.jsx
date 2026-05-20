@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../supabaseClient';
+import { useAuth } from '../context/AuthContext'; // <-- Integrasi Auth Terpercaya
 import {
     ChevronRight,
     ArrowLeft,
@@ -59,6 +60,7 @@ const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
 
 // --- KOMPONEN UTAMA ---
 export default function AlokasiPage() {
+    const { profile, allowAllocation } = useAuth(); // <-- Mengambil data profil yang login
     const [currentLevel, setCurrentLevel] = useState('kecamatan');
     const [rightPanelMode, setRightPanelMode] = useState('desa');
     const [selectedKec, setSelectedKec] = useState(null);
@@ -70,12 +72,33 @@ export default function AlokasiPage() {
     const [selectedSlsIds, setSelectedSlsIds] = useState([]);
     const [loading, setLoading] = useState(false);
     const [tempSelectedPcl, setTempSelectedPcl] = useState("");
-
+    
     const slsContainerRef = useRef(null);
 
-    useEffect(() => {
-        fetchKecamatanSummary();
-    }, []);
+useEffect(() => {
+        // Pastikan profile dan role sudah benar-benar termuat
+        if (profile) {
+            if (profile.role === 'pml' && profile.kecamatan_tugas) {
+                const rawKec = profile.kecamatan_tugas;
+                
+                // Antisipasi super aman: Cek apakah string mengandung spasi untuk memisahkan kode & nama
+                let cleanKecName = rawKec;
+                if (rawKec.includes(" ")) {
+                    cleanKecName = rawKec.substring(rawKec.indexOf(" ") + 1).trim();
+                } else {
+                    cleanKecName = rawKec.trim();
+                }
+                
+                console.log("PML Login, mengunci ke kecamatan:", cleanKecName);
+                
+                // Masuk otomatis ke tingkat kecamatan milik PML
+                enterKecamatan(cleanKecName);
+            } else {
+                // Admin atau Pegawai biasa melihat rekap kabupaten seluruhnya
+                fetchKecamatanSummary();
+            }
+        }
+    }, [profile]);
 
     const fetchKecamatanSummary = async () => {
         setLoading(true);
@@ -171,15 +194,13 @@ export default function AlokasiPage() {
             setTempSelectedPcl("");
             await refreshCurrentData();
 
-            // Tambahkan feedback suara atau getaran (jika di mobile) atau Toast
-            // console.log("Update Berhasil");
-
         } catch (err) {
             alert("Gagal: " + err.message);
         } finally {
             setLoading(false);
         }
     };
+
     const handleExportExcel = () => {
         if (!slsList || slsList.length === 0) {
             alert("Tidak ada data untuk diekspor");
@@ -188,10 +209,7 @@ export default function AlokasiPage() {
 
         try {
             const dataToExport = slsList.map(s => {
-                // 1. Cari data petugas (PPL) yang mengampu SLS ini di state pcls
                 const petugasPpl = pcls.find(p => p.email === s.petugas_id);
-
-                // 2. Ambil email PML atasan dari data petugas tersebut
                 const emailPmlAtasan = petugasPpl ? petugasPpl.id_pml_atasan : "-";
 
                 return {
@@ -201,20 +219,18 @@ export default function AlokasiPage() {
                     "DESA": String(s.kddesa || ''),
                     "SLS": String(s.kdsls || ''),
                     "SUBSLS": String(s.kdsubsls || '00'),
-                    "Email PML": emailPmlAtasan, // Sekarang mengambil dari hasil pencarian
+                    "Email PML": emailPmlAtasan,
                     "Email PPL": s.petugas_id || "-"
                 };
             });
 
             const worksheet = XLSX.utils.json_to_sheet(dataToExport);
 
-            // Atur lebar kolom
             worksheet['!cols'] = [
                 { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 10 },
                 { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 30 }
             ];
 
-            // Paksa format TEXT (A-F)
             const range = XLSX.utils.decode_range(worksheet['!ref']);
             for (let R = range.s.r + 1; R <= range.e.r; ++R) {
                 for (let C = 0; C <= 5; ++C) {
@@ -232,16 +248,22 @@ export default function AlokasiPage() {
             alert("Gagal mengekspor data");
         }
     };
+
     return (
         <div className="h-full flex flex-col gap-6 relative">
+            {!allowAllocation && (
+  <div className="bg-rose-50 border-l-4 border-rose-500 p-4 mb-4 rounded-xl text-rose-700 text-sm font-semibold">
+    ⚠️ Batas waktu pengisian atau perubahan alokasi Sensus Ekonomi 2026 telah berakhir. Seluruh alokasi wilayah saat ini dikunci oleh Administrator.
+  </div>
+)}
             <div className="flex justify-between items-end px-2">
+                
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">Dashboard Alokasi</h1>
                     <p className="text-slate-500">Distribusi beban kerja Sensus Ekonomi 2026</p>
                 </div>
 
                 <div className="flex items-center gap-3">
-                    {/* TOMBOL EXCEL HANYA MUNCUL DI LEVEL ALOKASI */}
                     {currentLevel === 'alokasi' && (
                         <button
                             onClick={handleExportExcel}
@@ -271,6 +293,7 @@ export default function AlokasiPage() {
 
                 {currentLevel === 'kecamatan' ? (
                     <KecamatanTable
+                        getKecamatanSummary={kecamatanSummary}
                         kecamatanSummary={kecamatanSummary}
                         enterKecamatan={enterKecamatan}
                     />
@@ -288,72 +311,82 @@ export default function AlokasiPage() {
                         setSelectedSlsIds={setSelectedSlsIds}
                         slsContainerRef={slsContainerRef}
                         desaSummary={desaSummary}
+                        userRole={profile?.role} // <-- Mengirim informasi role ke sub-komponen
                     />
                 )}
             </div>
 
-            {selectedSlsIds.length > 0 && (
-                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-6 z-[100] border border-slate-700">
-                    {/* Info Terpilih */}
-                    <div className="px-2 border-r border-slate-700 text-center">
-                        <span className="text-xl font-bold text-orange-400">{selectedSlsIds.length}</span>
-                        <span className="text-[10px] block uppercase text-slate-400 font-bold">SLS</span>
-                    </div>
+{selectedSlsIds.length > 0 && (
+    <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-6 z-[100] border border-slate-700">
+        <div className="px-2 border-r border-slate-700 text-center">
+            <span className="text-xl font-bold text-orange-400">{selectedSlsIds.length}</span>
+            <span className="text-[10px] block uppercase text-slate-400 font-bold">SLS</span>
+        </div>
 
-                    {/* Dropdown Pilih Petugas Baru */}
-                    <div className="flex flex-col">
-                        <span className="text-[10px] text-slate-400 mb-1 ml-1">Realokasi ke:</span>
-                        <select
-                            className="bg-slate-800 border-slate-700 text-sm rounded-lg p-2 outline-none w-48"
-                            value={tempSelectedPcl}
-                            onChange={(e) => setTempSelectedPcl(e.target.value)}
-                        >
-                            <option value="" disabled>Pilih Petugas...</option>
-                            {pcls.filter(p => p.posisi_tugas === 'PCL').map(p => (
-                                <option key={p.email} value={p.email}>
-                                    {p.nama_petugas}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
+        {/* 1. SELEKSI PETUGAS (Tambahkan disabled jika alokasi off) */}
+        <div className="flex flex-col">
+            <span className="text-[10px] text-slate-400 mb-1 ml-1">
+                {!allowAllocation ? 'Sistem Terkunci:' : 'Realokasi ke:'}
+            </span>
+            <select
+                disabled={!allowAllocation} // Mengunci dropdown
+                className="bg-slate-800 border-slate-700 text-sm rounded-lg p-2 outline-none w-48 disabled:opacity-40 disabled:cursor-not-allowed"
+                value={tempSelectedPcl}
+                onChange={(e) => setTempSelectedPcl(e.target.value)}
+            >
+                <option value="" disabled>Pilih Petugas...</option>
+                {pcls.filter(p => p.posisi_tugas === 'PCL').map(p => (
+                    <option key={p.email} value={p.email}>
+                        {p.nama_petugas}
+                    </option>
+                ))}
+            </select>
+        </div>
 
-                    {/* Tombol Aksi */}
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => handleBulkAssign(tempSelectedPcl)}
-                            disabled={!tempSelectedPcl || loading}
-                            className="bg-orange-600 hover:bg-orange-500 px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-50 transition-colors shadow-lg shadow-orange-900/20"
-                        >
-                            Update Alokasi
-                        </button>
+        <div className="flex items-center gap-2">
+            {/* 2. TOMBOL UPDATE ALOKASI (Kunci dengan !allowAllocation) */}
+            <button
+                onClick={() => handleBulkAssign(tempSelectedPcl)}
+                disabled={!allowAllocation || !tempSelectedPcl || loading} // Mengunci tombol update
+                className="bg-orange-600 hover:bg-orange-500 px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-lg shadow-orange-900/20"
+            >
+                {!allowAllocation ? 'Terkunci' : 'Update Alokasi'}
+            </button>
 
-                        {/* Tombol Khusus untuk Menghapus Petugas (Unassign) */}
-                        <button
-                            onClick={() => {
-                                if (window.confirm("Kosongkan petugas untuk SLS terpilih?")) {
-                                    handleBulkAssign(null); // Kirim null ke database
-                                }
-                            }}
-                            className="bg-slate-700 hover:bg-rose-900 px-3 py-2 rounded-xl text-xs font-bold transition-all"
-                            title="Hapus Petugas dari SLS ini"
-                        >
-                            Kosongkan
-                        </button>
-                    </div>
+            {/* 3. TOMBOL KOSONGKAN (Kunci dengan !allowAllocation) */}
+            <button
+                onClick={() => {
+                    if (window.confirm("Kosongkan petugas untuk SLS terpilih?")) {
+                        handleBulkAssign(null);
+                    }
+                }}
+                disabled={!allowAllocation || loading} // Mengunci tombol kosongkan
+                className="bg-slate-700 hover:bg-rose-900 px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:hover:bg-slate-700 disabled:cursor-not-allowed"
+                title="Hapus Petugas dari SLS ini"
+            >
+                Kosongkan
+            </button>
+        </div>
 
-                    <button onClick={() => { setSelectedSlsIds([]); setTempSelectedPcl(""); }} className="text-xs text-slate-500 hover:text-white">Batal</button>
-                </div>
-            )}
+        {/* Tombol batal tetap dibiarkan aktif agar user selalu bisa menutup floating bar ini */}
+        <button 
+            onClick={() => { setSelectedSlsIds([]); setTempSelectedPcl(""); }} 
+            className="text-xs text-slate-500 hover:text-white"
+        >
+            Batal
+        </button>
+    </div>
+)}
         </div>
     );
 }
 
 // --- KOMPONEN KONTEN ALOKASI (LEVEL 2 & 3) ---
-// Dipisah ke luar agar state internal (seperti scroll) tidak hancur saat re-render
 const AllocationViewContent = ({
     slsList, pcls, selectedKec, selectedDesa, setSelectedDesa,
     rightPanelMode, setRightPanelMode, setCurrentLevel,
-    selectedSlsIds, setSelectedSlsIds, slsContainerRef, desaSummary
+    selectedSlsIds, setSelectedSlsIds, slsContainerRef, desaSummary,
+    userRole // <-- Menerima properti role
 }) => {
     const pclsOnly = pcls.filter(p => p.posisi_tugas === 'PCL');
     const totalBebanKec = slsList.reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0);
@@ -362,7 +395,19 @@ const AllocationViewContent = ({
     return (
         <div className="flex flex-col h-full gap-4">
             <div className="flex items-center gap-4 px-2">
-                <button onClick={() => setCurrentLevel('kecamatan')} className="p-2 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"><ArrowLeft size={20} /></button>
+                {/* TOMBOL KEMBALI HANYA MUNCUL JIKA USER BUKAN PML */}
+                {userRole !== 'pml' ? (
+                    <button 
+                        onClick={() => setCurrentLevel('kecamatan')} 
+                        className="p-2 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
+                    >
+                        <ArrowLeft size={20} />
+                    </button>
+                ) : (
+                    <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-sm">
+                        <MapPin size={20} />
+                    </div>
+                )}
                 <div>
                     <h2 className="text-xl font-bold text-slate-800">Kecamatan {selectedKec}</h2>
                     <p className="text-xs text-slate-500">Target Ideal: {bebanIdeal} beban / PCL</p>
@@ -370,21 +415,18 @@ const AllocationViewContent = ({
             </div>
 
             <div className="flex-1 flex gap-6 overflow-hidden px-2">
-                <div className="w-1/3 bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm">
+                <div className="w-1/3 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
                     <div className="p-4 border-b bg-slate-50 rounded-t-xl flex items-center justify-between font-bold text-slate-700">
-                        <span className="flex items-center gap-2"><Users size={18} /> Beban Kerja Tim</span>
+                        <span className="flex items-center gap-2"><Users size={18} />  Beban Kerja Tim</span>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-6">
                         {pcls.filter(p => p.posisi_tugas === 'PML').map(pml => {
                             const bawahan = pcls.filter(p => p.posisi_tugas === 'PCL' && p.id_pml_atasan === pml.email);
-
-                            // Hitung total SLS dan cakupan desa untuk PML (berdasarkan semua bawahannya)
                             const slsBawahan = slsList.filter(s => bawahan.some(b => b.email === s.petugas_id));
                             const desaPml = [...new Set(slsBawahan.map(s => s.nmdesa))];
 
                             return (
                                 <div key={pml.email} className="space-y-3">
-                                    {/* HEADER PML */}
                                     <div className="bg-indigo-50/50 p-3 rounded-lg border border-indigo-100">
                                         <div className="flex items-center gap-2 mb-2">
                                             <UserCircle className="text-indigo-600" size={20} />
@@ -393,12 +435,9 @@ const AllocationViewContent = ({
                                         <div className="flex flex-col gap-1 mb-2">
                                             {desaPml.length > 0 ? (
                                                 <div className="flex flex-wrap items-center gap-1">
-                                                    {/* Label hanya muncul sekali di depan */}
                                                     <span className="text-[9px] font-bold text-slate-500 uppercase mr-1">
                                                         Desa Tugas :
                                                     </span>
-
-                                                    {/* Mapping daftar desa */}
                                                     {desaPml.map((d) => (
                                                         <span
                                                             key={d}
@@ -419,79 +458,71 @@ const AllocationViewContent = ({
                                         </div>
                                     </div>
 
-                                    {/* LIST PCL DI BAWAH PML */}
-<div className="pl-4 space-y-2 border-l-2 border-slate-100">
-    {bawahan.map(pcl => {
-        const mySls = slsList.filter(s => s.petugas_id === pcl.email);
-        const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
-        const myDesas = [...new Set(mySls.map(s => s.nmdesa))];
-        
-        // 1. Definisikan kondisi status baru
-        const isWarning = workload >= 1.05 * bebanIdeal && workload <= bebanIdeal * 1.15;
-        const isOver = workload > bebanIdeal * 1.15;
+                                    <div className="pl-4 space-y-2 border-l-2 border-slate-100">
+                                        {bawahan.map(pcl => {
+                                            const mySls = slsList.filter(s => s.petugas_id === pcl.email);
+                                            const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
+                                            const myDesas = [...new Set(mySls.map(s => s.nmdesa))];
 
-        // 2. Tentukan warna background dan border kartu secara dinamis
-        let cardStyle = 'border-slate-100 bg-white';
-        let progressColor = 'bg-emerald-500';
+                                            const isWarning = workload >= 1.05 * bebanIdeal && workload <= bebanIdeal * 1.15;
+                                            const isOver = workload > bebanIdeal * 1.15;
 
-        if (isOver) {
-            cardStyle = 'border-rose-200 bg-rose-50';
-            progressColor = 'bg-rose-500';
-        } else if (isWarning) {
-            cardStyle = 'border-amber-200 bg-amber-50/60';
-            progressColor = 'bg-amber-500';
-        }
+                                            let cardStyle = 'border-slate-100 bg-white';
+                                            let progressColor = 'bg-emerald-500';
 
-        // 3. Kalkulasi lebar progress bar dengan batas maksimal 1.2 dari beban ideal
-        const maxBudget = bebanIdeal * 1.2;
-        const progressPercentage = Math.min((workload / maxBudget) * 100, 100);
+                                            if (isOver) {
+                                                cardStyle = 'border-rose-200 bg-rose-50';
+                                                progressColor = 'bg-rose-500';
+                                            } else if (isWarning) {
+                                                cardStyle = 'border-amber-200 bg-amber-50/60';
+                                                progressColor = 'bg-amber-500';
+                                            }
 
-        return (
-            <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${cardStyle}`}>
-                <div className="flex justify-between items-start mb-1.5">
-                    <div className="flex flex-col">
-                        <span className="text-xs font-extrabold text-slate-800 uppercase leading-none mb-1">
-                            {pcl.nama_petugas}
-                        </span>
-                        
-                        {/* Lokasi Desa PCL */}
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
-                            {myDesas.length > 0 && (
-                                <span className="text-[8px] font-black text-slate-400 uppercase shrink-0">
-                                    Desa Tugas :
-                                </span>
-                            )}
+                                            const maxBudget = bebanIdeal * 1.2;
+                                            const progressPercentage = Math.min((workload / maxBudget) * 100, 100);
 
-                            <div className="flex flex-wrap gap-1">
-                                {myDesas.map((d) => (
-                                    <span
-                                        key={d}
-                                        className="text-[8px] text-slate-600 font-bold uppercase"
-                                    >
-                                        {d}{myDesas.length > 1 && d !== myDesas[myDesas.length - 1] ? "," : ""}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div className="text-right">
-                        <div className="text-[10px] font-black text-slate-700">Perkiraan Beban Muatan : {workload}</div>
-                        <div className="text-[8px] text-slate-400 font-bold uppercase leading-none">Jumlah SLS tugas : {mySls.length} SLS</div>
-                    </div>
-                </div>
+                                            return (
+                                                <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${cardStyle}`}>
+                                                    <div className="flex justify-between items-start mb-1.5">
+                                                        <div className="flex flex-col">
+                                                            <span className="text-xs font-extrabold text-slate-800 uppercase leading-none mb-1">
+                                                                {pcl.nama_petugas}
+                                                            </span>
+                                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+                                                                {myDesas.length > 0 && (
+                                                                    <span className="text-[8px] font-black text-slate-400 uppercase shrink-0">
+                                                                        Desa Tugas :
+                                                                    </span>
+                                                                )}
+                                                                <div className="flex flex-wrap gap-1">
+                                                                    {myDesas.map((d) => (
+                                                                        <span
+                                                                            key={d}
+                                                                            className="text-[8px] text-slate-600 font-bold uppercase"
+                                                                        >
+                                                                            {d}{myDesas.length > 1 && d !== myDesas[myDesas.length - 1] ? "," : ""}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
 
-                {/* Progress Bar Beban */}
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                    <div
-                        className={`h-full transition-all duration-500 ${progressColor}`}
-                        style={{ width: `${progressPercentage}%` }}
-                    ></div>
-                </div>
-            </div>
-        );
-    })}
-</div>
+                                                        <div className="text-right">
+                                                            <div className="text-[10px] font-black text-slate-700">Perkiraan Beban Muatan : {workload}</div>
+                                                            <div className="text-[8px] text-slate-400 font-bold uppercase leading-none">Jumlah SLS tugas : {mySls.length} SLS</div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                                        <div
+                                                            className={`h-full transition-all duration-500 ${progressColor}`}
+                                                            style={{ width: `${progressPercentage}%` }}
+                                                        ></div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             );
                         })}
@@ -501,45 +532,40 @@ const AllocationViewContent = ({
                 <div className="w-2/3 bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm">
                     {rightPanelMode === 'desa' ? (
                         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-4">
-{desaSummary.map(desa => {
-    // 1. Cek apakah semua SLS sudah dialokasikan
-    const isFullyAllocated = desa.total === desa.allocated;
+                            {desaSummary.map(desa => {
+                                const isFullyAllocated = desa.total === desa.allocated;
 
-    return (
-        <div 
-            key={desa.name} 
-            onClick={() => { setSelectedDesa(desa.name); setRightPanelMode('sls'); }} 
-            // 2. Tambahkan kondisi dinamis untuk background dan border di sini
-            className={`p-4 border rounded-xl cursor-pointer group transition-all ${
-                isFullyAllocated 
-                    ? 'bg-emerald-50/60 border-emerald-200 hover:bg-emerald-100/80' 
-                    : 'bg-white border-slate-200 hover:bg-slate-50'
-            }`}
-        >
-            <div className="flex justify-between items-center mb-2 font-bold text-slate-800">
-                ({desa.code}) {desa.name} <ChevronRight size={16} />
-            </div>
-            
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                <div>Total SLS: <span className="font-semibold text-slate-700">{desa.total}</span></div>
-                <div>Teralokasi: <span className="font-semibold text-slate-700">{desa.allocated}</span></div>
-                
-                {/* 3. Berikan warna teks yang berbeda pada sisa alokasi jika sudah habis */}
-                <div className={`border-l pl-4 ${isFullyAllocated ? 'border-emerald-200' : 'border-slate-200'}`}>
-                    Sisa Alokasi: {' '}
-                    <span className={`font-semibold ${isFullyAllocated ? 'text-emerald-700' : 'text-amber-600'}`}>
-                        {desa.total - desa.allocated} SLS {isFullyAllocated && '(Selesai)'}
-                    </span>
-                </div>
-            </div>
-        </div>
-    );
-})}
+                                return (
+                                    <div
+                                        key={desa.name}
+                                        onClick={() => { setSelectedDesa(desa.name); setRightPanelMode('sls'); }}
+                                        className={`p-4 border rounded-xl cursor-pointer group transition-all ${isFullyAllocated
+                                                ? 'bg-emerald-50/60 border-emerald-200 hover:bg-emerald-100/80'
+                                                : 'bg-white border-slate-200 hover:bg-slate-50'
+                                            }`}
+                                    >
+                                        <div className="flex justify-between items-center mb-2 font-bold text-slate-800">
+                                            ({desa.code}) {desa.name} <ChevronRight size={16} />
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                                            <div>Total SLS: <span className="font-semibold text-slate-700">{desa.total}</span></div>
+                                            <div>Teralokasi: <span className="font-semibold text-slate-700">{desa.allocated}</span></div>
+
+                                            <div className={`border-l pl-4 ${isFullyAllocated ? 'border-emerald-200' : 'border-slate-200'}`}>
+                                                Sisa Alokasi: {' '}
+                                                <span className={`font-semibold ${isFullyAllocated ? 'text-emerald-700' : 'text-amber-600'}`}>
+                                                    {desa.total - desa.allocated} SLS {isFullyAllocated && '(Selesai)'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     ) : (
                         <>
                             <div className="p-4 border-b bg-slate-50 flex items-center justify-between font-bold text-slate-700">
-                                {/* Sisi Kiri: Tombol Kembali & Nama Desa */}
                                 <button
                                     onClick={() => setRightPanelMode('desa')}
                                     className="flex items-center gap-2 hover:text-emerald-600 transition-colors"
@@ -548,7 +574,6 @@ const AllocationViewContent = ({
                                     <span className="truncate max-w-[200px]">{selectedDesa}</span>
                                 </button>
 
-                                {/* Sisi Kanan: Keterangan SLS */}
                                 <div className="flex items-center gap-4 text-[11px] font-bold uppercase tracking-tight">
                                     <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-200/50 rounded-md text-slate-500">
                                         <span>Jumlah SLS/SubSLS/NonSLS:</span>
@@ -579,18 +604,16 @@ const AllocationViewContent = ({
                                                     prev.includes(sls.idsubsls) ? prev.filter(id => id !== sls.idsubsls) : [...prev, sls.idsubsls]
                                                 )
                                             }}
-                                            // Padding dikurangi (p-2) agar list lebih compact/kecil
                                             className={`p-2 px-4 border rounded-lg flex items-center justify-between transition-all cursor-pointer group mb-1 ${isSelected
-                                                ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10'
-                                                : isAllocated
-                                                    ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300' // Warna Hijau untuk yang sudah alokasi
-                                                    : 'bg-white border-slate-200 hover:border-slate-300'
+                                                    ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10'
+                                                    : isAllocated
+                                                        ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300'
+                                                        : 'bg-white border-slate-200 hover:border-slate-300'
                                                 }`}
                                         >
-                                            {/* SISI KIRI: IDENTITAS SLS (Lebih Ringkas) */}
                                             <div className="flex-[0.8] min-w-0 pr-4">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] font-bold text-slate-400">[{sls.kdsls}]</span>
+                                                    <span className="w-[50px] text-[10px] font-bold text-slate-400">[{sls.kdsls} {sls.kdsubsls}]</span>
                                                     <span className={`font-bold truncate text-sm ${isAllocated ? 'text-emerald-900' : 'text-slate-700'}`}>
                                                         {sls.nmsls}
                                                     </span>
@@ -600,7 +623,6 @@ const AllocationViewContent = ({
                                                 </div>
                                             </div>
 
-                                            {/* SISI TENGAH: NAMA PETUGAS (DIPERBESAR & LEBIH JELAS) */}
                                             <div className="flex-1 px-4 border-l border-slate-200/50">
                                                 {isAllocated ? (
                                                     <div className="flex flex-col">
@@ -614,23 +636,21 @@ const AllocationViewContent = ({
                                                 )}
                                             </div>
 
-                                            {/* SISI KANAN: BEBAN (Badge Lebih Kecil & Padat) */}
                                             <div className="flex items-center gap-4 ml-2">
                                                 <div className="flex flex-col items-end">
                                                     <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Perkiraan Muatan</span>
                                                     <div className={`min-w-[40px] text-center py-0.5 rounded px-2 text-sm font-black border ${isSelected ? 'bg-orange-500 border-orange-600 text-white' :
-                                                        isAllocated ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-600'
+                                                            isAllocated ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-600'
                                                         }`}>
                                                         {sls.perkiraan_jumlah_beban}
                                                     </div>
                                                 </div>
 
-                                                {/* CHECKBOX INDIKATOR (Lebih Kecil) */}
                                                 <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${isSelected
-                                                    ? 'bg-orange-500 border-orange-500 scale-110'
-                                                    : isAllocated
-                                                        ? 'border-emerald-400 bg-emerald-100'
-                                                        : 'border-slate-200 bg-white'
+                                                        ? 'bg-orange-500 border-orange-500 scale-110'
+                                                        : isAllocated
+                                                            ? 'border-emerald-400 bg-emerald-100'
+                                                            : 'border-slate-200 bg-white'
                                                     }`}>
                                                     {isSelected && <CheckCircle2 size={14} className="text-white" />}
                                                     {isAllocated && !isSelected && <CheckCircle2 size={12} className="text-emerald-500" />}
