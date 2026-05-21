@@ -511,18 +511,23 @@ const AllocationViewContent = ({
                                             const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
                                             const myDesas = [...new Set(mySls.map(s => s.nmdesa))];
 
+                                            const isUnder = workload < 0.85 * bebanIdeal;
                                             const isWarning = workload >= 1.1 * bebanIdeal && workload <= bebanIdeal * 1.2;
                                             const isOver = workload > bebanIdeal * 1.2;
 
                                             let cardStyle = 'border-slate-100 bg-white';
                                             let progressColor = 'bg-emerald-500';
 
-                                            if (isOver) {
+                                            if (isUnder) {
+                                                cardStyle = 'border-blue-200 bg-blue-50';
+                                                progressColor = 'bg-blue-500';
+                                            } else if (isOver) {
                                                 cardStyle = 'border-rose-200 bg-rose-50';
                                                 progressColor = 'bg-rose-500';
                                             } else if (isWarning) {
                                                 cardStyle = 'border-amber-200 bg-amber-50/60';
                                                 progressColor = 'bg-amber-500';
+                                                
                                             }
 
                                             const maxBudget = bebanIdeal * 1.3;
