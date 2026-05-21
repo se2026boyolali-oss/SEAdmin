@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 // --- KOMPONEN TABEL KECAMATAN (LEVEL 1) ---
+// Perbaikan pada Komponen Tabel Kecamatan (LEVEL 1)
 const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <table className="w-full text-left">
@@ -26,6 +27,7 @@ const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
                 </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
+                {/* REVISI: Mengubah getKecamatanSummary menjadi kecamatanSummary sesuai hulu datanya */}
                 {kecamatanSummary.map((kec) => (
                     <tr
                         key={kec.name}
@@ -40,11 +42,11 @@ const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
                                 <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
                                     <div
                                         className="bg-emerald-500 h-full"
-                                        style={{ width: `${(kec.allocated / kec.total) * 100}%` }}
+                                        style={{ width: `${kec.total > 0 ? (kec.allocated / kec.total) * 100 : 0}%` }} // Proteksi pembagian 0
                                     ></div>
                                 </div>
                                 <span className="text-xs font-bold text-slate-500">
-                                    {Math.round((kec.allocated / kec.total) * 100)}%
+                                    {kec.total > 0 ? Math.round((kec.allocated / kec.total) * 100) : 0}%
                                 </span>
                             </div>
                         </td>
@@ -341,49 +343,72 @@ const handleBulkAssign = async (pclEmail) => {
 
 {selectedSlsIds.length > 0 && (
     <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-6 z-[100] border border-slate-700">
-        <div className="px-2 border-r border-slate-700 text-center">
-            <span className="text-xl font-bold text-orange-400">{selectedSlsIds.length}</span>
-            <span className="text-[10px] block uppercase text-slate-400 font-bold">SLS</span>
+        
+        {/* REVISI INDIKATOR: SEKARANG MENAMPILKAN SLS DAN TOTAL MUATAN TERPILIH */}
+        <div className="flex items-center gap-4 px-2 border-r border-slate-700">
+            {/* Indikator SLS */}
+            <div className="text-center min-w-[40px]">
+                <span className="text-xl font-bold text-orange-400">{selectedSlsIds.length}</span>
+                <span className="text-[10px] block uppercase text-slate-400 font-bold">SLS</span>
+            </div>
+            
+            {/* Indikator Total Muatan Usaha Terpilih */}
+            <div className="text-center min-w-[50px] border-l border-slate-800 pl-4">
+                <span className="text-xl font-bold text-emerald-400">
+                    {slsList
+                        .filter(s => selectedSlsIds.includes(s.idsubsls))
+                        .reduce((sum, curr) => sum + (curr.perkiraan_jumlah_beban || 0), 0)
+                        .toLocaleString('id-ID')}
+                </span>
+                <span className="text-[10px] block uppercase text-slate-400 font-bold">Muatan</span>
+            </div>
         </div>
 
         {/* 1. SELEKSI PETUGAS (Tambahkan disabled jika alokasi off) */}
-        <div className="flex flex-col">
-            <span className="text-[10px] text-slate-400 mb-1 ml-1">
-                {!allowAllocation ? 'Sistem Terkunci:' : 'Realokasi ke:'}
-            </span>
-            <select
-                disabled={!allowAllocation} // Mengunci dropdown
-                className="bg-slate-800 border-slate-700 text-sm rounded-lg p-2 outline-none w-48 disabled:opacity-40 disabled:cursor-not-allowed"
-                value={tempSelectedPcl}
-                onChange={(e) => setTempSelectedPcl(e.target.value)}
-            >
-                <option value="" disabled>Pilih Petugas...</option>
-                {pcls.filter(p => p.posisi_tugas === 'PCL').map(p => (
-                    <option key={p.email} value={p.email}>
-                        {p.nama_petugas}
-                    </option>
-                ))}
-            </select>
-        </div>
+{/* 1. SELEKSI PETUGAS (Sudah Terurut Abjad A-Z) */}
+<div className="flex flex-col">
+    <span className="text-[10px] text-slate-400 mb-1 ml-1">
+        {!allowAllocation ? 'Sistem Terkunci:' : 'Realokasi ke:'}
+    </span>
+    <select
+        disabled={!allowAllocation}
+        className="bg-slate-800 border-slate-700 text-sm rounded-lg p-2 outline-none w-48 disabled:opacity-40 disabled:cursor-not-allowed"
+        value={tempSelectedPcl}
+        onChange={(e) => setTempSelectedPcl(e.target.value)}
+    >
+        <option value="" disabled>Pilih Petugas...</option>
+        
+        {/* PROSES FILTER & SORTING URUT NAMA PETUGAS */}
+        {pcls
+            .filter(p => p.posisi_tugas === 'PCL')
+            .sort((a, b) => (a.nama_petugas || '').localeCompare(b.nama_petugas || ''))
+            .map(p => (
+                <option key={p.email} value={p.email}>
+                    {p.nama_petugas}
+                </option>
+            ))
+        }
+    </select>
+</div>
 
         <div className="flex items-center gap-2">
-            {/* 2. TOMBOL UPDATE ALOKASI (Kunci dengan !allowAllocation) */}
+            {/* 2. TOMBOL UPDATE ALOKASI */}
             <button
                 onClick={() => handleBulkAssign(tempSelectedPcl)}
-                disabled={!allowAllocation || !tempSelectedPcl || loading} // Mengunci tombol update
+                disabled={!allowAllocation || !tempSelectedPcl || loading}
                 className="bg-orange-600 hover:bg-orange-500 px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-lg shadow-orange-900/20"
             >
                 {!allowAllocation ? 'Terkunci' : 'Update Alokasi'}
             </button>
 
-            {/* 3. TOMBOL KOSONGKAN (Kunci dengan !allowAllocation) */}
+            {/* 3. TOMBOL KOSONGKAN */}
             <button
                 onClick={() => {
                     if (window.confirm("Kosongkan petugas untuk SLS terpilih?")) {
                         handleBulkAssign(null);
                     }
                 }}
-                disabled={!allowAllocation || loading} // Mengunci tombol kosongkan
+                disabled={!allowAllocation || loading}
                 className="bg-slate-700 hover:bg-rose-900 px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:hover:bg-slate-700 disabled:cursor-not-allowed"
                 title="Hapus Petugas dari SLS ini"
             >
@@ -391,7 +416,6 @@ const handleBulkAssign = async (pclEmail) => {
             </button>
         </div>
 
-        {/* Tombol batal tetap dibiarkan aktif agar user selalu bisa menutup floating bar ini */}
         <button 
             onClick={() => { setSelectedSlsIds([]); setTempSelectedPcl(""); }} 
             className="text-xs text-slate-500 hover:text-white"
@@ -586,33 +610,48 @@ const AllocationViewContent = ({
                                 );
                             })}
                         </div>
-                    ) : (
-                        <>
-                            <div className="p-4 border-b bg-slate-50 flex items-center justify-between font-bold text-slate-700">
-                                <button
-                                    onClick={() => setRightPanelMode('desa')}
-                                    className="flex items-center gap-2 hover:text-emerald-600 transition-colors"
-                                >
-                                    <ArrowLeft size={18} />
-                                    <span className="truncate max-w-[200px]">{selectedDesa}</span>
-                                </button>
+                   ) : (
+    <>
+        <div className="p-4 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 font-bold text-slate-700">
+            {/* Tombol Kembali & Nama Desa */}
+            <button
+                onClick={() => setRightPanelMode('desa')}
+                className="flex items-center gap-2 hover:text-emerald-600 transition-colors text-left group min-w-0"
+            >
+                <ArrowLeft size={18} className="shrink-0 group-hover:-translate-x-0.5 transition-transform" />
+                <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 min-w-0">
+                    <span className="truncate text-base text-slate-800">{selectedDesa}</span>
+                    
+                    {/* INDIKATOR TOTAL BEBAN MUATAN DESA */}
+<span className="text-[11px] font-bold uppercase tracking-tight text-slate-500 bg-slate-200/50 border border-slate-300/40 px-2.5 py-1 rounded-md shrink-0">
+    Total Muatan: {' '}
+    <span className="text-slate-800 font-black">
+        {slsList
+            .filter(s => s.nmdesa === selectedDesa)
+            .reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0)
+            .toLocaleString('id-ID')}
+    </span>
+</span>
+                </div>
+            </button>
 
-                                <div className="flex items-center gap-4 text-[11px] font-bold uppercase tracking-tight">
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-200/50 rounded-md text-slate-500">
-                                        <span>Jumlah SLS/SubSLS/NonSLS:</span>
-                                        <span className="text-slate-800">
-                                            {slsList.filter(s => s.nmdesa === selectedDesa).length}
-                                        </span>
-                                    </div>
+            {/* Statistik Ringkas SLS Bagian Kanan */}
+            <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold uppercase tracking-tight shrink-0">
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-200/50 rounded-md text-slate-500">
+                    <span>Jumlah SLS:</span>
+                    <span className="text-slate-800">
+                        {slsList.filter(s => s.nmdesa === selectedDesa).length}
+                    </span>
+                </div>
 
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-rose-50 rounded-md text-rose-400">
-                                        <span>Belum dialokasi:</span>
-                                        <span className="text-rose-600">
-                                            {slsList.filter(s => s.nmdesa === selectedDesa && !s.petugas_id).length}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-rose-50 rounded-md text-rose-400">
+                    <span>Belum dialokasi:</span>
+                    <span className="text-rose-600">
+                        {slsList.filter(s => s.nmdesa === selectedDesa && !s.petugas_id).length}
+                    </span>
+                </div>
+            </div>
+        </div>
                             <div ref={slsContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2">
                                 {slsList.filter(s => s.nmdesa === selectedDesa).map(sls => {
                                     const isSelected = selectedSlsIds.includes(sls.idsubsls);
