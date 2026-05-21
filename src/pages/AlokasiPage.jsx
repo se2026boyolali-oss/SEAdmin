@@ -226,53 +226,120 @@ const handleBulkAssign = async (pclEmail) => {
         }
     };
 
-    const handleExportExcel = () => {
-        if (!slsList || slsList.length === 0) {
-            alert("Tidak ada data untuk diekspor");
-            return;
+// FORMAT 1 (Tetap seperti kode lama Anda)
+const handleExportExcelFormat1 = () => {
+    if (!slsList || slsList.length === 0) {
+        alert("Tidak ada data untuk diekspor");
+        return;
+    }
+
+    try {
+        const dataToExport = slsList.map(s => {
+            const petugasPpl = pcls.find(p => p.email === s.petugas_id);
+            const emailPmlAtasan = petugasPpl ? petugasPpl.id_pml_atasan : "-";
+
+            return {
+                "PROVINSI": String(s.kdprov || '33'),
+                "KABUPATEN/KOTA": String(s.kdkab || '09'),
+                "KECAMATAN": String(s.kdkec || ''),
+                "DESA": String(s.kddesa || ''),
+                "SLS": String(s.kdsls || ''),
+                "SUBSLS": String(s.kdsubsls || '00'),
+                "Email PML": emailPmlAtasan,
+                "Email PPL": s.petugas_id || "-"
+            };
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+
+        worksheet['!cols'] = [
+            { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 10 },
+            { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 30 }
+        ];
+
+        // Paksa kolom 0 sampai 5 (Kode wilayah) menjadi Text ('s')
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+        for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+            for (let C = 0; C <= 5; ++C) {
+                const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+                if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
+            }
         }
 
-        try {
-            const dataToExport = slsList.map(s => {
-                const petugasPpl = pcls.find(p => p.email === s.petugas_id);
-                const emailPmlAtasan = petugasPpl ? petugasPpl.id_pml_atasan : "-";
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Data Alokasi");
+        XLSX.writeFile(workbook, `Rekap_Alokasi_${selectedKec.replace(/\s+/g, '_')}_Format1.xlsx`);
 
-                return {
-                    "PROVINSI": String(s.kdprov || '33'),
-                    "KABUPATEN/KOTA": String(s.kdkab || '09'),
-                    "KECAMATAN": String(s.kdkec || ''),
-                    "DESA": String(s.kddesa || ''),
-                    "SLS": String(s.kdsls || ''),
-                    "SUBSLS": String(s.kdsubsls || '00'),
-                    "Email PML": emailPmlAtasan,
-                    "Email PPL": s.petugas_id || "-"
-                };
-            });
+    } catch (error) {
+        console.error("Export Error:", error);
+        alert("Gagal mengekspor data");
+    }
+};
 
-            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+// FORMAT 2 (Format Baru dengan Nama/Teks)
+// FORMAT 2 (Sudah Diperbaiki Properti Nama & Relasi PML)
+const handleExportExcelFormat2 = () => {
+    if (!slsList || slsList.length === 0) {
+        alert("Tidak ada data untuk diekspor");
+        return;
+    }
 
-            worksheet['!cols'] = [
-                { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 10 },
-                { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 30 }
-            ];
+    try {
+        const dataToExport = slsList.map(s => {
+            // 1. Mencari data petugas PPL berdasarkan petugas_id (email)
+            const petugasPpl = pcls.find(p => p.email === s.petugas_id);
+            // REVISI: Menggunakan properti 'nama_petugas' sesuai isi komponen Anda
+            const namaPpl = petugasPpl ? petugasPpl.nama_petugas : "-"; 
 
-            const range = XLSX.utils.decode_range(worksheet['!ref']);
-            for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-                for (let C = 0; C <= 5; ++C) {
-                    const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
-                    if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
-                }
+            // 2. Mencari data petugas PML berdasarkan 'id_pml_atasan' yang ada di PPL
+            let namaPml = "-";
+            if (petugasPpl && petugasPpl.id_pml_atasan && petugasPpl.id_pml_atasan !== "-") {
+                // Cari data PML di array pcls berdasarkan email PML
+                const petugasPml = pcls.find(p => p.email === petugasPpl.id_pml_atasan);
+                namaPml = petugasPml ? petugasPml.nama_petugas : "-";
             }
 
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Data Alokasi");
-            XLSX.writeFile(workbook, `Rekap_Alokasi_${selectedKec.replace(/\s+/g, '_')}.xlsx`);
+            return {
+                "kdkec": String(s.kdkec || ''),
+                "nmkec": s.nmkec || '', 
+                "kddesa": String(s.kddesa || ''),
+                "nmdesa": s.nmdesa || '', 
+                "kdsls": String(s.kdsls || ''),
+                "kdsubsls": String(s.kdsubsls || '00'),
+                "nmsls": s.nmsls || '', 
+                "nmppl": namaPpl,
+                "nmpml": namaPml
+            };
+        });
 
-        } catch (error) {
-            console.error("Export Error:", error);
-            alert("Gagal mengekspor data");
+        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+
+        // Menyesuaikan lebar kolom untuk Format 2 (9 Kolom)
+        worksheet['!cols'] = [
+            { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 20 },
+            { wch: 10 }, { wch: 10 }, { wch: 25 }, { wch: 25 }, { wch: 25 }
+        ];
+
+        // Memaksa kolom kode menjadi string agar angka '0' di depan tidak hilang
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+        const kodeColumnIndices = [0, 2, 4, 5]; 
+        
+        for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+            kodeColumnIndices.forEach(C => {
+                const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+                if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
+            });
         }
-    };
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Nama Alokasi");
+        XLSX.writeFile(workbook, `Rekap_Nama_Alokasi_${selectedKec.replace(/\s+/g, '_')}_Format2.xlsx`);
+
+    } catch (error) {
+        console.error("Export Error:", error);
+        alert("Gagal mengekspor data");
+    }
+};
 
     return (
         <div className="h-full flex flex-col gap-6 relative">
@@ -289,28 +356,40 @@ const handleBulkAssign = async (pclEmail) => {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    {currentLevel === 'alokasi' && (
-                        <button
-                            onClick={handleExportExcel}
-                            className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all font-bold text-sm shadow-sm"
-                        >
-                            <Database size={18} />
-                            Export Excel
-                        </button>
-                    )}
+    {currentLevel === 'alokasi' && (
+        <>
+            {/* Tombol Export Pertama (Format Email / Kode) */}
+            <button
+                onClick={handleExportExcelFormat2}
+                className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all font-bold text-sm shadow-sm"
+            >
+                <Database size={18} />
+                Export Alokasi Kecamatan
+            </button>
 
-                    {currentLevel === 'kecamatan' && (
-                        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-                            <Database className="text-indigo-500" size={20} />
-                            <div className="text-right">
-                                <div className="text-[10px] uppercase font-bold text-slate-400">Total SLS</div>
-                                <div className="font-bold text-slate-800">
-                                    {kecamatanSummary.reduce((a, b) => a + b.total, 0)}
-                                </div>
-                            </div>
-                        </div>
-                    )}
+            {/* Tombol Export Kedua (Format Nama Wilayah & Petugas) */}
+            <button
+                onClick={handleExportExcelFormat1}
+                className="flex items-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-2 rounded-xl border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all font-bold text-sm shadow-sm"
+            >
+                <Database size={18} />
+                Export Fasih
+            </button>
+        </>
+    )}
+
+    {currentLevel === 'kecamatan' && (
+        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
+            <Database className="text-indigo-500" size={20} />
+            <div className="text-right">
+                <div className="text-[10px] uppercase font-bold text-slate-400">Total SLS</div>
+                <div className="font-bold text-slate-800">
+                    {kecamatanSummary.reduce((a, b) => a + b.total, 0)}
                 </div>
+            </div>
+        </div>
+    )}
+</div>
             </div>
 
             <div className="flex-1 min-h-0">
