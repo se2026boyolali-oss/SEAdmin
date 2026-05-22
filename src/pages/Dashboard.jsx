@@ -9,12 +9,14 @@ import {
 } from 'lucide-react';
 
 const Dashboard = () => {
-    // 1. STATE MANAGEMENT (Semua Hooks diletakkan di dalam fungsi komponen)
+    // 1. STATE MANAGEMENT
     const [stats, setStats] = useState({
         total: 0,
         allocated: 0,
         unallocated: 0,
-        progress: 0
+        progress: 0,
+        totalPml: 0,
+        totalPcl: 0
     });
     const [loadStats, setLoadStats] = useState({
         averageLoad: 0,
@@ -41,19 +43,35 @@ const Dashboard = () => {
 
             if (kecError) throw kecError;
 
-            // Hitung statistik global dengan proteksi fallback nilai jika data kosong
+            // Hitung statistik global
             const totalSls = kecData ? kecData.reduce((acc, curr) => acc + (curr.total || 0), 0) : 0;
             const totalAlloc = kecData ? kecData.reduce((acc, curr) => acc + (curr.allocated || 0), 0) : 0;
             const globalProgress = totalSls > 0 ? Math.round((totalAlloc / totalSls) * 100) : 0;
+
+            // ─── AMBIL DATA HITUNGAN TOTAL PML DAN PCL ──────────────────────
+            const { count: pmlCount, error: pmlError } = await supabase
+                .from('petugas')
+                .select('*', { count: 'exact', head: true })
+                .eq('posisi_tugas', 'PML');
+
+            const { count: pclCount, error: pclError } = await supabase
+                .from('petugas')
+                .select('*', { count: 'exact', head: true })
+                .eq('posisi_tugas', 'PCL');
+
+            if (pmlError) throw pmlError;
+            if (pclError) throw pclError;
 
             setStats({
                 total: totalSls,
                 allocated: totalAlloc,
                 unallocated: totalSls - totalAlloc,
-                progress: globalProgress
+                progress: globalProgress,
+                totalPml: pmlCount || 0,
+                totalPcl: pclCount || 0
             });
 
-            // Format data untuk Bar Chart (Mencegah NaN / Infinity jika total wilayah bernilai 0)
+            // Format data untuk Bar Chart
             const formattedChartData = kecData.map(item => {
                 const totalItem = item.total || 0;
                 const allocItem = item.allocated || 0;
@@ -62,7 +80,7 @@ const Dashboard = () => {
                 return {
                     code: item.code,
                     name: item.name,
-                    displayName: `${item.code} - ${item.name}`,
+                    displayName: item.code + ' - ' + item.name,
                     percentage: pct,
                     remaining: 100 - pct
                 };
@@ -70,9 +88,6 @@ const Dashboard = () => {
             setChartData(formattedChartData);
 
             // ─── AMBIL DATA AGREGASI BEBAN PETUGAS DARI MUATAN_SLS ─────────
-// ─── AMBIL DATA AGREGASI BEBAN PETUGAS DARI MUATAN_SLS (BERDASARKAN MUATAN) ───
-            // Pastikan memasukkan nama kolom jumlah muatan Anda (misal: jml_muatan atau muatan)
-            // ─── AMBIL DATA AGREGASI BEBAN BERDASARKAN MUATAN & KECAMATAN ───
             const { data: rawSls, error: slsError } = await supabase
                 .from('muatan_sls')
                 .select(`
@@ -87,31 +102,28 @@ const Dashboard = () => {
 
             if (rawSls && rawSls.length > 0) {
                 const loadMap = {};
-                let totalMuatanTerbimbing = 0;
+                let totalMuTarget = 0;
 
                 rawSls.forEach(item => {
                     if (item.petugas_id) {
                         const muatanSlsIni = Number(item.perkiraan_jumlah_beban) || 0;
-                        totalMuatanTerbimbing += muatanSlsIni;
+                        totalMuTarget += muatanSlsIni;
 
                         const nama = item.petugas?.nama_petugas || item.petugas_id;
                         const kecamatan = item.nmkec || 'Kec. Unknown';
-                        
-                        // KUNCI PERUBAHAN: Buat identifier unik gabungan nama + kecamatan
-                        // agar jika ada nama petugas yang sama di kecamatan berbeda tidak bertabrakan
-                        const key = `${nama} (${kecamatan})`;
+                        const key = nama + ' (' + kecamatan + ')';
                         
                         loadMap[key] = (loadMap[key] || 0) + muatanSlsIni;
                     }
                 });
 
                 const petugasArray = Object.keys(loadMap).map(key => ({
-                    name: key, // Sekarang otomatis berisi format: "Nama Petugas (Kecamatan)"
+                    name: key,
                     count: loadMap[key]
                 }));
 
                 const totalPetugasAktif = petugasArray.length;
-                const avgLoad = totalPetugasAktif > 0 ? Math.round(totalMuatanTerbimbing / totalPetugasAktif) : 0;
+                const avgLoad = totalPetugasAktif > 0 ? Math.round(totalMuTarget / totalPetugasAktif) : 0;
 
                 const sortedHeavy = [...petugasArray].sort((a, b) => b.count - a.count).slice(0, 10);
                 const sortedLight = [...petugasArray].sort((a, b) => a.count - b.count).slice(0, 10);
@@ -132,14 +144,14 @@ const Dashboard = () => {
 
     // Komponen Kartu Statistik Atas
     const StatCard = ({ title, value, icon: Icon, colorClass, subtitle }) => (
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between">
-            <div>
-                <p className="text-sm font-medium text-slate-500 mb-1">{title}</p>
-                <h3 className="text-3xl font-black text-slate-800">{value}</h3>
-                {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between h-full">
+            <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-slate-500 mb-1 truncate">{title}</p>
+                <h3 className="text-2xl font-black text-slate-800 tracking-tight">{value}</h3>
+                {subtitle && <p className="text-[11px] text-slate-400 mt-1 truncate font-medium">{subtitle}</p>}
             </div>
-            <div className={`p-3 rounded-xl ${colorClass}`}>
-                <Icon size={24} />
+            <div className={`p-2.5 rounded-xl shrink-0 ml-2 ${colorClass}`}>
+                <Icon size={20} />
             </div>
         </div>
     );
@@ -159,24 +171,39 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            {/* 4 KARTU STATISTIK UTAMA */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* 1 BARIS GRID UTAMA: 4 KARTU SLS + KARTU PETUGAS MINI */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-5">
                 <StatCard 
                     title="Total Target SLS" value={stats.total.toLocaleString()} 
                     icon={MapPin} colorClass="bg-blue-50 text-blue-600" subtitle="Wilayah Kerja Terdaftar"
                 />
                 <StatCard 
                     title="Telah Dialokasikan" value={stats.allocated.toLocaleString()} 
-                    icon={CheckCircle} colorClass="bg-emerald-50 text-emerald-600" subtitle={`${stats.progress}% dari total target`}
+                    icon={CheckCircle} colorClass="bg-emerald-50 text-emerald-600" subtitle={stats.progress + '% dari total target'}
                 />
                 <StatCard 
                     title="Sisa Alokasi" value={stats.unallocated.toLocaleString()} 
                     icon={AlertCircle} colorClass="bg-rose-50 text-rose-600" subtitle="Membutuhkan Penugasan"
                 />
                 <StatCard 
-                    title="Persentase Progres" value={`${stats.progress}%`} 
-                    icon={TrendingUp} colorClass="bg-amber-50 text-amber-600" subtitle="SLS yang Sudah Dialokasikan"
+                    title="Persentase Progres" value={stats.progress + '%'} 
+                    icon={TrendingUp} colorClass="bg-amber-50 text-amber-600" subtitle="SLS Sudah Dialokasikan"
                 />
+                
+                {/* KARTU KE-5: INTEGRASI TOTAL PML & PCL MINI WORKSPACE */}
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center h-full">
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 text-center md:text-left">Jumlah Petugas</p>
+                    <div className="grid grid-cols-2 gap-2 flex-1 items-center">
+                        <div className="bg-indigo-50/60 border border-indigo-100/70 p-2 rounded-xl text-center">
+                            <span className="text-xl font-black text-indigo-700 block leading-none mb-1">{stats.totalPml}</span>
+                            <span className="text-[9px] font-extrabold text-indigo-500 uppercase tracking-tight">PML</span>
+                        </div>
+                        <div className="bg-violet-50/60 border border-violet-100/70 p-2 rounded-xl text-center">
+                            <span className="text-xl font-black text-violet-700 block leading-none mb-1">{stats.totalPcl}</span>
+                            <span className="text-[9px] font-extrabold text-violet-500 uppercase tracking-tight">PCL</span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* BAGIAN GRAFIK RECHARTS */}
@@ -192,8 +219,8 @@ const Dashboard = () => {
                             <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 70 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                 <XAxis dataKey="displayName" angle={-45} textAnchor="end" interval={0} fontSize={10} tick={{fill: '#64748b', fontWeight: 600}} height={80} />
-                                <YAxis domain={[0, 100]} fontSize={12} axisLine={false} tickLine={false} tickFormatter={(val) => `${val}%`} tick={{fill: '#64748b'}} />
-                                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} formatter={(value) => [`${value}%`]} />
+                                <YAxis domain={[0, 100]} fontSize={12} axisLine={false} tickLine={false} tickFormatter={(val) => val + '%'} tick={{fill: '#64748b'}} />
+                                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} formatter={(value) => [value + '%']} />
                                 <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{paddingBottom: '20px', fontSize: '12px'}} />
                                 <Bar name="Teralokasi (%)" dataKey="percentage" stackId="a" fill="#10b981" barSize={25} />
                                 <Bar name="Belum Alokasi (%)" dataKey="remaining" stackId="a" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={25} />
@@ -211,12 +238,12 @@ const Dashboard = () => {
                                 <Pie
                                     data={[{ name: 'Selesai', value: stats.allocated }, { name: 'Sisa', value: stats.unallocated }]}
                                     innerRadius={70} outerRadius={100} paddingAngle={8} dataKey="value"
-                                    label={({ percent }) => `${(percent * 100).toFixed(1)}%`}
+                                    label={({ percent }) => (percent * 100).toFixed(1) + '%'}
                                 >
                                     <Cell fill={COLORS[0]} />
                                     <Cell fill={COLORS[1]} />
                                 </Pie>
-                                <Tooltip formatter={(value) => [`${value} SLS`, 'Jumlah']} />
+                                <Tooltip formatter={(value) => [value + ' SLS', 'Jumlah']} />
                             </PieChart>
                         </ResponsiveContainer>
                         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[60px] text-center pointer-events-none">
@@ -227,14 +254,14 @@ const Dashboard = () => {
                             <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl">
                                 <div className="flex flex-col">
                                     <span className="text-xs font-bold text-emerald-700">Teralokasi</span>
-                                    <span className="text-[10px] text-emerald-600">{stats.total > 0 ? ((stats.allocated / stats.total) * 100).toFixed(1) : "0.0"}% dari target</span>
+                                    <span className="text-[10px] text-emerald-600">{stats.total > 0 ? ((stats.allocated / stats.total) * 100).toFixed(1) : '0.0'}% dari target</span>
                                 </div>
                                 <span className="font-black text-emerald-800">{stats.allocated.toLocaleString()}</span>
                             </div>
                             <div className="flex items-center justify-between p-3 bg-rose-50 rounded-xl">
                                 <div className="flex flex-col">
                                     <span className="text-xs font-bold text-rose-700">Belum Alokasi</span>
-                                    <span className="text-[10px] text-rose-600">{stats.total > 0 ? ((stats.unallocated / stats.total) * 100).toFixed(1) : "0.0"}% sisa</span>
+                                    <span className="text-[10px] text-rose-600">{stats.total > 0 ? ((stats.unallocated / stats.total) * 100).toFixed(1) : '0.0'}% sisa</span>
                                 </div>
                                 <span className="font-black text-rose-800">{stats.unallocated.toLocaleString()}</span>
                             </div>
@@ -243,10 +270,9 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            {/* ─── PANEL BARU: ANALISIS SEBARAN BEBAN PETUGAS (KIRI: 1 KOLOM, KANAN: 2 KOLOM SKEW) ─── */}
+            {/* PANEL ANALISIS SEBARAN BEBAN PETUGAS */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                
-                {/* 1. KARTU RATA-RATA BEBAN (1 Kolom) */}
+                {/* 1. KARTU RATA-RATA BEBAN */}
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center items-center text-center">
                     <div className="p-4 bg-indigo-50 text-indigo-600 rounded-full mb-3">
                         <TrendingUp size={32} />
@@ -258,9 +284,8 @@ const Dashboard = () => {
                     </p>
                 </div>
 
-                {/* 2. TABEL PERBANDINGAN EKSTREM TOP 10 (2 Kolom) */}
+                {/* 2. TABEL PERBANDINGAN EKSTREM TOP 10 */}
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-6">
-                    
                     {/* SUB-KOLOM A: TOP 10 TERBANYAK */}
                     <div>
                         <h4 className="font-bold text-slate-700 text-sm mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -304,7 +329,6 @@ const Dashboard = () => {
                             {loadStats.topLight.length === 0 && <p className="text-xs text-center text-slate-400 py-4">Tidak ada alokasi data.</p>}
                         </div>
                     </div>
-
                 </div>
             </div>
         </div>
