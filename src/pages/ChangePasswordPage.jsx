@@ -33,13 +33,18 @@ export default function ChangePasswordPage() {
       const { error: authError } = await supabase.auth.updateUser({ password: newPassword });
       if (authError) throw authError;
 
-      // 2. Update status is_first_login menjadi FALSE di tabel app_users
+      // 2. REVISI: Update status menggunakan EMAIL agar bypass deteksi UUID yang belum sinkron
+      const targetEmail = user?.email || user?.data?.user?.email;
+      
+      if (!targetEmail) {
+        throw new Error("Sesi email pengguna tidak terbaca. Silakan coba login kembali.");
+      }
+
       const { error: profileError } = await supabase
         .from('app_users')
         .update({ is_first_login: false })
-        .eq('id', user.id);
+        .eq('email', targetEmail.toLowerCase().trim()); // Menggunakan email sebagai jangkar pelacak
 
-      // Perbaikan: Tangkap error database jika RLS menolak update
       if (profileError) {
         throw new Error(`Gagal memperbarui profil di database: ${profileError.message}`);
       }
@@ -50,10 +55,9 @@ export default function ChangePasswordPage() {
       // 4. Berikan jeda super mikro agar state benar-benar terisi di React, lalu pindah ke halaman utama
       setTimeout(() => {
         navigate('/', { replace: true });
-      }, 50);
+      }, 100);
 
     } catch (error) {
-      // Memunculkan pesan error di kotak merah komponen jika terjadi kegagalan
       setErrorMsg(error.message);
     } finally {
       setLoading(false);

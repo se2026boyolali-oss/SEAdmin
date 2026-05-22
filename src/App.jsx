@@ -7,6 +7,8 @@ import Dashboard from './pages/Dashboard';
 import LoginPage from './pages/LoginPage';
 import SettingsPage from './pages/SettingsPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
+import PclAssignmentPage from './pages/PclAssignmentPage';
+import PmlMonitoringPage from './pages/PmlMonitoringPage'; // 1. IMPORT HALAMAN MONITORING PML BARU
 
 // --- KOMPONEN PROTEKSI RUTE (PROTECTED ROUTE) ---
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -28,15 +30,35 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
   // 3. Jika sudah login tetapi role tidak diizinkan mengakses halaman ini
   if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
-    // Jika PML tersasar, alihkan otomatis ke halaman alokasi milik mereka
+    // REVISI: Jika PML tersasar ke rute terlarang, alihkan otomatis ke dasbor monitoring lapangan milik mereka
     if (profile.role === 'pml') {
-      return <Navigate to="/alokasi" replace />;
+      return <Navigate to="/PML-Monitoring" replace />;
     }
-    // Default alihan untuk role lain yang salah alamat
+    // Jika PCL tersasar ke rute terlarang, kembalikan ke halaman tugas mereka
+    if (profile.role === 'pcl') {
+      return <Navigate to="/PCL-Assignment" replace />;
+    }
+    // Default alihan untuk role lain
     return <Navigate to="/" replace />;
   }
 
   return children;
+};
+
+// --- KOMPONEN LANDASAN UTAMA (HOME ROUTE ROUTER) ---
+// Komponen baru ini bertugas membagi halaman pertama kali saat user mengakses rute "/"
+const HomeRouter = () => {
+  const { profile } = useAuth();
+
+  if (profile?.role === 'pcl') {
+    return <Navigate to="/" replace />;
+  }
+  if (profile?.role === 'pml') {
+    return <Navigate to="/alokasi" replace />; // REVISI: PML langsung mendarat di halaman monitoring harian
+  }
+  
+  // Jika Admin atau Pegawai Organik, arahkan ke halaman Dashboard internal
+  return <Dashboard />;
 };
 
 
@@ -61,17 +83,17 @@ function AppContent() {
         <Route 
           path="/" 
           element={
-            <ProtectedRoute allowedRoles={['admin', 'pegawai', 'pml']}>
+            <ProtectedRoute allowedRoles={['admin', 'pegawai', 'pml', 'pcl']}>
               <Layout />
             </ProtectedRoute>
           }
         >
-          {/* Dashboard hanya untuk Admin dan Pegawai */}
+          {/* REVISI UTAMA: Index dialihkan menggunakan komponen HomeRouter yang dinamis */}
           <Route 
             index 
             element={
-              <ProtectedRoute allowedRoles={['admin', 'pegawai']}>
-                <Dashboard />
+              <ProtectedRoute allowedRoles={['admin', 'pegawai', 'pml', 'pcl']}>
+                <HomeRouter />
               </ProtectedRoute>
             } 
           />
@@ -92,6 +114,26 @@ function AppContent() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <SettingsPage />
+              </ProtectedRoute>
+            } 
+          />
+
+          {/* Rute Khusus untuk PCL Assignment */}
+          <Route 
+            path="PCL-Assignment" 
+            element={
+              <ProtectedRoute allowedRoles={['pcl']}>
+                <PclAssignmentPage />
+              </ProtectedRoute>
+            } 
+          />
+
+          {/* 3. TAMBAHAN: Rute Khusus untuk PML Monitoring Lapangan Harian */}
+          <Route 
+            path="PML-Monitoring" 
+            element={
+              <ProtectedRoute allowedRoles={['pml']}>
+                <PmlMonitoringPage />
               </ProtectedRoute>
             } 
           />

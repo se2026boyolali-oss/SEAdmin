@@ -34,7 +34,7 @@ export default function LoginPage() {
           .eq('email', inputEmail)
           .maybeSingle();
 
-        // 2. Cek apakah termasuk kategori PML (Jika tidak ada di app_users, cek data eksternal di tabel petugas)
+        // 2. Cek apakah termasuk kategori PML (Jika tidak ada di app_users)
         let registeredPml = null;
         if (!registeredUser) {
           const { data: pmlCheck } = await supabase
@@ -47,8 +47,21 @@ export default function LoginPage() {
           registeredPml = pmlCheck;
         }
 
-        // KUNCI KEAMANAN MUTLAK: Jika email tidak terdata sama sekali di sistem, TOLAK langsung!
+        // 3. TAMBAHAN: Cek apakah termasuk kategori PCL (Jika tidak ada di app_users dan bukan PML)
+        let registeredPcl = null;
         if (!registeredUser && !registeredPml) {
+          const { data: pclCheck } = await supabase
+            .from('petugas')
+            .select('*')
+            .eq('email', inputEmail)
+            .eq('posisi_tugas', 'PCL')
+            .eq('status', 'Diterima')
+            .maybeSingle();
+          registeredPcl = pclCheck;
+        }
+
+        // KUNCI KEAMANAN MUTLAK: Jika email tidak terdata di kategori manapun, TOLAK langsung!
+        if (!registeredUser && !registeredPml && !registeredPcl) {
           throw new Error('Email Anda belum didaftarkan di dalam sistem. Silakan hubungi Admin BPS Kabupaten Boyolali.');
         }
 
@@ -71,16 +84,16 @@ export default function LoginPage() {
           const newUid = sessionUser.id;
 
           if (registeredUser) {
-            // JIKA DIA ADMIN / PEGAWAI: Perbarui baris data yang sudah di-input admin dengan UUID Auth resmi
+            // JIKA DIA ADMIN / PEGAWAI: Perbarui baris data admin dengan UUID Auth resmi
             const { error: updateError } = await supabase
               .from('app_users')
               .update({ id: newUid, is_first_login: true })
-              .eq('email', inputEmail); // Aman menggunakan target email karena sudah menjadi Primary Key baru
+              .eq('email', inputEmail);
 
             if (updateError) throw updateError;
 
           } else if (registeredPml) {
-            // JIKA DIA PML: Buat baris profil baru di app_users secara aman
+            // JIKA DIA PML: Buat profil baru di app_users sebagai role pml
             await supabase.from('app_users').delete().eq('email', inputEmail);
             
             const { error: insertError } = await supabase
@@ -95,9 +108,26 @@ export default function LoginPage() {
               });
 
             if (insertError) throw insertError;
+
+          } else if (registeredPcl) {
+            // JIKA DIA PCL: Buat profil baru di app_users sebagai role pcl
+            await supabase.from('app_users').delete().eq('email', inputEmail);
+            
+            const { error: insertError } = await supabase
+              .from('app_users')
+              .insert({
+                id: newUid,
+                email: inputEmail,
+                nama_pengguna: registeredPcl.nama_petugas,
+                role: 'pcl', // Menyetel role ke PCL secara eksplisit
+                kecamatan_tugas: registeredPcl.kecamatan_tugas,
+                is_first_login: true
+              });
+
+            if (insertError) throw insertError;
           }
 
-          // Sukses melakukan aktivasi awal, alihkan langsung ke halaman ubah password resmi
+          // Sukses melakukan aktivasi awal, alihkan ke halaman ubah password resmi
           navigate('/change-password');
           return;
         } else {
@@ -105,8 +135,7 @@ export default function LoginPage() {
         }
       }
 
-      // Langkah C: Jika login sukses (User lama yang datanya sudah sinkron di database)
-      // Kita gunakan select berdasarkan email karena merupakan Primary Key utama yang konsisten
+      // Langkah C: Jika login sukses (User lama yang sudah aktivasi)
       const { data: profile, error: profileError } = await supabase
         .from('app_users')
         .select('is_first_login')
@@ -120,7 +149,7 @@ export default function LoginPage() {
       if (isFirstLogin) {
         navigate('/change-password');
       } else {
-        navigate('/'); // Lempar ke root, router App.jsx otomatis membagi halaman berdasarkan role
+        navigate('/'); 
       }
 
     } catch (error) {

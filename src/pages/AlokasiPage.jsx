@@ -74,33 +74,34 @@ export default function AlokasiPage() {
     const [selectedSlsIds, setSelectedSlsIds] = useState([]);
     const [loading, setLoading] = useState(false);
     const [tempSelectedPcl, setTempSelectedPcl] = useState("");
-    
+
     const slsContainerRef = useRef(null);
 
-useEffect(() => {
-        // Pastikan profile dan role sudah benar-benar termuat
+    // 1. Buat key string unik berbasis data profile agar referensinya stabil
+    const profileDataKey = profile ? `${profile.role}-${profile.kecamatan_tugas}` : '';
+
+    useEffect(() => {
+        // Pastikan profile benar-benar termuat
         if (profile) {
             if (profile.role === 'pml' && profile.kecamatan_tugas) {
                 const rawKec = profile.kecamatan_tugas;
-                
-                // Antisipasi super aman: Cek apakah string mengandung spasi untuk memisahkan kode & nama
+
                 let cleanKecName = rawKec;
                 if (rawKec.includes(" ")) {
                     cleanKecName = rawKec.substring(rawKec.indexOf(" ") + 1).trim();
                 } else {
                     cleanKecName = rawKec.trim();
                 }
-                
+
                 console.log("PML Login, mengunci ke kecamatan:", cleanKecName);
-                
-                // Masuk otomatis ke tingkat kecamatan milik PML
                 enterKecamatan(cleanKecName);
             } else {
                 // Admin atau Pegawai biasa melihat rekap kabupaten seluruhnya
                 fetchKecamatanSummary();
             }
         }
-    }, [profile]);
+        // 2. Ganti dependensi objek [profile] dengan string primitif [profileDataKey]
+    }, [profileDataKey]);
 
     const fetchKecamatanSummary = async () => {
         setLoading(true);
@@ -150,8 +151,9 @@ useEffect(() => {
         try {
             const { data: p } = await supabase.from('petugas')
                 .select('*')
-                .ilike('kecamatan_tugas', `%${kecName}%`)
-                .eq('status', 'Diterima');
+                // Menggunakan format and/or dari Supabase:
+                .or(`and(status.eq.Diterima,kecamatan_tugas.ilike.%${kecName}%),status.eq.Cadangan`);
+
             setPcls(p || []);
 
             const { data: s } = await supabase.from('muatan_sls')
@@ -175,8 +177,92 @@ useEffect(() => {
             setRightPanelMode('desa');
         } catch (err) { console.error(err); } finally { setLoading(false); }
     };
+    const handleGantiPetugas = async (emailLama, emailCadangan, namaLama, namaCadangan, pmlAtasan) => {
+        if (!allowAllocation) {
+            alert("Sistem terkunci.");
+            return;
+        }
 
-const handleBulkAssign = async (pclEmail) => {
+        const confirmSwap = window.confirm(
+            `PERINGATAN: Anda akan mengganti ${namaLama} dengan ${namaCadangan} (Cadangan).\n\nSeluruh beban SLS akan dipindah, dan status ${namaLama} akan dinonaktifkan. Lanjutkan?`
+        );
+
+        if (!confirmSwap) return;
+
+        setLoading(true);
+        const sekarangWib = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).replace(" ", "T");
+
+        try {
+            // 1. Pindahkan seluruh beban SLS ke petugas baru
+            const { error: errSls } = await supabase
+                .from('muatan_sls')
+                .update({
+                    petugas_id: emailCadangan,
+                    edited_at: sekarangWib,
+                    edited_by: profile?.nama_pengguna || 'Sistem BPS (Swap)'
+                })
+                .eq('petugas_id', emailLama);
+            if (errSls) throw errSls;
+
+            // 2. Aktifkan petugas Cadangan (Menjadi PCL Diterima & masuk tim PML)
+            const { error: errCadangan } = await supabase
+                .from('petugas')
+                .update({
+                    status: 'Diterima',
+                    posisi_tugas: 'PCL',
+                    id_pml_atasan: pmlAtasan || '-',
+
+                    // 👇 TAMBAHKAN BARIS INI AGAR PETUGAS TIDAK GAIB SAAT DI-REFRESH
+                    kecamatan_tugas: selectedKec
+                })
+                .eq('email', emailCadangan);
+            if (errCadangan) throw errCadangan;
+
+            // 3. Nonaktifkan petugas Lama
+            const { error: errLama } = await supabase
+                .from('petugas')
+                .update({
+                    status: 'Mundur', // Atau 'Diganti', sesuaikan dengan master status Anda
+                    id_pml_atasan: '-'
+                })
+                .eq('email', emailLama);
+            if (errLama) throw errLama;
+
+            alert("Berhasil melakukan pergantian petugas!");
+
+            // Refresh data di layar
+            if (selectedKec) await enterKecamatan(selectedKec);
+
+        } catch (err) {
+            alert("Gagal melakukan pergantian: " + err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleMovePclToNewPml = async (pclEmail, newPmlEmail, pclName) => {
+        setLoading(true); // Tambahkan loading state
+        try {
+            const { error } = await supabase
+                .from('petugas')
+                .update({ id_pml_atasan: newPmlEmail })
+                .eq('email', pclEmail);
+
+            if (error) throw error;
+
+            alert(`Berhasil memindahkan ${pclName} ke pengawas baru.`);
+
+            // REVISI: Gunakan enterKecamatan untuk memuat ulang SEMUA data (Petugas & SLS)
+            if (selectedKec) {
+                await enterKecamatan(selectedKec);
+            }
+        } catch (err) {
+            alert("Gagal memindahkan PCL: " + err.message);
+        } finally {
+            setLoading(false); // Matikan loading
+        }
+    };
+    const handleBulkAssign = async (pclEmail) => {
         // 1. PROTEKSI SAKELAR GLOBAL: Jika alokasi dikunci Admin, blokir aksi
         if (!allowAllocation) {
             alert("Maaf, pengisian atau perubahan alokasi telah dikunci oleh Admin.");
@@ -197,12 +283,12 @@ const handleBulkAssign = async (pclEmail) => {
         const sekarangWib = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).replace(" ", "T");
 
         try {
-          	// Ambil data 'profile' dari useAuth() di atas komponen Anda
-          	// const { user, profile, allowAllocation } = useAuth();
+            // Ambil data 'profile' dari useAuth() di atas komponen Anda
+            // const { user, profile, allowAllocation } = useAuth();
 
             // 2. JALANKAN UPDATE: Sertakan kolom alokasi dan audit trail versi baru
             const { error } = await supabase.from('muatan_sls')
-                .update({ 
+                .update({
                     petugas_id: pclEmail,
                     // --- REVISI KOLOM AUDIT ---
                     edited_at: sekarangWib,                            // Jam otomatis +7 (Asia/Jakarta)
@@ -226,170 +312,170 @@ const handleBulkAssign = async (pclEmail) => {
         }
     };
 
-// FORMAT 1 (Tetap seperti kode lama Anda)
-const handleExportExcelFormat1 = () => {
-    if (!slsList || slsList.length === 0) {
-        alert("Tidak ada data untuk diekspor");
-        return;
-    }
-
-    try {
-        const dataToExport = slsList.map(s => {
-            const petugasPpl = pcls.find(p => p.email === s.petugas_id);
-            const emailPmlAtasan = petugasPpl ? petugasPpl.id_pml_atasan : "-";
-
-            return {
-                "PROVINSI": String(s.kdprov || '33'),
-                "KABUPATEN/KOTA": String(s.kdkab || '09'),
-                "KECAMATAN": String(s.kdkec || ''),
-                "DESA": String(s.kddesa || ''),
-                "SLS": String(s.kdsls || ''),
-                "SUBSLS": String(s.kdsubsls || '00'),
-                "Email PML": emailPmlAtasan,
-                "Email PPL": s.petugas_id || "-"
-            };
-        });
-
-        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-
-        worksheet['!cols'] = [
-            { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 10 },
-            { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 30 }
-        ];
-
-        // Paksa kolom 0 sampai 5 (Kode wilayah) menjadi Text ('s')
-        const range = XLSX.utils.decode_range(worksheet['!ref']);
-        for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-            for (let C = 0; C <= 5; ++C) {
-                const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
-                if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
-            }
+    // FORMAT 1 (Tetap seperti kode lama Anda)
+    const handleExportExcelFormat1 = () => {
+        if (!slsList || slsList.length === 0) {
+            alert("Tidak ada data untuk diekspor");
+            return;
         }
 
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Data Alokasi");
-        XLSX.writeFile(workbook, `Rekap_Alokasi_${selectedKec.replace(/\s+/g, '_')}_Format1.xlsx`);
+        try {
+            const dataToExport = slsList.map(s => {
+                const petugasPpl = pcls.find(p => p.email === s.petugas_id);
+                const emailPmlAtasan = petugasPpl ? petugasPpl.id_pml_atasan : "-";
 
-    } catch (error) {
-        console.error("Export Error:", error);
-        alert("Gagal mengekspor data");
-    }
-};
-
-// FORMAT 2 (Format Baru dengan Nama/Teks)
-// FORMAT 2 (Sudah Diperbaiki Properti Nama & Relasi PML)
-const handleExportExcelFormat2 = () => {
-    if (!slsList || slsList.length === 0) {
-        alert("Tidak ada data untuk diekspor");
-        return;
-    }
-
-    try {
-        const dataToExport = slsList.map(s => {
-            // 1. Mencari data petugas PPL berdasarkan petugas_id (email)
-            const petugasPpl = pcls.find(p => p.email === s.petugas_id);
-            // REVISI: Menggunakan properti 'nama_petugas' sesuai isi komponen Anda
-            const namaPpl = petugasPpl ? petugasPpl.nama_petugas : "-"; 
-
-            // 2. Mencari data petugas PML berdasarkan 'id_pml_atasan' yang ada di PPL
-            let namaPml = "-";
-            if (petugasPpl && petugasPpl.id_pml_atasan && petugasPpl.id_pml_atasan !== "-") {
-                // Cari data PML di array pcls berdasarkan email PML
-                const petugasPml = pcls.find(p => p.email === petugasPpl.id_pml_atasan);
-                namaPml = petugasPml ? petugasPml.nama_petugas : "-";
-            }
-
-            return {
-                "kdkec": String(s.kdkec || ''),
-                "nmkec": s.nmkec || '', 
-                "kddesa": String(s.kddesa || ''),
-                "nmdesa": s.nmdesa || '', 
-                "kdsls": String(s.kdsls || ''),
-                "kdsubsls": String(s.kdsubsls || '00'),
-                "nmsls": s.nmsls || '', 
-                "nmppl": namaPpl,
-                "nmpml": namaPml
-            };
-        });
-
-        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-
-        // Menyesuaikan lebar kolom untuk Format 2 (9 Kolom)
-        worksheet['!cols'] = [
-            { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 20 },
-            { wch: 10 }, { wch: 10 }, { wch: 25 }, { wch: 25 }, { wch: 25 }
-        ];
-
-        // Memaksa kolom kode menjadi string agar angka '0' di depan tidak hilang
-        const range = XLSX.utils.decode_range(worksheet['!ref']);
-        const kodeColumnIndices = [0, 2, 4, 5]; 
-        
-        for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-            kodeColumnIndices.forEach(C => {
-                const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
-                if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
+                return {
+                    "PROVINSI": String(s.kdprov || '33'),
+                    "KABUPATEN/KOTA": String(s.kdkab || '09'),
+                    "KECAMATAN": String(s.kdkec || ''),
+                    "DESA": String(s.kddesa || ''),
+                    "SLS": String(s.kdsls || ''),
+                    "SUBSLS": String(s.kdsubsls || '00'),
+                    "Email PML": emailPmlAtasan,
+                    "Email PPL": s.petugas_id || "-"
+                };
             });
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+
+            worksheet['!cols'] = [
+                { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 10 },
+                { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 30 }
+            ];
+
+            // Paksa kolom 0 sampai 5 (Kode wilayah) menjadi Text ('s')
+            const range = XLSX.utils.decode_range(worksheet['!ref']);
+            for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+                for (let C = 0; C <= 5; ++C) {
+                    const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+                    if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
+                }
+            }
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Data Alokasi");
+            XLSX.writeFile(workbook, `Rekap_Alokasi_${selectedKec.replace(/\s+/g, '_')}_Format1.xlsx`);
+
+        } catch (error) {
+            console.error("Export Error:", error);
+            alert("Gagal mengekspor data");
+        }
+    };
+
+    // FORMAT 2 (Format Baru dengan Nama/Teks)
+    // FORMAT 2 (Sudah Diperbaiki Properti Nama & Relasi PML)
+    const handleExportExcelFormat2 = () => {
+        if (!slsList || slsList.length === 0) {
+            alert("Tidak ada data untuk diekspor");
+            return;
         }
 
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Nama Alokasi");
-        XLSX.writeFile(workbook, `Rekap_Nama_Alokasi_${selectedKec.replace(/\s+/g, '_')}_Format2.xlsx`);
+        try {
+            const dataToExport = slsList.map(s => {
+                // 1. Mencari data petugas PPL berdasarkan petugas_id (email)
+                const petugasPpl = pcls.find(p => p.email === s.petugas_id);
+                // REVISI: Menggunakan properti 'nama_petugas' sesuai isi komponen Anda
+                const namaPpl = petugasPpl ? petugasPpl.nama_petugas : "-";
 
-    } catch (error) {
-        console.error("Export Error:", error);
-        alert("Gagal mengekspor data");
-    }
-};
+                // 2. Mencari data petugas PML berdasarkan 'id_pml_atasan' yang ada di PPL
+                let namaPml = "-";
+                if (petugasPpl && petugasPpl.id_pml_atasan && petugasPpl.id_pml_atasan !== "-") {
+                    // Cari data PML di array pcls berdasarkan email PML
+                    const petugasPml = pcls.find(p => p.email === petugasPpl.id_pml_atasan);
+                    namaPml = petugasPml ? petugasPml.nama_petugas : "-";
+                }
+
+                return {
+                    "kdkec": String(s.kdkec || ''),
+                    "nmkec": s.nmkec || '',
+                    "kddesa": String(s.kddesa || ''),
+                    "nmdesa": s.nmdesa || '',
+                    "kdsls": String(s.kdsls || ''),
+                    "kdsubsls": String(s.kdsubsls || '00'),
+                    "nmsls": s.nmsls || '',
+                    "nmppl": namaPpl,
+                    "nmpml": namaPml
+                };
+            });
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+
+            // Menyesuaikan lebar kolom untuk Format 2 (9 Kolom)
+            worksheet['!cols'] = [
+                { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 20 },
+                { wch: 10 }, { wch: 10 }, { wch: 25 }, { wch: 25 }, { wch: 25 }
+            ];
+
+            // Memaksa kolom kode menjadi string agar angka '0' di depan tidak hilang
+            const range = XLSX.utils.decode_range(worksheet['!ref']);
+            const kodeColumnIndices = [0, 2, 4, 5];
+
+            for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+                kodeColumnIndices.forEach(C => {
+                    const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+                    if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
+                });
+            }
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Nama Alokasi");
+            XLSX.writeFile(workbook, `Rekap_Nama_Alokasi_${selectedKec.replace(/\s+/g, '_')}_Format2.xlsx`);
+
+        } catch (error) {
+            console.error("Export Error:", error);
+            alert("Gagal mengekspor data");
+        }
+    };
 
     return (
         <div className="h-full flex flex-col gap-6 relative">
             {!allowAllocation && (
-  <div className="bg-rose-50 border-l-4 border-rose-500 p-4 mb-4 rounded-xl text-rose-700 text-sm font-semibold">
-    ⚠️ Batas waktu pengisian atau perubahan alokasi Sensus Ekonomi 2026 telah berakhir. Seluruh alokasi wilayah saat ini dikunci oleh Administrator.
-  </div>
-)}
+                <div className="bg-rose-50 border-l-4 border-rose-500 p-4 mb-4 rounded-xl text-rose-700 text-sm font-semibold">
+                    ⚠️ Batas waktu pengisian atau perubahan alokasi Sensus Ekonomi 2026 telah berakhir. Seluruh alokasi wilayah saat ini dikunci oleh Administrator.
+                </div>
+            )}
             <div className="flex justify-between items-end px-2">
-                
+
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">Dashboard Alokasi</h1>
                     <p className="text-slate-500">Distribusi beban kerja Sensus Ekonomi 2026</p>
                 </div>
 
                 <div className="flex items-center gap-3">
-    {currentLevel === 'alokasi' && (
-        <>
-            {/* Tombol Export Pertama (Format Email / Kode) */}
-            <button
-                onClick={handleExportExcelFormat2}
-                className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all font-bold text-sm shadow-sm"
-            >
-                <Database size={18} />
-                Export Alokasi Kecamatan
-            </button>
+                    {currentLevel === 'alokasi' && (
+                        <>
+                            {/* Tombol Export Pertama (Format Email / Kode) */}
+                            <button
+                                onClick={handleExportExcelFormat2}
+                                className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all font-bold text-sm shadow-sm"
+                            >
+                                <Database size={18} />
+                                Export Alokasi Kecamatan
+                            </button>
 
-            {/* Tombol Export Kedua (Format Nama Wilayah & Petugas) */}
-            <button
-                onClick={handleExportExcelFormat1}
-                className="flex items-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-2 rounded-xl border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all font-bold text-sm shadow-sm"
-            >
-                <Database size={18} />
-                Export Fasih
-            </button>
-        </>
-    )}
+                            {/* Tombol Export Kedua (Format Nama Wilayah & Petugas) */}
+                            <button
+                                onClick={handleExportExcelFormat1}
+                                className="flex items-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-2 rounded-xl border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all font-bold text-sm shadow-sm"
+                            >
+                                <Database size={18} />
+                                Export Fasih
+                            </button>
+                        </>
+                    )}
 
-    {currentLevel === 'kecamatan' && (
-        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-            <Database className="text-indigo-500" size={20} />
-            <div className="text-right">
-                <div className="text-[10px] uppercase font-bold text-slate-400">Total SLS</div>
-                <div className="font-bold text-slate-800">
-                    {kecamatanSummary.reduce((a, b) => a + b.total, 0)}
+                    {currentLevel === 'kecamatan' && (
+                        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
+                            <Database className="text-indigo-500" size={20} />
+                            <div className="text-right">
+                                <div className="text-[10px] uppercase font-bold text-slate-400">Total SLS</div>
+                                <div className="font-bold text-slate-800">
+                                    {kecamatanSummary.reduce((a, b) => a + b.total, 0)}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
-            </div>
-        </div>
-    )}
-</div>
             </div>
 
             <div className="flex-1 min-h-0">
@@ -415,94 +501,96 @@ const handleExportExcelFormat2 = () => {
                         setSelectedSlsIds={setSelectedSlsIds}
                         slsContainerRef={slsContainerRef}
                         desaSummary={desaSummary}
-                        userRole={profile?.role} // <-- Mengirim informasi role ke sub-komponen
+                        userRole={profile?.role}
+                        handleMovePclToNewPml={handleMovePclToNewPml}
+                        handleGantiPetugas={handleGantiPetugas} // <-- Mengirim informasi role ke sub-komponen
                     />
                 )}
             </div>
 
-{selectedSlsIds.length > 0 && (
-    <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-6 z-[100] border border-slate-700">
-        
-        {/* REVISI INDIKATOR: SEKARANG MENAMPILKAN SLS DAN TOTAL MUATAN TERPILIH */}
-        <div className="flex items-center gap-4 px-2 border-r border-slate-700">
-            {/* Indikator SLS */}
-            <div className="text-center min-w-[40px]">
-                <span className="text-xl font-bold text-orange-400">{selectedSlsIds.length}</span>
-                <span className="text-[10px] block uppercase text-slate-400 font-bold">SLS</span>
-            </div>
-            
-            {/* Indikator Total Muatan Usaha Terpilih */}
-            <div className="text-center min-w-[50px] border-l border-slate-800 pl-4">
-                <span className="text-xl font-bold text-emerald-400">
-                    {slsList
-                        .filter(s => selectedSlsIds.includes(s.idsubsls))
-                        .reduce((sum, curr) => sum + (curr.perkiraan_jumlah_beban || 0), 0)
-                        .toLocaleString('id-ID')}
-                </span>
-                <span className="text-[10px] block uppercase text-slate-400 font-bold">Muatan</span>
-            </div>
-        </div>
+            {selectedSlsIds.length > 0 && (
+                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-6 z-[100] border border-slate-700">
 
-        {/* 1. SELEKSI PETUGAS (Tambahkan disabled jika alokasi off) */}
-{/* 1. SELEKSI PETUGAS (Sudah Terurut Abjad A-Z) */}
-<div className="flex flex-col">
-    <span className="text-[10px] text-slate-400 mb-1 ml-1">
-        {!allowAllocation ? 'Sistem Terkunci:' : 'Realokasi ke:'}
-    </span>
-    <select
-        disabled={!allowAllocation}
-        className="bg-slate-800 border-slate-700 text-sm rounded-lg p-2 outline-none w-48 disabled:opacity-40 disabled:cursor-not-allowed"
-        value={tempSelectedPcl}
-        onChange={(e) => setTempSelectedPcl(e.target.value)}
-    >
-        <option value="" disabled>Pilih Petugas...</option>
-        
-        {/* PROSES FILTER & SORTING URUT NAMA PETUGAS */}
-        {pcls
-            .filter(p => p.posisi_tugas === 'PCL')
-            .sort((a, b) => (a.nama_petugas || '').localeCompare(b.nama_petugas || ''))
-            .map(p => (
-                <option key={p.email} value={p.email}>
-                    {p.nama_petugas}
-                </option>
-            ))
-        }
-    </select>
-</div>
+                    {/* REVISI INDIKATOR: SEKARANG MENAMPILKAN SLS DAN TOTAL MUATAN TERPILIH */}
+                    <div className="flex items-center gap-4 px-2 border-r border-slate-700">
+                        {/* Indikator SLS */}
+                        <div className="text-center min-w-[40px]">
+                            <span className="text-xl font-bold text-orange-400">{selectedSlsIds.length}</span>
+                            <span className="text-[10px] block uppercase text-slate-400 font-bold">SLS</span>
+                        </div>
 
-        <div className="flex items-center gap-2">
-            {/* 2. TOMBOL UPDATE ALOKASI */}
-            <button
-                onClick={() => handleBulkAssign(tempSelectedPcl)}
-                disabled={!allowAllocation || !tempSelectedPcl || loading}
-                className="bg-orange-600 hover:bg-orange-500 px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-lg shadow-orange-900/20"
-            >
-                {!allowAllocation ? 'Terkunci' : 'Update Alokasi'}
-            </button>
+                        {/* Indikator Total Muatan Usaha Terpilih */}
+                        <div className="text-center min-w-[50px] border-l border-slate-800 pl-4">
+                            <span className="text-xl font-bold text-emerald-400">
+                                {slsList
+                                    .filter(s => selectedSlsIds.includes(s.idsubsls))
+                                    .reduce((sum, curr) => sum + (curr.perkiraan_jumlah_beban || 0), 0)
+                                    .toLocaleString('id-ID')}
+                            </span>
+                            <span className="text-[10px] block uppercase text-slate-400 font-bold">Muatan</span>
+                        </div>
+                    </div>
 
-            {/* 3. TOMBOL KOSONGKAN */}
-            <button
-                onClick={() => {
-                    if (window.confirm("Kosongkan petugas untuk SLS terpilih?")) {
-                        handleBulkAssign(null);
-                    }
-                }}
-                disabled={!allowAllocation || loading}
-                className="bg-slate-700 hover:bg-rose-900 px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:hover:bg-slate-700 disabled:cursor-not-allowed"
-                title="Hapus Petugas dari SLS ini"
-            >
-                Kosongkan
-            </button>
-        </div>
+                    {/* 1. SELEKSI PETUGAS (Tambahkan disabled jika alokasi off) */}
+                    {/* 1. SELEKSI PETUGAS (Sudah Terurut Abjad A-Z) */}
+                    <div className="flex flex-col">
+                        <span className="text-[10px] text-slate-400 mb-1 ml-1">
+                            {!allowAllocation ? 'Sistem Terkunci:' : 'Realokasi ke:'}
+                        </span>
+                        <select
+                            disabled={!allowAllocation}
+                            className="bg-slate-800 border-slate-700 text-sm rounded-lg p-2 outline-none w-48 disabled:opacity-40 disabled:cursor-not-allowed"
+                            value={tempSelectedPcl}
+                            onChange={(e) => setTempSelectedPcl(e.target.value)}
+                        >
+                            <option value="" disabled>Pilih Petugas...</option>
 
-        <button 
-            onClick={() => { setSelectedSlsIds([]); setTempSelectedPcl(""); }} 
-            className="text-xs text-slate-500 hover:text-white"
-        >
-            Batal
-        </button>
-    </div>
-)}
+                            {/* PROSES FILTER & SORTING URUT NAMA PETUGAS */}
+                            {pcls
+                                .filter(p => p.posisi_tugas === 'PCL')
+                                .sort((a, b) => (a.nama_petugas || '').localeCompare(b.nama_petugas || ''))
+                                .map(p => (
+                                    <option key={p.email} value={p.email}>
+                                        {p.nama_petugas}
+                                    </option>
+                                ))
+                            }
+                        </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        {/* 2. TOMBOL UPDATE ALOKASI */}
+                        <button
+                            onClick={() => handleBulkAssign(tempSelectedPcl)}
+                            disabled={!allowAllocation || !tempSelectedPcl || loading}
+                            className="bg-orange-600 hover:bg-orange-500 px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-lg shadow-orange-900/20"
+                        >
+                            {!allowAllocation ? 'Terkunci' : 'Update Alokasi'}
+                        </button>
+
+                        {/* 3. TOMBOL KOSONGKAN */}
+                        <button
+                            onClick={() => {
+                                if (window.confirm("Kosongkan petugas untuk SLS terpilih?")) {
+                                    handleBulkAssign(null);
+                                }
+                            }}
+                            disabled={!allowAllocation || loading}
+                            className="bg-slate-700 hover:bg-rose-900 px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:hover:bg-slate-700 disabled:cursor-not-allowed"
+                            title="Hapus Petugas dari SLS ini"
+                        >
+                            Kosongkan
+                        </button>
+                    </div>
+
+                    <button
+                        onClick={() => { setSelectedSlsIds([]); setTempSelectedPcl(""); }}
+                        className="text-xs text-slate-500 hover:text-white"
+                    >
+                        Batal
+                    </button>
+                </div>
+            )}
         </div>
     );
 }
@@ -512,8 +600,10 @@ const AllocationViewContent = ({
     slsList, pcls, selectedKec, selectedDesa, setSelectedDesa,
     rightPanelMode, setRightPanelMode, setCurrentLevel,
     selectedSlsIds, setSelectedSlsIds, slsContainerRef, desaSummary,
-    userRole // <-- Menerima properti role
+    userRole, handleMovePclToNewPml, handleGantiPetugas // <-- Menerima properti role
 }) => {
+    const [swapTarget, setSwapTarget] = useState(null);
+    const [searchCadangan, setSearchCadangan] = useState("");
     const pclsOnly = pcls.filter(p => p.posisi_tugas === 'PCL');
     const totalBebanKec = slsList.reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0);
     const bebanIdeal = pclsOnly.length > 0 ? Math.round(totalBebanKec / pclsOnly.length) : 0;
@@ -523,8 +613,8 @@ const AllocationViewContent = ({
             <div className="flex items-center gap-4 px-2">
                 {/* TOMBOL KEMBALI HANYA MUNCUL JIKA USER BUKAN PML */}
                 {userRole !== 'pml' ? (
-                    <button 
-                        onClick={() => setCurrentLevel('kecamatan')} 
+                    <button
+                        onClick={() => setCurrentLevel('kecamatan')}
                         className="p-2 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
                     >
                         <ArrowLeft size={20} />
@@ -584,7 +674,7 @@ const AllocationViewContent = ({
                                         </div>
                                     </div>
 
-                                    <div className="pl-4 space-y-2 border-l-2 border-slate-100">
+<div className="pl-4 space-y-2 border-l-2 border-slate-100">
                                         {bawahan.map(pcl => {
                                             const mySls = slsList.filter(s => s.petugas_id === pcl.email);
                                             const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
@@ -616,9 +706,27 @@ const AllocationViewContent = ({
                                                 <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${cardStyle}`}>
                                                     <div className="flex justify-between items-start mb-1.5">
                                                         <div className="flex flex-col">
-                                                            <span className="text-xs font-extrabold text-slate-800 uppercase leading-none mb-1">
-                                                                {pcl.nama_petugas}
-                                                            </span>
+                                                            
+                                                            {/* --- REVISI: Nama & Tombol Icon Ganti Disusun Sejajar --- */}
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className="text-xs font-extrabold text-slate-800 uppercase leading-none">
+                                                                    {pcl.nama_petugas}
+                                                                </span>
+                                                                {userRole !== 'pml' && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSwapTarget(pcl.email);
+                                                                            if (typeof setSearchCadangan === 'function') setSearchCadangan("");
+                                                                        }}
+                                                                        className="p-1 bg-slate-100 hover:bg-amber-100 border border-slate-200 hover:border-amber-300 rounded text-slate-500 transition-colors"
+                                                                        title="Ganti dengan petugas cadangan"
+                                                                    >
+                                                                        <span className="text-[10px] leading-none block">🔁</span>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                            {/* -------------------------------------------------------- */}
+
                                                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
                                                                 {myDesas.length > 0 && (
                                                                     <span className="text-[8px] font-black text-slate-400 uppercase shrink-0">
@@ -636,6 +744,25 @@ const AllocationViewContent = ({
                                                                     ))}
                                                                 </div>
                                                             </div>
+
+                                                            {/* --- MENU UNTUK MERUBAH PML (Tetap di tempat semula) --- */}
+                                                            {userRole !== 'pml' && (
+                                                                <div className="mt-2 flex items-center gap-2">
+                                                                    <span className="text-[9px] font-bold text-slate-500 uppercase">Pindah PML:</span>
+                                                                    <select
+                                                                        value={pcl.id_pml_atasan || ""}
+                                                                        onChange={(e) => handleMovePclToNewPml(pcl.email, e.target.value, pcl.nama_petugas)}
+                                                                        className="text-[10px] bg-white border border-slate-300 rounded px-1.5 py-0.5 font-semibold text-slate-700 outline-none w-32 cursor-pointer hover:border-indigo-400"
+                                                                    >
+                                                                        <option value="" disabled>Pilih Pengawas</option>
+                                                                        {pcls.filter(p => p.posisi_tugas === 'PML').map(pmlOption => (
+                                                                            <option key={pmlOption.email} value={pmlOption.email}>
+                                                                                {pmlOption.nama_petugas}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                            )}
                                                         </div>
 
                                                         <div className="text-right">
@@ -671,8 +798,8 @@ const AllocationViewContent = ({
                                         key={desa.name}
                                         onClick={() => { setSelectedDesa(desa.name); setRightPanelMode('sls'); }}
                                         className={`p-4 border rounded-xl cursor-pointer group transition-all ${isFullyAllocated
-                                                ? 'bg-emerald-50/60 border-emerald-200 hover:bg-emerald-100/80'
-                                                : 'bg-white border-slate-200 hover:bg-slate-50'
+                                            ? 'bg-emerald-50/60 border-emerald-200 hover:bg-emerald-100/80'
+                                            : 'bg-white border-slate-200 hover:bg-slate-50'
                                             }`}
                                     >
                                         <div className="flex justify-between items-center mb-2 font-bold text-slate-800">
@@ -694,48 +821,48 @@ const AllocationViewContent = ({
                                 );
                             })}
                         </div>
-                   ) : (
-    <>
-        <div className="p-4 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 font-bold text-slate-700">
-            {/* Tombol Kembali & Nama Desa */}
-            <button
-                onClick={() => setRightPanelMode('desa')}
-                className="flex items-center gap-2 hover:text-emerald-600 transition-colors text-left group min-w-0"
-            >
-                <ArrowLeft size={18} className="shrink-0 group-hover:-translate-x-0.5 transition-transform" />
-                <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 min-w-0">
-                    <span className="truncate text-base text-slate-800">{selectedDesa}</span>
-                    
-                    {/* INDIKATOR TOTAL BEBAN MUATAN DESA */}
-<span className="text-[11px] font-bold uppercase tracking-tight text-slate-500 bg-slate-200/50 border border-slate-300/40 px-2.5 py-1 rounded-md shrink-0">
-    Total Muatan: {' '}
-    <span className="text-slate-800 font-black">
-        {slsList
-            .filter(s => s.nmdesa === selectedDesa)
-            .reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0)
-            .toLocaleString('id-ID')}
-    </span>
-</span>
-                </div>
-            </button>
+                    ) : (
+                        <>
+                            <div className="p-4 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 font-bold text-slate-700">
+                                {/* Tombol Kembali & Nama Desa */}
+                                <button
+                                    onClick={() => setRightPanelMode('desa')}
+                                    className="flex items-center gap-2 hover:text-emerald-600 transition-colors text-left group min-w-0"
+                                >
+                                    <ArrowLeft size={18} className="shrink-0 group-hover:-translate-x-0.5 transition-transform" />
+                                    <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 min-w-0">
+                                        <span className="truncate text-base text-slate-800">{selectedDesa}</span>
 
-            {/* Statistik Ringkas SLS Bagian Kanan */}
-            <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold uppercase tracking-tight shrink-0">
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-200/50 rounded-md text-slate-500">
-                    <span>Jumlah SLS:</span>
-                    <span className="text-slate-800">
-                        {slsList.filter(s => s.nmdesa === selectedDesa).length}
-                    </span>
-                </div>
+                                        {/* INDIKATOR TOTAL BEBAN MUATAN DESA */}
+                                        <span className="text-[11px] font-bold uppercase tracking-tight text-slate-500 bg-slate-200/50 border border-slate-300/40 px-2.5 py-1 rounded-md shrink-0">
+                                            Total Muatan: {' '}
+                                            <span className="text-slate-800 font-black">
+                                                {slsList
+                                                    .filter(s => s.nmdesa === selectedDesa)
+                                                    .reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0)
+                                                    .toLocaleString('id-ID')}
+                                            </span>
+                                        </span>
+                                    </div>
+                                </button>
 
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-rose-50 rounded-md text-rose-400">
-                    <span>Belum dialokasi:</span>
-                    <span className="text-rose-600">
-                        {slsList.filter(s => s.nmdesa === selectedDesa && !s.petugas_id).length}
-                    </span>
-                </div>
-            </div>
-        </div>
+                                {/* Statistik Ringkas SLS Bagian Kanan */}
+                                <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold uppercase tracking-tight shrink-0">
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-200/50 rounded-md text-slate-500">
+                                        <span>Jumlah SLS:</span>
+                                        <span className="text-slate-800">
+                                            {slsList.filter(s => s.nmdesa === selectedDesa).length}
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-rose-50 rounded-md text-rose-400">
+                                        <span>Belum dialokasi:</span>
+                                        <span className="text-rose-600">
+                                            {slsList.filter(s => s.nmdesa === selectedDesa && !s.petugas_id).length}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
                             <div ref={slsContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2">
                                 {slsList.filter(s => s.nmdesa === selectedDesa).map(sls => {
                                     const isSelected = selectedSlsIds.includes(sls.idsubsls);
@@ -751,10 +878,10 @@ const AllocationViewContent = ({
                                                 )
                                             }}
                                             className={`p-2 px-4 border rounded-lg flex items-center justify-between transition-all cursor-pointer group mb-1 ${isSelected
-                                                    ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10'
-                                                    : isAllocated
-                                                        ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300'
-                                                        : 'bg-white border-slate-200 hover:border-slate-300'
+                                                ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10'
+                                                : isAllocated
+                                                    ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300'
+                                                    : 'bg-white border-slate-200 hover:border-slate-300'
                                                 }`}
                                         >
                                             <div className="flex-[0.8] min-w-0 pr-4">
@@ -786,17 +913,17 @@ const AllocationViewContent = ({
                                                 <div className="flex flex-col items-end">
                                                     <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Perkiraan Muatan</span>
                                                     <div className={`min-w-[40px] text-center py-0.5 rounded px-2 text-sm font-black border ${isSelected ? 'bg-orange-500 border-orange-600 text-white' :
-                                                            isAllocated ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-600'
+                                                        isAllocated ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-600'
                                                         }`}>
                                                         {sls.perkiraan_jumlah_beban}
                                                     </div>
                                                 </div>
 
                                                 <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${isSelected
-                                                        ? 'bg-orange-500 border-orange-500 scale-110'
-                                                        : isAllocated
-                                                            ? 'border-emerald-400 bg-emerald-100'
-                                                            : 'border-slate-200 bg-white'
+                                                    ? 'bg-orange-500 border-orange-500 scale-110'
+                                                    : isAllocated
+                                                        ? 'border-emerald-400 bg-emerald-100'
+                                                        : 'border-slate-200 bg-white'
                                                     }`}>
                                                     {isSelected && <CheckCircle2 size={14} className="text-white" />}
                                                     {isAllocated && !isSelected && <CheckCircle2 size={12} className="text-emerald-500" />}
@@ -810,6 +937,98 @@ const AllocationViewContent = ({
                     )}
                 </div>
             </div>
-        </div>
+            {/* ------------------------------------------------------------- */}
+            {/* MODAL PENCARIAN PETUGAS CADANGAN */}
+            {/* ------------------------------------------------------------- */}
+            {swapTarget && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden transform transition-all">
+
+                        {/* Modal Header */}
+                        <div className="p-4 border-b flex justify-between items-center bg-amber-50">
+                            <div>
+                                <h3 className="font-bold text-amber-800">Pilih Petugas Cadangan</h3>
+                                <p className="text-[10px] text-amber-600 mt-0.5">
+                                    Mengganti PCL aktif: <span className="font-black uppercase">{pcls.find(p => p.email === swapTarget)?.nama_petugas}</span>
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setSwapTarget(null)}
+                                className="text-amber-700 hover:bg-amber-200 w-8 h-8 rounded-lg flex items-center justify-center font-bold transition-colors"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Search Bar */}
+                        <div className="p-4 border-b bg-slate-50">
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+                                <input
+                                    type="text"
+                                    placeholder="Ketik nama cadangan..."
+                                    value={searchCadangan}
+                                    onChange={(e) => setSearchCadangan(e.target.value)}
+                                    className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition-all shadow-sm"
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+
+                        {/* List Cadangan dengan Filter */}
+                        <div className="flex-1 overflow-y-auto p-2 space-y-1 bg-slate-50/50">
+                            {pcls
+                                .filter(p => p.status && p.status.toLowerCase() === 'cadangan')
+                                .filter(p => p.nama_petugas && p.nama_petugas.toLowerCase().includes(searchCadangan.toLowerCase()))
+                                .map(cadangan => (
+                                    <div key={cadangan.email} className="flex justify-between items-center p-3 bg-white hover:bg-amber-50 border border-slate-100 hover:border-amber-200 rounded-xl transition-all shadow-sm group">
+                                        {/* List Cadangan dengan Filter (Bagian dalam map) */}
+                                        <div className="flex flex-col min-w-0 pr-4">
+                                            <span className="font-bold text-slate-800 text-xs uppercase truncate">{cadangan.nama_petugas}</span>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <span className="text-[10px] text-slate-500 truncate">{cadangan.email}</span>
+
+                                                {/* --- TAMBAHAN BADGE KECAMATAN --- */}
+                                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-200/70 text-slate-600 rounded border border-slate-300">
+                                                    📍 Kec: {cadangan.kecamatan_tugas || 'Belum Ditugaskan'}
+                                                </span>
+                                                {/* ------------------------------- */}
+
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                const pclLama = pcls.find(p => p.email === swapTarget);
+                                                handleGantiPetugas(
+                                                    pclLama.email,
+                                                    cadangan.email,
+                                                    pclLama.nama_petugas,
+                                                    cadangan.nama_petugas,
+                                                    pclLama.id_pml_atasan
+                                                );
+                                                setSwapTarget(null); // Tutup Modal setelah eksekusi
+                                            }}
+                                            className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors shrink-0"
+                                        >
+                                            Pilih & Ganti
+                                        </button>
+                                    </div>
+                                ))
+                            }
+
+                            {/* Kondisi Jika Pencarian Kosong */}
+                            {pcls.filter(p => p.status && p.status.toLowerCase() === 'cadangan' && p.nama_petugas?.toLowerCase().includes(searchCadangan.toLowerCase())).length === 0 && (
+                                <div className="text-center py-10 flex flex-col items-center">
+                                    <span className="text-3xl mb-2">🕵️‍♂️</span>
+                                    <span className="text-sm font-bold text-slate-500">Tidak ada cadangan ditemukan</span>
+                                    <span className="text-xs text-slate-400">Coba gunakan kata kunci nama yang lain.</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+        </div> // <-- INI ADALAH PENUTUP DARI <div className="flex flex-col h-full gap-4"> (Komponen Utama)
     );
 };
