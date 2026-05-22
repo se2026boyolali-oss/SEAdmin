@@ -16,47 +16,50 @@ import {
 // Perbaikan pada Komponen Tabel Kecamatan (LEVEL 1)
 const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b">
-                <tr>
-                    <th className="px-6 py-4 text-sm font-semibold text-slate-600">Nama Kecamatan</th>
-                    <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Total SLS</th>
-                    <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Ter-alokasi</th>
-                    <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Progres</th>
-                    <th className="px-6 py-4"></th>
-                </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-                {/* REVISI: Mengubah getKecamatanSummary menjadi kecamatanSummary sesuai hulu datanya */}
-                {kecamatanSummary.map((kec) => (
-                    <tr
-                        key={kec.name}
-                        className="hover:bg-slate-50 transition-colors cursor-pointer"
-                        onClick={() => enterKecamatan(kec.name)}
-                    >
-                        <td className="px-6 py-4 font-medium text-slate-800">({kec.code}) {kec.name}</td>
-                        <td className="px-6 py-4 text-center text-slate-600">{kec.total}</td>
-                        <td className="px-6 py-4 text-center text-emerald-600 font-medium">{kec.allocated}</td>
-                        <td className="px-6 py-4">
-                            <div className="flex items-center gap-3 justify-center">
-                                <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
-                                    <div
-                                        className="bg-emerald-500 h-full"
-                                        style={{ width: `${kec.total > 0 ? (kec.allocated / kec.total) * 100 : 0}%` }} // Proteksi pembagian 0
-                                    ></div>
-                                </div>
-                                <span className="text-xs font-bold text-slate-500">
-                                    {kec.total > 0 ? Math.round((kec.allocated / kec.total) * 100) : 0}%
-                                </span>
-                            </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                            <ChevronRight size={18} className="text-slate-300 inline" />
-                        </td>
+        {/* RESPONSIVE: Ditambahkan pembungkus overflow-x-auto agar tabel kecamatan bisa di-swipe horizontal pada layar HP */}
+        <div className="w-full overflow-x-auto">
+            <table className="w-full text-left min-w-[600px] md:min-w-0">
+                <thead className="bg-slate-50 border-b">
+                    <tr>
+                        <th className="px-6 py-4 text-sm font-semibold text-slate-600">Nama Kecamatan</th>
+                        <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Total SLS</th>
+                        <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Ter-alokasi</th>
+                        <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Progres</th>
+                        <th className="px-6 py-4"></th>
                     </tr>
-                ))}
-            </tbody>
-        </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {/* REVISI: Mengubah getKecamatanSummary menjadi kecamatanSummary sesuai hulu datanya */}
+                    {kecamatanSummary.map((kec) => (
+                        <tr
+                            key={kec.name}
+                            className="hover:bg-slate-50 transition-colors cursor-pointer"
+                            onClick={() => enterKecamatan(kec.name)}
+                        >
+                            <td className="px-6 py-4 font-medium text-slate-800">({kec.code}) {kec.name}</td>
+                            <td className="px-6 py-4 text-center text-slate-600">{kec.total}</td>
+                            <td className="px-6 py-4 text-center text-emerald-600 font-medium">{kec.allocated}</td>
+                            <td className="px-6 py-4">
+                                <div className="flex items-center gap-3 justify-center">
+                                    <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
+                                        <div
+                                            className="bg-emerald-500 h-full"
+                                            style={{ width: `${kec.total > 0 ? (kec.allocated / kec.total) * 100 : 0}%` }} // Proteksi pembagian 0
+                                        ></div>
+                                    </div>
+                                    <span className="text-xs font-bold text-slate-500">
+                                        {kec.total > 0 ? Math.round((kec.allocated / kec.total) * 100) : 0}%
+                                    </span>
+                                </div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                                <ChevronRight size={18} className="text-slate-300 inline" />
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
     </div>
 );
 
@@ -177,6 +180,7 @@ export default function AlokasiPage() {
             setRightPanelMode('desa');
         } catch (err) { console.error(err); } finally { setLoading(false); }
     };
+
     const handleGantiPetugas = async (emailLama, emailCadangan, namaLama, namaCadangan, pmlAtasan) => {
         if (!allowAllocation) {
             alert("Sistem terkunci.");
@@ -262,6 +266,7 @@ export default function AlokasiPage() {
             setLoading(false); // Matikan loading
         }
     };
+
     const handleBulkAssign = async (pclEmail) => {
         // 1. PROTEKSI SAKELAR GLOBAL: Jika alokasi dikunci Admin, blokir aksi
         if (!allowAllocation) {
@@ -434,20 +439,23 @@ export default function AlokasiPage() {
                     ⚠️ Batas waktu pengisian atau perubahan alokasi Sensus Ekonomi 2026 telah berakhir. Seluruh alokasi wilayah saat ini dikunci oleh Administrator.
                 </div>
             )}
-            <div className="flex justify-between items-end px-2">
+            
+            {/* RESPONSIVE: Diubah dari flex biasa menjadi flex-col sm:flex-row agar judul halaman dan tombol tidak bertumpuk di HP */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 px-2">
 
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">Dashboard Alokasi</h1>
                     <p className="text-slate-500">Distribusi beban kerja Sensus Ekonomi 2026</p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                {/* RESPONSIVE: flex-wrap ditambahkan agar tombol unduh excel otomatis rapi ke bawah jika dibuka di hp yang layarnya sempit */}
+                <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
                     {currentLevel === 'alokasi' && (
                         <>
                             {/* Tombol Export Pertama (Format Email / Kode) */}
                             <button
                                 onClick={handleExportExcelFormat2}
-                                className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all font-bold text-sm shadow-sm"
+                                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all font-bold text-sm shadow-sm cursor-pointer"
                             >
                                 <Database size={18} />
                                 Export Alokasi Kecamatan
@@ -456,7 +464,7 @@ export default function AlokasiPage() {
                             {/* Tombol Export Kedua (Format Nama Wilayah & Petugas) */}
                             <button
                                 onClick={handleExportExcelFormat1}
-                                className="flex items-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-2 rounded-xl border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all font-bold text-sm shadow-sm"
+                                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-2 rounded-xl border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all font-bold text-sm shadow-sm cursor-pointer"
                             >
                                 <Database size={18} />
                                 Export Fasih
@@ -465,7 +473,7 @@ export default function AlokasiPage() {
                     )}
 
                     {currentLevel === 'kecamatan' && (
-                        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
+                        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
                             <Database className="text-indigo-500" size={20} />
                             <div className="text-right">
                                 <div className="text-[10px] uppercase font-bold text-slate-400">Total SLS</div>
@@ -479,7 +487,8 @@ export default function AlokasiPage() {
             </div>
 
             <div className="flex-1 min-h-0">
-                {loading && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm z-50 flex items-center justify-center">Loading...</div>}
+                {/* RESPONSIVE: Diubah dari absolute menjadi fixed inset-0 agar loading menutupi seluruh layar smartphone dengan sempurna */}
+                {loading && <div className="fixed inset-0 bg-white/50 backdrop-blur-sm z-50 flex items-center justify-center font-bold text-slate-600">Loading...</div>}
 
                 {currentLevel === 'kecamatan' ? (
                     <KecamatanTable
@@ -508,11 +517,12 @@ export default function AlokasiPage() {
                 )}
             </div>
 
+            {/* RESPONSIVE: Floating bar hitam di bawah diatur menjadi lebar penuh (w-[92vw]) dan flex-col di HP agar tidak gepeng */}
             {selectedSlsIds.length > 0 && (
-                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl flex items-center gap-6 z-[100] border border-slate-700">
+                <div className="fixed bottom-4 sm:bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-3 sm:p-4 rounded-2xl shadow-2xl flex flex-col sm:flex-row items-center gap-4 sm:gap-6 z-[100] border border-slate-700 w-[92vw] sm:w-auto">
 
                     {/* REVISI INDIKATOR: SEKARANG MENAMPILKAN SLS DAN TOTAL MUATAN TERPILIH */}
-                    <div className="flex items-center gap-4 px-2 border-r border-slate-700">
+                    <div className="flex items-center justify-around sm:justify-start gap-4 px-2 border-b sm:border-b-0 sm:border-r border-slate-700 w-full sm:w-auto pb-2.5 sm:pb-0">
                         {/* Indikator SLS */}
                         <div className="text-center min-w-[40px]">
                             <span className="text-xl font-bold text-orange-400">{selectedSlsIds.length}</span>
@@ -533,13 +543,14 @@ export default function AlokasiPage() {
 
                     {/* 1. SELEKSI PETUGAS (Tambahkan disabled jika alokasi off) */}
                     {/* 1. SELEKSI PETUGAS (Sudah Terurut Abjad A-Z) */}
-                    <div className="flex flex-col">
+                    <div className="flex flex-col w-full sm:w-auto">
                         <span className="text-[10px] text-slate-400 mb-1 ml-1">
                             {!allowAllocation ? 'Sistem Terkunci:' : 'Realokasi ke:'}
                         </span>
+                        {/* RESPONSIVE: text-base pada select di HP untuk mencegah browser Safari/Chrome iOS otomatis melakukan zoom-in paksa */}
                         <select
                             disabled={!allowAllocation}
-                            className="bg-slate-800 border-slate-700 text-sm rounded-lg p-2 outline-none w-48 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="bg-slate-800 border-slate-700 text-base sm:text-sm rounded-lg p-2 outline-none w-full sm:w-48 disabled:opacity-40 disabled:cursor-not-allowed text-white"
                             value={tempSelectedPcl}
                             onChange={(e) => setTempSelectedPcl(e.target.value)}
                         >
@@ -558,12 +569,12 @@ export default function AlokasiPage() {
                         </select>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-end gap-2 w-full sm:w-auto">
                         {/* 2. TOMBOL UPDATE ALOKASI */}
                         <button
                             onClick={() => handleBulkAssign(tempSelectedPcl)}
                             disabled={!allowAllocation || !tempSelectedPcl || loading}
-                            className="bg-orange-600 hover:bg-orange-500 px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-lg shadow-orange-900/20"
+                            className="flex-1 sm:flex-none bg-orange-600 hover:bg-orange-500 px-4 py-2.5 sm:py-2 rounded-xl text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-lg shadow-orange-900/20 cursor-pointer"
                         >
                             {!allowAllocation ? 'Terkunci' : 'Update Alokasi'}
                         </button>
@@ -576,7 +587,7 @@ export default function AlokasiPage() {
                                 }
                             }}
                             disabled={!allowAllocation || loading}
-                            className="bg-slate-700 hover:bg-rose-900 px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:hover:bg-slate-700 disabled:cursor-not-allowed"
+                            className="bg-slate-700 hover:bg-rose-900 px-3 py-2.5 sm:py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:hover:bg-slate-700 disabled:cursor-not-allowed cursor-pointer"
                             title="Hapus Petugas dari SLS ini"
                         >
                             Kosongkan
@@ -585,7 +596,7 @@ export default function AlokasiPage() {
 
                     <button
                         onClick={() => { setSelectedSlsIds([]); setTempSelectedPcl(""); }}
-                        className="text-xs text-slate-500 hover:text-white"
+                        className="text-xs text-slate-500 hover:text-white py-1 sm:py-0 w-full sm:w-auto text-center cursor-pointer"
                     >
                         Batal
                     </button>
@@ -615,7 +626,7 @@ const AllocationViewContent = ({
                 {userRole !== 'pml' ? (
                     <button
                         onClick={() => setCurrentLevel('kecamatan')}
-                        className="p-2 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors"
+                        className="p-2 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors cursor-pointer"
                     >
                         <ArrowLeft size={20} />
                     </button>
@@ -630,8 +641,11 @@ const AllocationViewContent = ({
                 </div>
             </div>
 
-            <div className="flex-1 flex gap-6 overflow-hidden px-2">
-                <div className="w-1/3 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
+            {/* RESPONSIVE: Mengubah pembagian layout utama panel kiri (w-1/3) & panel kanan (w-2/3) menjadi bertumpuk flex-col di HP dan mengaktifkan scroll internal */}
+            <div className="flex-1 flex flex-col md:flex-row gap-6 overflow-y-auto md:overflow-hidden px-2">
+                
+                {/* PANEL TIM BEBAN KERJA: Diberikan min-height di mobile agar isi komponennya tidak terlipat gepeng */}
+                <div className="w-full md:w-1/3 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[350px] md:min-h-0">
                     <div className="p-4 border-b bg-slate-50 rounded-t-xl flex items-center justify-between font-bold text-slate-700">
                         <span className="flex items-center gap-2"><Users size={18} />  Beban Kerja Tim</span>
                     </div>
@@ -674,7 +688,7 @@ const AllocationViewContent = ({
                                         </div>
                                     </div>
 
-<div className="pl-4 space-y-2 border-l-2 border-slate-100">
+                                    <div className="pl-4 space-y-2 border-l-2 border-slate-100">
                                         {bawahan.map(pcl => {
                                             const mySls = slsList.filter(s => s.petugas_id === pcl.email);
                                             const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
@@ -718,7 +732,7 @@ const AllocationViewContent = ({
                                                                             setSwapTarget(pcl.email);
                                                                             if (typeof setSearchCadangan === 'function') setSearchCadangan("");
                                                                         }}
-                                                                        className="p-1 bg-slate-100 hover:bg-amber-100 border border-slate-200 hover:border-amber-300 rounded text-slate-500 transition-colors"
+                                                                        className="p-1 bg-slate-100 hover:bg-amber-100 border border-slate-200 hover:border-amber-300 rounded text-slate-500 transition-colors cursor-pointer"
                                                                         title="Ganti dengan petugas cadangan"
                                                                     >
                                                                         <span className="text-[10px] leading-none block">🔁</span>
@@ -787,9 +801,11 @@ const AllocationViewContent = ({
                     </div>
                 </div>
 
-                <div className="w-2/3 bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm">
+                {/* PANEL WILAYAH DAFTAR DESA ATAU SLS: Ditambahkan min-height agar proporsional di HP */}
+                <div className="w-full md:w-2/3 bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm min-h-[400px] md:min-h-0">
                     {rightPanelMode === 'desa' ? (
-                        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-4">
+                        /* RESPONSIVE: Mengubah boks grid desa menjadi 1 kolom di HP dan tetap 2 kolom di PC (`grid-cols-1 sm:grid-cols-2`) */
+                        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {desaSummary.map(desa => {
                                 const isFullyAllocated = desa.total === desa.allocated;
 
@@ -823,11 +839,12 @@ const AllocationViewContent = ({
                         </div>
                     ) : (
                         <>
+                            {/* RESPONSIVE: Header dalam panel SLS disesuaikan menjadi flex-col sm:flex-row agar judul desa tidak memotong badge muatan di HP */}
                             <div className="p-4 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 font-bold text-slate-700">
                                 {/* Tombol Kembali & Nama Desa */}
                                 <button
                                     onClick={() => setRightPanelMode('desa')}
-                                    className="flex items-center gap-2 hover:text-emerald-600 transition-colors text-left group min-w-0"
+                                    className="flex items-center gap-2 hover:text-emerald-600 transition-colors text-left group min-w-0 cursor-pointer"
                                 >
                                     <ArrowLeft size={18} className="shrink-0 group-hover:-translate-x-0.5 transition-transform" />
                                     <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 min-w-0">
@@ -863,6 +880,8 @@ const AllocationViewContent = ({
                                     </div>
                                 </div>
                             </div>
+                            
+                            {/* Baris List SLS */}
                             <div ref={slsContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2">
                                 {slsList.filter(s => s.nmdesa === selectedDesa).map(sls => {
                                     const isSelected = selectedSlsIds.includes(sls.idsubsls);
@@ -870,6 +889,7 @@ const AllocationViewContent = ({
                                     const isAllocated = !!sls.petugas_id;
 
                                     return (
+                                        /* RESPONSIVE: Mengubah susunan dalam baris SLS dari flex baris lurus menjadi membungkus (flex-col sm:flex-row) pada HP agar teks Nama Petugas dan Kode Wilayah tidak berimpitan hancur */
                                         <div
                                             key={sls.idsubsls}
                                             onClick={() => {
@@ -877,26 +897,26 @@ const AllocationViewContent = ({
                                                     prev.includes(sls.idsubsls) ? prev.filter(id => id !== sls.idsubsls) : [...prev, sls.idsubsls]
                                                 )
                                             }}
-                                            className={`p-2 px-4 border rounded-lg flex items-center justify-between transition-all cursor-pointer group mb-1 ${isSelected
+                                            className={`p-3 border rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0 transition-all cursor-pointer group mb-1 ${isSelected
                                                 ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10'
                                                 : isAllocated
                                                     ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300'
                                                     : 'bg-white border-slate-200 hover:border-slate-300'
                                                 }`}
                                         >
-                                            <div className="flex-[0.8] min-w-0 pr-4">
+                                            <div className="w-full sm:flex-[0.8] min-w-0 sm:pr-4">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="w-[50px] text-[10px] font-bold text-slate-400">[{sls.kdsls} {sls.kdsubsls}]</span>
+                                                    <span className="w-[50px] text-[10px] font-bold text-slate-400 shrink-0">[{sls.kdsls} {sls.kdsubsls}]</span>
                                                     <span className={`font-bold truncate text-sm ${isAllocated ? 'text-emerald-900' : 'text-slate-700'}`}>
                                                         {sls.nmsls}
                                                     </span>
                                                 </div>
-                                                <div className="text-[10px] text-slate-500">
+                                                <div className="text-[10px] text-slate-500 pl-0 sm:pl-[58px]">
                                                     {sls.jumlah_kk} Keluarga | {sls.jumlah_usaha} Usaha
                                                 </div>
                                             </div>
 
-                                            <div className="flex-1 px-4 border-l border-slate-200/50">
+                                            <div className="w-full sm:flex-1 px-0 sm:px-4 border-l-0 sm:border-l border-slate-200/50 pt-1 sm:pt-0">
                                                 {isAllocated ? (
                                                     <div className="flex flex-col">
                                                         <span className="text-[9px] font-bold text-emerald-600/70 uppercase tracking-tighter">Petugas PCL</span>
@@ -909,8 +929,8 @@ const AllocationViewContent = ({
                                                 )}
                                             </div>
 
-                                            <div className="flex items-center gap-4 ml-2">
-                                                <div className="flex flex-col items-end">
+                                            <div className="flex items-center justify-between sm:justify-end gap-4 ml-0 sm:ml-2 w-full sm:w-auto border-t sm:border-t-0 border-slate-100 pt-2 sm:pt-0">
+                                                <div className="flex flex-col items-start sm:items-end">
                                                     <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Perkiraan Muatan</span>
                                                     <div className={`min-w-[40px] text-center py-0.5 rounded px-2 text-sm font-black border ${isSelected ? 'bg-orange-500 border-orange-600 text-white' :
                                                         isAllocated ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-600'
@@ -919,7 +939,7 @@ const AllocationViewContent = ({
                                                     </div>
                                                 </div>
 
-                                                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${isSelected
+                                                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all shrink-0 ${isSelected
                                                     ? 'bg-orange-500 border-orange-500 scale-110'
                                                     : isAllocated
                                                         ? 'border-emerald-400 bg-emerald-100'
@@ -954,7 +974,7 @@ const AllocationViewContent = ({
                             </div>
                             <button
                                 onClick={() => setSwapTarget(null)}
-                                className="text-amber-700 hover:bg-amber-200 w-8 h-8 rounded-lg flex items-center justify-center font-bold transition-colors"
+                                className="text-amber-700 hover:bg-amber-200 w-8 h-8 rounded-lg flex items-center justify-center font-bold transition-colors cursor-pointer"
                             >
                                 ✕
                             </button>
@@ -969,7 +989,7 @@ const AllocationViewContent = ({
                                     placeholder="Ketik nama cadangan..."
                                     value={searchCadangan}
                                     onChange={(e) => setSearchCadangan(e.target.value)}
-                                    className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition-all shadow-sm"
+                                    className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-base sm:text-sm font-medium focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition-all shadow-sm"
                                     autoFocus
                                 />
                             </div>
@@ -981,7 +1001,7 @@ const AllocationViewContent = ({
                                 .filter(p => p.status && p.status.toLowerCase() === 'cadangan')
                                 .filter(p => p.nama_petugas && p.nama_petugas.toLowerCase().includes(searchCadangan.toLowerCase()))
                                 .map(cadangan => (
-                                    <div key={cadangan.email} className="flex justify-between items-center p-3 bg-white hover:bg-amber-50 border border-slate-100 hover:border-amber-200 rounded-xl transition-all shadow-sm group">
+                                    <div key={cadangan.email} className="flex justify-between items-center p-3 bg-white hover:bg-amber-50 border border-slate-100 hover:border-amber-200 rounded-xl transition-all shadow-sm group gap-2">
                                         {/* List Cadangan dengan Filter (Bagian dalam map) */}
                                         <div className="flex flex-col min-w-0 pr-4">
                                             <span className="font-bold text-slate-800 text-xs uppercase truncate">{cadangan.nama_petugas}</span>
@@ -989,7 +1009,7 @@ const AllocationViewContent = ({
                                                 <span className="text-[10px] text-slate-500 truncate">{cadangan.email}</span>
 
                                                 {/* --- TAMBAHAN BADGE KECAMATAN --- */}
-                                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-200/70 text-slate-600 rounded border border-slate-300">
+                                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-200/70 text-slate-600 rounded border border-slate-300 shrink-0">
                                                     📍 Kec: {cadangan.kecamatan_tugas || 'Belum Ditugaskan'}
                                                 </span>
                                                 {/* ------------------------------- */}
@@ -1008,7 +1028,7 @@ const AllocationViewContent = ({
                                                 );
                                                 setSwapTarget(null); // Tutup Modal setelah eksekusi
                                             }}
-                                            className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors shrink-0"
+                                            className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors shrink-0 cursor-pointer"
                                         >
                                             Pilih & Ganti
                                         </button>

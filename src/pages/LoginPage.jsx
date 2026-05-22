@@ -155,19 +155,26 @@ export default function LoginPage() {
     } catch (error) {
       setErrorMsg(error.message);
     } finally {
+      loading(false); // Diubah dari variabel langsung menjadi pemanggilan fungsi setLoding jika itu typo asli, tapi tetap pertahankan fungsi state asli Anda:
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    // MODIFIKASI: Ditambahkan px-4 dan penyesuaian jarak vertikal (py-8) agar pas di layar kecil HP
+    <div className="min-h-screen bg-slate-100 flex flex-col justify-center py-8 px-4 sm:py-12 sm:px-6 lg:px-8">
+      
+      {/* Container Header */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <h2 className="text-3xl font-black text-slate-900 tracking-tight">SENSUS EKONOMI 2026</h2>
+        {/* MODIFIKASI: Menggunakan text-2xl di HP agar tidak terlalu memakan tempat, sm:text-3xl di desktop */}
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">SENSUS EKONOMI 2026</h2>
         <p className="mt-2 text-sm text-slate-500 font-bold uppercase tracking-wider">BPS Kabupaten Boyolali</p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow-xl rounded-2xl sm:px-10 border border-slate-200">
+      {/* Container Card Form */}
+      <div className="mt-6 sm:mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        {/* MODIFIKASI: Mengurangi padding vertikal di HP (py-6) dan mengembalikan py-8 px-10 saat desktop (sm:) */}
+        <div className="bg-white py-6 px-4 shadow-xl rounded-2xl sm:py-8 sm:px-10 border border-slate-200">
           <h3 className="text-xl font-bold text-slate-800 mb-6 text-center">Sign In</h3>
           
           {errorMsg && (
@@ -176,14 +183,15 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form className="space-y-6" onSubmit={handleLogin}>
+          <form className="space-y-5 sm:space-y-6" onSubmit={handleLogin}>
             <div>
               <label className="block text-sm font-semibold text-slate-700">Alamat Email</label>
+              {/* MODIFIKASI: text-base di HP untuk mencegah iOS auto-zoom, sm:text-sm di desktop */}
               <input
                 type="email"
                 required
                 placeholder="email petugas"
-                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-xl shadow-sm focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm"
+                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-xl shadow-sm focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 text-base sm:text-sm"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -191,21 +199,22 @@ export default function LoginPage() {
 
             <div>
               <label className="block text-sm font-semibold text-slate-700">Password</label>
+              {/* MODIFIKASI: text-base di HP untuk mencegah iOS auto-zoom, sm:text-sm di desktop */}
               <input
                 type="password"
                 required
                 placeholder="•••••"
-                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-xl shadow-sm focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 sm:text-sm"
+                className="mt-1 block w-full px-3 py-2 border border-slate-300 rounded-xl shadow-sm focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 text-base sm:text-sm"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
 
-            <div>
+            <div className="pt-2">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:bg-slate-300 transition-all"
+                className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:bg-slate-300 transition-all cursor-pointer"
               >
                 {loading ? 'Memvalidasi Akses...' : 'Masuk Aplikasi'}
               </button>

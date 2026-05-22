@@ -15,7 +15,8 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, profile, loading } = useAuth();
 
   if (loading) {
-    return <div className="p-10 text-center font-bold text-slate-500">Memeriksa Sesi...</div>;
+    // MODIFIKASI: Menyesuaikan padding dan ukuran font di HP agar lebih proporsional
+    return <div className="p-10 max-md:p-6 text-center font-bold text-slate-500 max-md:text-sm">Memeriksa Sesi...</div>;
   }
 
   // 1. Jika belum login, tendang ke halaman login

@@ -65,28 +65,31 @@ export default function ChangePasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    // MODIFIKASI: Mengurangi padding vertikal (py-6) di HP agar posisi boks lebih seimbang di layar kecil
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-6 px-4 sm:py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-          <h3 className="text-2xl font-bold text-gray-900 mb-2 text-center">Ubah Password Awal</h3>
+        {/* MODIFIKASI: Padding disesuaikan (py-6 px-4 di HP, kembali ke py-8 px-10 di desktop) */}
+        <div className="bg-white py-6 px-4 shadow sm:rounded-lg sm:px-10 border border-gray-200/60 rounded-2xl">
+          <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2 text-center">Ubah Password Awal</h3>
           <p className="text-sm text-gray-500 mb-6 text-center">
             Demi keamanan, Anda diwajibkan mengganti password default (123456) pada login pertama kali.
           </p>
 
           {errorMsg && (
-            <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4 rounded">
-              <p className="text-sm text-red-700">{errorMsg}</p>
+            <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4 rounded-xl">
+              <p className="text-sm font-semibold text-red-700">{errorMsg}</p>
             </div>
           )}
 
-          <form className="space-y-6" onSubmit={handleChangePassword}>
+          <form className="space-y-5 sm:space-y-6" onSubmit={handleChangePassword}>
             <div>
               <label className="block text-sm font-medium text-gray-700">Password Baru</label>
+              {/* MODIFIKASI: text-base di HP untuk mencegah iOS auto-zoom, sm:text-sm di desktop */}
               <input
                 type="password"
                 required
                 placeholder="Minimal 6 karakter"
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-base sm:text-sm"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
               />
@@ -94,23 +97,26 @@ export default function ChangePasswordPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700">Konfirmasi Password Baru</label>
+              {/* MODIFIKASI: text-base di HP untuk mencegah iOS auto-zoom, sm:text-sm di desktop */}
               <input
                 type="password"
                 required
                 placeholder="Ulangi password baru"
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-base sm:text-sm"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400"
-            >
-              {loading ? 'Menyimpan...' : 'Simpan & Masuk Aplikasi'}
-            </button>
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400 transition-all cursor-pointer"
+              >
+                {loading ? 'Menyimpan...' : 'Simpan & Masuk Aplikasi'}
+              </button>
+            </div>
           </form>
         </div>
       </div>

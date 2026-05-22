@@ -177,23 +177,24 @@ export default function SettingsPage() {
 
   if (profile?.role !== 'admin') {
     return (
-      <div className="p-8 text-center">
-        <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl inline-block font-semibold">
+      <div className="p-4 md:p-8 text-center">
+        <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl inline-block font-semibold text-sm max-w-full">
           ⚠️ Akses Ditolak: Halaman ini hanya boleh diakses oleh Admin BPS Kabupaten Boyolali.
         </div>
       </div>
     );
   }
 
-return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 bg-slate-50 min-h-screen">
+  return (
+    // MODIFIKASI: Mengatur padding luar yang lebih fleksibel di mobile (p-4 md:p-6)
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 md:space-y-8 bg-slate-50 min-h-screen">
       <div>
-        <h1 className="text-2xl font-black text-slate-900 tracking-tight">PENGATURAN SISTEM</h1>
-        <p className="text-slate-500 text-sm font-medium">Pusat Kendali Administrasi Sensus Ekonomi 2026</p>
+        <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">PENGATURAN SISTEM</h1>
+        <p className="text-slate-500 text-xs md:text-sm font-medium">Pusat Kendali Administrasi Sensus Ekonomi 2026</p>
       </div>
 
       {message.text && (
-        <div className={`p-4 rounded-xl border-l-4 font-semibold text-sm ${
+        <div className={`p-4 rounded-xl border-l-4 font-semibold text-xs md:text-sm ${
           message.type === 'success' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-rose-50 border-rose-500 text-rose-700'
         }`}>
           {message.text}
@@ -201,13 +202,14 @@ return (
       )}
 
       {/* PANEL 1: SAKELAR ON/OFF PENGISIAN ALOKASI */}
-      <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <h2 className="text-lg font-bold text-slate-800 mb-2">Akses Alokasi Wilayah</h2>
-        <p className="text-slate-500 text-sm mb-6">Kunci atau izinkan seluruh petugas (Pegawai & PML) untuk mengedit data alokasi di halaman alokasi petugas.</p>
+      <section className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
+        <h2 className="text-base md:text-lg font-bold text-slate-800 mb-1">Akses Alokasi Wilayah</h2>
+        <p className="text-slate-500 text-xs md:text-sm mb-4 md:text-left">Kunci atau izinkan seluruh petugas (Pegawai & PML) untuk mengedit data alokasi di halaman alokasi petugas.</p>
         
-        <div className="flex items-center space-x-4 bg-slate-50 p-4 rounded-xl border border-slate-100 max-w-md justify-between">
-          <div>
-            <span className="block font-bold text-slate-700">Status Pengisian Alokasi</span>
+        {/* MODIFIKASI: Diubah flex-col pada layar HP agar tombol tidak gepeng/terpotong, sm:flex-row di desktop */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 max-w-md justify-between">
+          <div className="min-w-0">
+            <span className="block font-bold text-sm text-slate-700">Status Pengisian Alokasi</span>
             <span className={`text-xs font-bold uppercase tracking-wider ${allowAllocation ? 'text-emerald-600' : 'text-rose-600'}`}>
               {allowAllocation ? '● Diizinkan (Buka Akses)' : '■ Dikunci (Waktu Habis)'}
             </span>
@@ -215,42 +217,45 @@ return (
           <button
             onClick={handleToggleAllocation}
             disabled={loadingToggle}
-            className={`px-4 py-2 rounded-xl text-xs font-bold shadow-sm text-white transition-all ${
+            className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl text-xs font-bold shadow-sm text-white transition-all shrink-0 ${
               allowAllocation ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'
-            } disabled:bg-slate-300`}
+            } disabled:bg-slate-300 cursor-pointer`}
           >
             {loadingToggle ? 'Memproses...' : allowAllocation ? 'Kunci Alokasi (OFF)' : 'Buka Alokasi (ON)'}
           </button>
         </div>
       </section>
 
-      {/* LAYOUT BARU: FORM DAN TABEL DIGABUNG SECARA VERTIKAL AGAR LEBIH PLONG */}
-      <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+      {/* LAYOUT UTAMA: FORM DAN TABEL DIGABUNG SECARA VERTIKAL */}
+      <section className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
         
-        {/* FORM INLINE COMPACT (Berjejer ke samping di layar besar, rapi ke bawah di layar HP) */}
+        {/* FORM INLINE COMPACT */}
         <div className="border-b border-slate-100 pb-6">
-          <h2 className="text-lg font-bold text-slate-800 mb-4">Daftarkan Pegawai Organik Baru</h2>
+          <h2 className="text-base md:text-lg font-bold text-slate-800 mb-4">Daftarkan Pegawai Organik Baru</h2>
           <form onSubmit={handleAddUser} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Nama Lengkap</label>
+              <label className="block text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Nama Lengkap</label>
+              {/* MODIFIKASI: text-base di HP untuk cegah iOS zoom, sm:text-xs kembali normal di desktop */}
               <input
                 type="text" required placeholder="Nama Lengkap & Gelar"
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
+                className="w-full px-3 py-2 text-base sm:text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
                 value={nama} onChange={(e) => setNama(e.target.value)}
               />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Email Resmi BPS</label>
+              <label className="block text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Email Resmi BPS</label>
+              {/* MODIFIKASI: text-base di HP untuk cegah iOS zoom, sm:text-xs kembali normal di desktop */}
               <input
                 type="email" required placeholder="contoh@bps.go.id"
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
+                className="w-full px-3 py-2 text-base sm:text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
                 value={email} onChange={(e) => setEmail(e.target.value)}
               />
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Hak Akses Peran</label>
+              <label className="block text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Hak Akses Peran</label>
+              {/* MODIFIKASI: text-base di HP untuk cegah iOS zoom, sm:text-xs kembali normal di desktop */}
               <select
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
+                className="w-full px-3 py-2 text-base sm:text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
                 value={role} onChange={(e) => setRole(e.target.value)}
               >
                 <option value="pegawai">Pegawai Organik</option>
@@ -259,7 +264,7 @@ return (
             </div>
             <button
               type="submit" disabled={loadingUser}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-4 rounded-xl shadow-sm text-xs transition-all h-[34px] disabled:bg-slate-300"
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 sm:py-2 px-4 rounded-xl shadow-sm text-xs transition-all h-[42px] sm:h-[34px] disabled:bg-slate-300 cursor-pointer"
             >
               {loadingUser ? 'Menyimpan...' : '⚡ Daftarkan Akun'}
             </button>
@@ -268,8 +273,8 @@ return (
 
         {/* TABEL DAFTAR PEGAWAI INTERNAL */}
         <div>
-          <h2 className="text-base font-bold text-slate-800 mb-3">Daftar Akun Terdaftar (Internal BPS)</h2>
-          <div className="overflow-x-auto max-h-[300px] overflow-y-auto border border-slate-100 rounded-xl">
+          <h2 className="text-sm md:text-base font-bold text-slate-800 mb-3">Daftar Akun Terdaftar (Internal BPS)</h2>
+          <div className="overflow-x-auto max-h-[300px] overflow-y-auto border border-slate-100 rounded-xl scrollbar-thin">
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
                 <tr>
@@ -304,28 +309,28 @@ return (
       </section>
 
       {/* PANEL 3: PEMBERSIHAN / HAPUS PETUGAS MITRA (PML/PCL) */}
-      {/* ... (Tabel Hapus Petugas Lapangan Anda di bawah tetap dibiarkan seperti sebelumnya) ... */}
-
-      {/* PANEL 3 BARU: PEMBERSIHAN / HAPUS PETUGAS MITRA (PML/PCL) */}
-      <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+      <section className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
+        {/* MODIFIKASI: flex-col di HP agar input pencarian ditarik ke bawah judul dengan rapi, sm:flex-row di desktop */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
-            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <UserMinus className="text-rose-500" size={20} />
+            <h2 className="text-base md:text-lg font-bold text-slate-800 flex items-center gap-2">
+              <UserMinus className="text-rose-500 shrink-0" size={18} />
               Manajemen Eliminasi Petugas Lapangan (PML / PCL)
             </h2>
             <p className="text-slate-500 text-xs mt-0.5">Cari dan hapus data petugas eksternal yang mengundurkan diri atau tidak terpakai dari sistem.</p>
           </div>
           
           {/* Input Live Search */}
-          <div className="relative max-w-xs w-full">
+          {/* MODIFIKASI: max-w-none di HP agar kolom pencarian memenuhi lebar layar mobile */}
+          <div className="relative max-w-none sm:max-w-xs w-full">
             <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
               <Search size={16} />
             </span>
+            {/* MODIFIKASI: text-base di HP untuk cegah iOS zoom, py-2 di HP agar nyaman di-tap */}
             <input
               type="text"
               placeholder="Cari nama atau email petugas..."
-              className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-rose-500 focus:bg-white transition-all"
+              className="w-full pl-9 pr-4 py-2 sm:py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs focus:outline-none focus:ring-1 focus:ring-rose-500 focus:bg-white transition-all"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -333,7 +338,7 @@ return (
         </div>
 
         {/* Tabel Petugas Eksternal */}
-        <div className="overflow-x-auto max-h-[400px] overflow-y-auto border border-slate-100 rounded-xl">
+        <div className="overflow-x-auto max-h-[400px] overflow-y-auto border border-slate-100 rounded-xl scrollbar-thin">
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
               <tr>
@@ -361,9 +366,10 @@ return (
                     </span>
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap text-center">
+                    {/* MODIFIKASI: Memperluas area padding tombol aksi hapus (p-2) agar pas dengan tap target jempol HP */}
                     <button
                       onClick={() => handleDeletePetugas(ptg.email, ptg.nama_petugas)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all inline-block"
                       title="Hapus Petugas Permanen"
                     >
                       <Trash2 size={16} />
