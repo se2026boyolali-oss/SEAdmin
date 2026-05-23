@@ -752,7 +752,7 @@ const AllocationViewContent = ({
                                                     className="px-1 py-0.5 bg-slate-100 hover:bg-amber-100 border border-slate-200 hover:border-amber-300 rounded text-slate-500 transition-colors cursor-pointer text-[9px] font-bold"
                                                     title="Ganti dengan petugas cadangan"
                                                 >
-                                                    🔁 Ganti
+                                                    🔁 Ganti Cadangan
                                                 </button>
                                             )}
                                         </div>
@@ -761,7 +761,7 @@ const AllocationViewContent = ({
                                         <div className="flex flex-wrap items-center gap-1">
                                             {myDesas.length > 0 && (
                                                 <span className="text-[10px] font-medium text-slate-400 uppercase shrink-0">
-                                                    Desa:
+                                                    Desa Tugas:
                                                 </span>
                                             )}
                                             <span className="text-[10px] text-slate-600 font-semibold uppercase">
@@ -773,7 +773,7 @@ const AllocationViewContent = ({
                                     {/* Sisi Kanan (Metrik Muatan) */}
                                     <div className="text-right shrink-0">
                                         <div className="text-[11px] font-black text-slate-700">
-                                            Beban: {workload}
+                                            Perkiraan Beban: {workload}
                                         </div>
                                         <div className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">
                                             {mySls.length} SLS
@@ -786,7 +786,7 @@ const AllocationViewContent = ({
                                     <div>
                                         {userRole !== 'pml' ? (
                                             <div className="flex items-center gap-1.5">
-                                                <span className="text-[10px] font-medium text-slate-400 uppercase">Pindah:</span>
+                                                <span className="text-[10px] font-medium text-slate-400 uppercase">Pindah PML:</span>
                                                 <select
                                                     value={pcl.id_pml_atasan || ""}
                                                     onChange={(e) => handleMovePclToNewPml(pcl.email, e.target.value, pcl.nama_petugas)}
