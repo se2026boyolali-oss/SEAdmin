@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { 
     Users, MapPin, AlertTriangle, CheckCircle2, 
-    Save, RefreshCw, Phone, Search, ChevronDown, ChevronUp, Navigation
+    Save, RefreshCw, Phone, Search, ChevronDown, ChevronUp, Navigation, Camera, WifiOff
 } from 'lucide-react';
 
 export default function PmlMonitoringPage() {
@@ -16,7 +16,12 @@ export default function PmlMonitoringPage() {
     const [pmlCheckingIn, setPmlCheckingIn] = useState(false);
     const [pmlCheckedInToday, setPmlCheckedInToday] = useState(false);
     
-    // State untuk kontrol akordeon list PCL (menyimpan email PCL yang sedang dibuka)
+    // NEW STATE: Kontrol Foto Mandiri PML & Koordinat GPS PML
+    const [pmlPhotoBase64, setPmlPhotoBase64] = useState(null);
+    const [pmlCoords, setPmlCoords] = useState(null);
+    const [showPmlCameraCard, setShowPmlCameraCard] = useState(false);
+
+    // State untuk kontrol akordeon list PCL 
     const [expandedPcl, setExpandedPcl] = useState(null);
     const [realisasiInputs, setRealisasiInputs] = useState({});
 
@@ -30,34 +35,59 @@ export default function PmlMonitoringPage() {
 
         setLoading(true);
         const tglHariIni = getTodayDateString();
+        const cleanPmlEmail = pmlEmail.toLowerCase().trim();
 
+        // =========================================================================
+        // SKENARIO 1: APABILA SUPERVISOR SEDANG OFFLINE TOTAL (LURING)
+        // =========================================================================
+        if (!navigator.onLine) {
+            console.warn("⚠️ Mode Luring PML: Mengambil status pengawasan dari cache lokal HP.");
+            
+            // Ambil status absen mandiri PML hari ini
+            const pmlCheckInStatus = localStorage.getItem(`cache_pml_checkedin_${cleanPmlEmail}_${tglHariIni}`);
+            setPmlCheckedInToday(pmlCheckInStatus === 'true');
+
+            // Ambil daftar rekap PCL binaan terakhir
+            const cachedPclList = localStorage.getItem(`cache_pml_monitoring_list_${cleanPmlEmail}`);
+            if (cachedPclList) {
+                setPcls(JSON.parse(cachedPclList));
+            }
+            setLoading(false);
+            return;
+        }
+
+        // =========================================================================
+        // SKENARIO 2: KONDISI SINYAL NORMAL (DARING)
+        // =========================================================================
         try {
-            // 1. Cek apakah PML sendiri sudah check-in hari ini
+            // 1. Cek log absen PML hari ini
             const { data: pmlCheckInLog } = await supabase
                 .from('log_checkin_pml')
                 .select('id')
-                .eq('pml_email', pmlEmail.toLowerCase().trim())
+                .eq('pml_email', cleanPmlEmail)
                 .eq('tanggal', tglHariIni);
             
-            setPmlCheckedInToday(pmlCheckInLog && pmlCheckInLog.length > 0);
+            const isCheckedIn = pmlCheckInLog && pmlCheckInLog.length > 0;
+            setPmlCheckedInToday(isCheckedIn);
+            localStorage.setItem(`cache_pml_checkedin_${cleanPmlEmail}_${tglHariIni}`, isCheckedIn);
 
-            // 2. Ambil daftar PCL binaan dari tabel petugas
+            // 2. Ambil daftar PCL dari tabel petugas
             const { data: petugasData, error: petugasError } = await supabase
                 .from('petugas')
                 .select('email, nama_petugas, kecamatan_tugas, posisi_tugas, id_pml_atasan')
                 .eq('posisi_tugas', 'PCL')
-                .eq('id_pml_atasan', pmlEmail.toLowerCase().trim())
+                .eq('id_pml_atasan', cleanPmlEmail)
                 .eq('status', 'Diterima');
 
             if (petugasError) throw petugasError;
 
-            // 3. Ambil seluruh Log Check-In PCL
+            // 3. Ambil log check-in PCL
             const { data: allLogs } = await supabase
                 .from('log_checkin_pcl')
                 .select('petugas_email, tanggal, idsubsls')
                 .order('tanggal', { ascending: false });
 
-            // 4. Ambil Log Harian PML khusus hari ini
+            // 4. Ambil log inputan harian realisasi
             const { data: pmlLogs } = await supabase
                 .from('log_harian_pml')
                 .select('pcl_email, estimasi_muatan_hari_ini')
@@ -94,6 +124,8 @@ export default function PmlMonitoringPage() {
             });
 
             setPcls(combinedData);
+            // Simpan backup daftar monitoring ke LocalStorage perangkat
+            localStorage.setItem(`cache_pml_monitoring_list_${cleanPmlEmail}`, JSON.stringify(combinedData));
         } catch (err) {
             console.error(err);
         } finally {
@@ -105,8 +137,60 @@ export default function PmlMonitoringPage() {
         if (!authLoading) fetchPmlData();
     }, [profile, authLoading]);
 
-    // FUNGSI CHECK-IN MANDIRI UNTUK PML
-    const handlePmlCheckIn = () => {
+    // =========================================================================
+    // MESIN PENANGKAP KAMERA & KOMPRESI KAMERA BERSAMA WATERMARK UNTUK PML
+    // =========================================================================
+    const handlePmlCapturePhoto = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setPmlCheckingIn(true);
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                const MAX_WIDTH = 800;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > MAX_WIDTH) {
+                    height = Math.round((height * MAX_WIDTH) / width);
+                    width = MAX_WIDTH;
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+                const latTeks = pmlCoords ? `LAT: ${pmlCoords.latitude.toFixed(6)}` : "LAT: LAPANGAN";
+                const lonTeks = pmlCoords ? `LON: ${pmlCoords.longitude.toFixed(6)}` : "LON: LAPANGAN";
+                const labelSensus = `SUPERVISI SE2026 BOYOLALI - PML`;
+
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                ctx.fillRect(0, height - 100, width, 100);
+
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 16px sans-serif";
+                ctx.fillText(labelSensus, 20, height - 70);
+                
+                ctx.font = "14px monospace";
+                ctx.fillText(tglTeks, 20, height - 45);
+                ctx.fillText(`${latTeks} | ${lonTeks}`, 20, height - 20);
+
+                const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
+                setPmlPhotoBase64(compressedBase64);
+                setPmlCheckingIn(false);
+            };
+        };
+    };
+
+    // INISIASI GPS SEBELUM BUKA KAMERA
+    const handleTriggerPmlLocation = () => {
         if (!navigator.geolocation) {
             alert("HP Anda memblokir fitur lokasi.");
             return;
@@ -114,34 +198,82 @@ export default function PmlMonitoringPage() {
 
         setPmlCheckingIn(true);
         navigator.geolocation.getCurrentPosition(
-            async (position) => {
+            (position) => {
                 const { latitude, longitude } = position.coords;
-                try {
-                    const { error } = await supabase
-                        .from('log_checkin_pml')
-                        .insert({
-                            tanggal: getTodayDateString(),
-                            pml_email: user.email,
-                            idsubsls: pcls[0]?.lastSls || 'WILAYAH-PML', // fallback jika belum ada SLS spesifik
-                            latitude,
-                            longitude
-                        });
-
-                    if (error) throw error;
-                    setPmlCheckedInToday(true);
-                    alert("📍 Sukses Mengunci Koordinat Pendampingan PML!");
-                } catch (err) {
-                    alert("Gagal Check-In PML: " + err.message);
-                } finally {
-                    setPmlCheckingIn(false);
-                }
+                setPmlCoords({ latitude, longitude });
+                setShowPmlCameraCard(true); // Buka form kamera
+                setPmlCheckingIn(false);
             },
             () => {
+                setShowPmlCameraCard(true); // Tetap izinkan buka kamera walaupun GPS lemah
                 setPmlCheckingIn(false);
-                alert("Gagal mengambil GPS HP. Pastikan GPS aktif.");
             },
-            { enableHighAccuracy: true, timeout: 10000 }
+            { enableHighAccuracy: true, timeout: 8000 }
         );
+    };
+
+    // PROSES SUBMIT ABSEN PML KE GOOGLE DRIVE & SUPABASE
+    const submitPmlCheckIn = async () => {
+        const pmlEmail = user?.email || profile?.email;
+        const tglHariIni = getTodayDateString();
+
+        if (!pmlPhotoBase64) {
+            alert("Wajib mengambil foto bukti pengawasan lapangan!");
+            return;
+        }
+
+        setPmlCheckingIn(true);
+        const namaFileUnik = `PML_SE26_${pmlEmail.split('@')[0]}_${tglHariIni}.jpg`;
+        let finalFotoUrl = "OFFLINE_LINK";
+
+        // Skenario jika sedang offline total, simpan status lokal saja dulu
+        if (!navigator.onLine) {
+            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+            setPmlCheckedInToday(true);
+            alert("💾 Absen Pendampingan PML disimpan offline di memori HP!");
+            setShowPmlCameraCard(false);
+            setPmlCheckingIn(false);
+            return;
+        }
+
+        try {
+            // Tembak berkas foto ke Google Drive
+            const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
+            const responseGas = await fetch(gasUrl, {
+                method: "POST",
+                body: JSON.stringify({
+                    fotoBase64: pmlPhotoBase64,
+                    namaFile: namaFileUnik
+                })
+            });
+            const hasilGas = await responseGas.json();
+            if (hasilGas.status === "success") finalFotoUrl = hasilGas.url;
+
+            // Masukkan teks link ke tabel Supabase log_checkin_pml
+            const { error } = await supabase
+                .from('log_checkin_pml')
+                .insert({
+                    tanggal: tglHariIni,
+                    pml_email: pmlEmail.toLowerCase().trim(),
+                    idsubsls: pcls[0]?.lastSls || 'WILAYAH-PML',
+                    latitude: pmlCoords?.latitude || null,
+                    longitude: pmlCoords?.longitude || null,
+                    foto_bukti: finalFotoUrl
+                });
+
+            if (error) throw error;
+
+            setPmlCheckedInToday(true);
+            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+            alert("🎉 Check-In Pendampingan Lapangan Berhasil Tersimpan!");
+            setShowPmlCameraCard(false);
+        } catch (err) {
+            alert("Gagal mengirim data online, absen disimpan lokal di HP: " + err.message);
+            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+            setPmlCheckedInToday(true);
+        } finally {
+            setPmlCheckingIn(false);
+        }
     };
 
     // FUNGSI SIMPAN REALISASI MUATAN PCL BY PML
@@ -153,6 +285,13 @@ export default function PmlMonitoringPage() {
         }
 
         setActionLoading(pclEmail);
+
+        if (!navigator.onLine) {
+            alert("⚠️ Mode Luring Aktif: Input realisasi muatan membutuhkan koneksi internet untuk sinkronisasi target SLS.");
+            setActionLoading(null);
+            return;
+        }
+
         try {
             const { error } = await supabase
                 .from('log_harian_pml')
@@ -200,7 +339,7 @@ export default function PmlMonitoringPage() {
                 <div className="flex justify-between items-start">
                     <div>
                         <span className="text-[9px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
-                            Supervisor (PML)
+                            Supervisor (PML) {!navigator.onLine && "- LURING"}
                         </span>
                         <h2 className="text-base font-black mt-1 uppercase tracking-tight truncate max-w-[200px]">
                             {profile?.nama_pengguna}
@@ -209,36 +348,82 @@ export default function PmlMonitoringPage() {
                             Kecamatan: <span className="text-indigo-400">{profile?.kecamatan_tugas}</span>
                         </p>
                     </div>
-                    <button onClick={fetchPmlData} className="p-2 bg-slate-800 rounded-xl text-slate-400 active:scale-95 transition-all">
+                    <button 
+                        disabled={!navigator.onLine}
+                        onClick={fetchPmlData} 
+                        className="p-2 bg-slate-800 rounded-xl text-slate-400 active:scale-95 transition-all disabled:opacity-30"
+                    >
                         <RefreshCw size={16} />
                     </button>
                 </div>
                 
-                {/* INLINE PML STICKY CHECK-IN BUTTON */}
-                <div className="mt-4 pt-4 border-t border-slate-800/60">
+                {/* INLINE PML STICKY CHECK-IN BUTTON DENGAN SELEKTOR FOTO */}
+                <div className="mt-4 pt-4 border-t border-slate-800/60 space-y-3">
                     {pmlCheckedInToday ? (
                         <div className="w-full bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-2xl py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wide">
                             <CheckCircle2 size={14} className="text-emerald-400" />
-                            Anda Sudah Check-In Pendampingan
+                            Anda Sudah Check-In Supervisi Hari Ini
                         </div>
                     ) : (
-                        <button
-                            disabled={pmlCheckingIn}
-                            onClick={handlePmlCheckIn}
-                            className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3 px-4 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all"
-                        >
-                            {pmlCheckingIn ? (
-                                <>
-                                    <RefreshCw className="animate-spin" size={14} />
-                                    Mengunci Koordinat Anda...
-                                </>
+                        <>
+                            {!showPmlCameraCard ? (
+                                <button
+                                    disabled={pmlCheckingIn}
+                                    onClick={handleTriggerPmlLocation}
+                                    className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3 px-4 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all"
+                                >
+                                    {pmlCheckingIn ? (
+                                        <>
+                                            <RefreshCw className="animate-spin" size={14} />
+                                            Membaca Satelit GPS...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Navigation size={14} className="fill-white" />
+                                            Mulai Check-In Pendampingan PML
+                                        </>
+                                    )}
+                                </button>
                             ) : (
-                                <>
-                                    <Navigation size={14} className="fill-white" />
-                                    Klik Check-In Pendampingan Lapangan
-                                </>
+                                <div className="bg-slate-800 border border-slate-700 p-3 rounded-2xl space-y-3">
+                                    <span className="text-[9px] font-black uppercase text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded block text-center">
+                                        Bukti Foto Lapangan Pengawas
+                                    </span>
+
+                                    {pmlPhotoBase64 ? (
+                                        <div className="relative rounded-xl overflow-hidden border border-slate-600">
+                                            <img src={pmlPhotoBase64} alt="PML Bukti" className="w-full h-32 object-cover" />
+                                            <label className="absolute bottom-2 right-2 bg-slate-900/90 text-white p-2 rounded-xl text-[9px] font-black cursor-pointer uppercase">
+                                                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePmlCapturePhoto} />
+                                                Ulangi Foto
+                                            </label>
+                                        </div>
+                                    ) : (
+                                        <label className="w-full h-20 border-2 border-dashed border-slate-600 hover:border-orange-500 rounded-xl flex flex-col justify-center items-center gap-1 cursor-pointer bg-slate-900 text-slate-400">
+                                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePmlCapturePhoto} />
+                                            <Camera size={20} />
+                                            <span className="text-[10px] font-bold uppercase">Ambil Kamera Supervisi</span>
+                                        </label>
+                                    )}
+
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={() => setShowPmlCameraCard(false)} 
+                                            className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase"
+                                        >
+                                            Batal
+                                        </button>
+                                        <button 
+                                            disabled={!pmlPhotoBase64 || pmlCheckingIn}
+                                            onClick={submitPmlCheckIn}
+                                            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-xl text-xs uppercase disabled:bg-slate-700 disabled:text-slate-500"
+                                        >
+                                            Kunci Absen PML
+                                        </button>
+                                    </div>
+                                </div>
                             )}
-                        </button>
+                        </>
                     )}
                 </div>
             </div>
@@ -298,7 +483,7 @@ export default function PmlMonitoringPage() {
 
                             {/* Konten Konten yang Tersembunyi (Akan Terbuka Saat Diklik) */}
                             {isExpanded && (
-                                <div className="bg-slate-50/60 border-t border-slate-100 p-3.5 space-y-3 animate-slideDown">
+                                <div className="bg-slate-50/60 border-t border-slate-100 p-3.5 space-y-3">
                                     {/* Informasi Wilayah */}
                                     <div className="grid grid-cols-2 gap-2 text-[11px] bg-white p-2.5 rounded-xl border border-slate-100">
                                         <div>
@@ -343,7 +528,7 @@ export default function PmlMonitoringPage() {
                                         </div>
                                     ) : (
                                         <a 
-                                            href={`tel:#`} // Bisa diganti nomor telepon jika ada kolomnya
+                                            href={`tel:#`}
                                             className="w-full bg-white border border-slate-200 text-slate-600 font-bold py-2 px-4 rounded-xl text-xs uppercase flex items-center justify-center gap-2 tracking-wide shadow-sm"
                                         >
                                             <Phone size={12} className="text-rose-500" />
