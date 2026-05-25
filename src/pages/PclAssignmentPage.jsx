@@ -1,12 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { MapPin, Navigation, RefreshCw, CheckCircle2, ShieldAlert, HelpCircle, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { 
+    MapPin, Navigation, RefreshCw, CheckCircle2, ShieldAlert, 
+    HelpCircle, Calendar, ChevronLeft, ChevronRight, Camera, WifiOff, CloudLightning 
+} from 'lucide-react';
+
+// =========================================================================
+// ENGINE INITIALIZATION: INDEXEDDB UNTUK ANTREAN OFFLINE (SOLUSI 2)
+// =========================================================================
+const initOfflineDB = () => {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open("BpsOfflineBackupDB", 1);
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains("pending_checkins")) {
+                db.createObjectStore("pending_checkins", { keyPath: "id", autoIncrement: true });
+            }
+        };
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror = (e) => reject(e.target.error);
+    });
+};
 
 export default function PclAssignmentPage() {
     const { user, profile, loading: authLoading } = useAuth();
     
-    // State Navigasi Slider (0: Halaman Utama, 1: Halaman Kalender)
+    // State Navigasi Slider
     const [activeTab, setActiveTab] = useState(0);
     const [touchStart, setTouchStart] = useState(null);
     const [touchEnd, setTouchEnd] = useState(null);
@@ -16,8 +36,6 @@ export default function PclAssignmentPage() {
     const [actionLoading, setActionLoading] = useState(false);
     const [allMySls, setAllMySls] = useState([]);
     const [todayCheckIns, setTodayCheckIns] = useState([]);
-    
-    // State Riwayat Log Unik (Format: ['2026-05-01', '2026-05-21']) untuk Hijau Kalender
     const [historyDates, setHistoryDates] = useState([]);
 
     // State Hasil Deteksi Posisi GPS
@@ -29,7 +47,11 @@ export default function PclAssignmentPage() {
     // State Kalender Bulanan
     const [currentMonth, setCurrentMonth] = useState(new Date());
 
-    // Batas minimum jarak geser dalam pixel untuk mendeteksi SWIPE
+    // NEW STATE: FOTO, WATERMARK, DAN OFFLINE STATUS
+    const [photoBase64, setPhotoBase64] = useState(null);
+    const [offlineCount, setOfflineCount] = useState(0);
+    const [isSyncing, setIsSyncing] = useState(false);
+
     const minSwipeDistance = 50;
 
     const getTodayDateString = () => {
@@ -42,37 +64,46 @@ export default function PclAssignmentPage() {
         return match ? match[0] : null;
     };
 
+    // Fungsi menghitung jumlah antrean offline yang tersimpan di HP
+    const checkOfflineQueueCount = async () => {
+        try {
+            const db = await initOfflineDB();
+            const tx = db.transaction("pending_checkins", "readonly");
+            const store = tx.objectStore("pending_checkins");
+            const countRequest = store.count();
+            countRequest.onsuccess = () => setOfflineCount(countRequest.result);
+        } catch (err) {
+            console.error("Gagal membaca storage offline HP:", err);
+        }
+    };
+
     const initPclPage = async () => {
         const pclEmail = user?.email || profile?.email;
         if (!pclEmail) return;
 
         setLoading(true);
         const tglHariIni = getTodayDateString();
+        await checkOfflineQueueCount();
 
         try {
-            // 1. Ambil semua beban SLS milik PCL
             const { data: slsData } = await supabase
                 .from('muatan_sls')
                 .select('*')
                 .eq('petugas_id', pclEmail);
             setAllMySls(slsData || []);
 
-            // 2. Ambil SEMUA riwayat tanggal check-in PCL ini untuk menyalakan Hijau Kalender
             const { data: allLogs } = await supabase
                 .from('log_checkin_pcl')
                 .select('tanggal, idsubsls')
                 .eq('petugas_email', pclEmail);
 
             if (allLogs) {
-                // Saring agar hanya menyimpan tanggal unik saja
                 const uniqueDates = [...new Set(allLogs.map(log => log.tanggal))];
                 setHistoryDates(uniqueDates);
 
-                // Filter yang khusus hari ini untuk Tombol Utama
                 const todayLogs = allLogs.filter(log => log.tanggal === tglHariIni).map(log => log.idsubsls);
                 setTodayCheckIns(todayLogs);
             }
-
         } catch (err) {
             console.error("Gagal memuat data:", err.message);
         } finally {
@@ -105,17 +136,71 @@ export default function PclAssignmentPage() {
         const isRightSwipe = distance < -minSwipeDistance;
 
         if (isLeftSwipe && activeTab === 0) {
-            setActiveTab(1); // Geser kiri -> buka kalender
+            setActiveTab(1);
         } else if (isRightSwipe && activeTab === 1) {
-            setActiveTab(0); // Geser kanan -> kembali ke home
+            setActiveTab(0);
         }
     };
 
     // =========================================================================
-    // KERANGKA SIMULASI GEOJSON
+    // IMPLEMENTASI SARAN 1 & 3: KAMERA LINGKUNGAN, KOMPRESI & WATERMARK
     // =========================================================================
+    const handleCapturePhoto = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setActionLoading(true);
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                // Konfigurasi Maksimal Dimensi (Lebar dipaksa max 800px demi hemat RAM HP)
+                const MAX_WIDTH = 800;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > MAX_WIDTH) {
+                    height = Math.round((height * MAX_WIDTH) / width);
+                    width = MAX_WIDTH;
+                }
+
+                // Gambar ke Canvas untuk Kompresi
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // PENYUNTIKAN WATERMARK TEKS PERMANEN DI FOTO (SOLUSI 3)
+                const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+                const latTeks = currentCoords ? `LAT: ${currentCoords.latitude.toFixed(6)}` : "LAT: -";
+                const lonTeks = currentCoords ? `LON: ${currentCoords.longitude.toFixed(6)}` : "LON: -";
+                const labelSensus = `SENSUS EKONOMI 2026 - PCL`;
+
+                // Kotak Hitam Transparan di pojok bawah foto
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                ctx.fillRect(0, height - 100, width, 100);
+
+                // Set Huruf Watermark
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 16px sans-serif";
+                ctx.fillText(labelSensus, 20, height - 70);
+                
+                ctx.font = "14px monospace";
+                ctx.fillText(tglTeks, 20, height - 45);
+                ctx.fillText(`${latTeks} | ${lonTeks}`, 20, height - 20);
+
+                // Ambil string Base64 matang ukuran ~150KB (Kualitas 0.6)
+                const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
+                setPhotoBase64(compressedBase64);
+                setActionLoading(false);
+            };
+        };
+    };
+
     const prosesPencarianGeojson = async (latitude, longitude) => {
-        const kodeKec = getKecamatanCode();
         if (allMySls.length > 0) {
             return {
                 idsubsls: allMySls[0].idsubsls,
@@ -135,6 +220,7 @@ export default function PclAssignmentPage() {
         setActionLoading(true);
         setDetectedSls(null);
         setManualMode(false);
+        setPhotoBase64(null); // Reset foto lama
 
         navigator.geolocation.getCurrentPosition(
             async (position) => {
@@ -160,44 +246,114 @@ export default function PclAssignmentPage() {
         );
     };
 
+    // =========================================================================
+    // SUBMIT DATA (MENDUKUNG TRANSMISI INTERNET DAN SISTEM JALUR OFFLINE)
+    // =========================================================================
     const submitCheckInData = async (targetIdSubSls) => {
         const pclEmail = user?.email || profile?.email;
         const tglHariIni = getTodayDateString();
 
-        if (todayCheckIns.includes(targetIdSubSls)) {
-            alert("Wilayah SLS ini sudah Anda check-in hari ini!");
+        if (!photoBase64) {
+            alert("Wajib mengambil foto lokasi/papan nama terlebih dahulu sebagai bukti jepret lapangan!");
             return;
         }
 
         setActionLoading(true);
+
+        const payloadData = {
+            tanggal: tglHariIni,
+            idsubsls: targetIdSubSls,
+            petugas_email: pclEmail,
+            latitude: currentCoords?.latitude || null,
+            longitude: currentCoords?.longitude || null,
+            is_within_range: !manualMode,
+            foto_bukti: photoBase64 // Disimpan sebagai text base64 terkompresi di tabel database
+        };
+
         try {
+            // Coba tembak langsung ke server Supabase
             const { error } = await supabase
                 .from('log_checkin_pcl')
-                .insert({
-                    tanggal: tglHariIni,
-                    idsubsls: targetIdSubSls,
-                    petugas_email: pclEmail,
-                    latitude: currentCoords?.latitude || null,
-                    longitude: currentCoords?.longitude || null,
-                    is_within_range: !manualMode
-                });
+                .insert(payloadData);
 
             if (error) throw error;
 
+            // Skenario Sukses Online
             setTodayCheckIns(prev => [...prev, targetIdSubSls]);
             if (!historyDates.includes(tglHariIni)) {
-                setHistoryDates(prev => [...prev, tglHariIni]); // Auto ijokan kalender hari ini
+                setHistoryDates(prev => [...prev, tglHariIni]);
             }
-
-            alert("🎉 Check-In Sukses Disimpan!");
-            setDetectedSls(null);
-            setSelectedManualSls("");
-            setManualMode(false);
+            alert("🎉 Check-In Online Sukses Disimpan!");
+            resetForm();
 
         } catch (err) {
-            alert("Gagal kirim log: " + err.message);
+            // SOLUSI 2: JIKA INTERNET MATI / TIMEOUT, AMANKAN KE STORAGE OFFLINE HP
+            console.warn("🌐 Sinyal buruk terdeteksi, mengalihkan data ke memori lokal HP...", err.message);
+            try {
+                const db = await initOfflineDB();
+                const tx = db.transaction("pending_checkins", "readwrite");
+                const store = tx.objectStore("pending_checkins");
+                store.add(payloadData);
+
+                alert("💾 Sinyal Low! Log Check-In dan Foto Anda telah diamankan di memori lokal HP. Ingat klik tombol sinkronisasi saat sudah dapat sinyal.");
+                await checkOfflineQueueCount();
+                resetForm();
+            } catch (storageErr) {
+                alert("HP Anda kehabisan ruang penyimpanan lokal: " + storageErr.message);
+            }
         } finally {
             setActionLoading(false);
+        }
+    };
+
+    const resetForm = () => {
+        setDetectedSls(null);
+        setSelectedManualSls("");
+        setManualMode(false);
+        setPhotoBase64(null);
+    };
+
+    // FUNGSI SINKRONISASI DATA LOG OFFLINE SAAT KEMBALI DAPAT SINYAL
+    const handleSyncOfflineData = async () => {
+        setIsSyncing(true);
+        try {
+            const db = await initOfflineDB();
+            const tx = db.transaction("pending_checkins", "readonly");
+            const store = tx.objectStore("pending_checkins");
+            const getAllRequest = store.getAll();
+
+            getAllRequest.onsuccess = async () => {
+                const records = getAllRequest.result;
+                if (records.length === 0) {
+                    setIsSyncing(false);
+                    return;
+                }
+
+                let suksesCount = 0;
+                for (let record of records) {
+                    // Hapus auto-increment id lokal sebelum didorong ke postgres
+                    const { id, ...purePayload } = record;
+                    
+                    const { error } = await supabase
+                        .from('log_checkin_pcl')
+                        .insert(purePayload);
+
+                    if (!error) {
+                        suksesCount++;
+                        // Hapus dari IndexedDB setelah sukses terkirim
+                        const deleteTx = db.transaction("pending_checkins", "readwrite");
+                        deleteTx.objectStore("pending_checkins").delete(id);
+                    }
+                }
+
+                alert(`📡 Sinkronisasi Selesai! Berhasil mengirim ${suksesCount} data tunda ke server BPS.`);
+                await checkOfflineQueueCount();
+                initPclPage(); // Muat ulang lingkaran kalender
+            };
+        } catch (err) {
+            alert("Gagal sinkronisasi: " + err.message);
+        } finally {
+            setIsSyncing(false);
         }
     };
 
@@ -212,15 +368,12 @@ export default function PclAssignmentPage() {
         const daysInMonth = new Date(year, month + 1, 0).getDate();
 
         const cells = [];
-        // Isi ruang kosong untuk hari di bulan sebelumnya
-        const startDayIndex = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1; // Sesuai baris Senin-Minggu
+        const startDayIndex = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1; 
         for (let i = 0; i < startDayIndex; i++) {
             cells.push(<div key={`empty-${i}`} className="h-10"></div>);
         }
 
-        // Loop isi tanggal bulan ini
         for (let day = 1; day <= daysInMonth; day++) {
-            // Rakit string YYYY-MM-DD lokal
             const dString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isCheckedIn = historyDates.includes(dString);
 
@@ -260,7 +413,7 @@ export default function PclAssignmentPage() {
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
         >
-            {/* KARTU PROFIL UTAMA (TETAP DI ATAS FIXED) */}
+            {/* COMPACT TOP PROFILE */}
             <div className="p-4 bg-slate-50 shrink-0">
                 <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-3xl p-5 shadow-xl border border-slate-700/50">
                     <div className="flex justify-between items-center">
@@ -279,61 +432,94 @@ export default function PclAssignmentPage() {
                     </div>
                 </div>
 
-                {/* PENANDA TITIK DOTS CAROUSEL (○ •) */}
+                {/* BANNER NOTIFIKASI JIKA ADA DATA OFFLINE YANG TERSANGKUT DI HP */}
+                {offlineCount > 0 && (
+                    <div className="mt-3 bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-2xl flex items-center justify-between text-xs font-bold">
+                        <div className="flex items-center gap-2">
+                            <WifiOff size={16} className="text-rose-500 shrink-0 animate-pulse" />
+                            <span>Ada {offlineCount} Absen Belum Terkirim</span>
+                        </div>
+                        <button 
+                            disabled={isSyncing}
+                            onClick={handleSyncOfflineData}
+                            className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-xl flex items-center gap-1 text-[11px] font-black transition-all"
+                        >
+                            {isSyncing ? <RefreshCw className="animate-spin" size={12} /> : <CloudLightning size={12} />}
+                            KIRIM
+                        </button>
+                    </div>
+                )}
+
                 <div className="flex justify-center gap-2 mt-4">
                     <button onClick={() => setActiveTab(0)} className={`h-2 transition-all rounded-full ${activeTab === 0 ? 'w-6 bg-orange-500' : 'w-2 bg-slate-300'}`}></button>
                     <button onClick={() => setActiveTab(1)} className={`h-2 transition-all rounded-full ${activeTab === 1 ? 'w-6 bg-orange-500' : 'w-2 bg-slate-300'}`}></button>
                 </div>
             </div>
 
-            {/* CONTAINER CONTAINER UTAMA CAROUSEL SLIDE */}
+            {/* CONTAINER UTAMA SLIDER PANEL */}
             <div className="flex-1 flex w-[200%] transition-transform duration-300 ease-out" style={{ transform: `translateX(-${activeTab * 50}%)` }}>
                 
-                {/* PANEL 1: TOMBOL SENTRAL CHECK-IN (SISI KIRI) */}
+                {/* PANEL 1: TOMBOL CENTRAL ABSEN LENGKAP JEP RET FOTO */}
                 <div className="w-1/2 p-4 shrink-0 flex flex-col justify-start">
-                    <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm text-center space-y-6">
+                    <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm text-center space-y-5">
                         <div>
                             <h3 className="text-base font-black text-slate-800">Pusat Absensi Lapangan</h3>
-                            <p className="text-xs text-slate-400 mt-1">Cukup tekan tombol di bawah saat Anda sudah sampai di lokasi SLS target cacah.</p>
+                            <p className="text-xs text-slate-400 mt-1">Sistem otomatis mendeteksi SLS koordinat dan mewajibkan jepret foto lokasi.</p>
                         </div>
 
                         {/* TOMBOL UTAMA BULAT BESAR */}
-                        <div className="flex justify-center items-center py-4">
+                        <div className="flex justify-center items-center py-2">
                             <button
                                 disabled={actionLoading}
                                 onClick={handleDetectLocation}
-                                className={`w-36 h-36 rounded-full flex flex-col justify-center items-center gap-2 font-black text-sm uppercase tracking-wider border-8 shadow-xl transition-all duration-300 active:scale-95 ${
+                                className={`w-32 h-32 rounded-full flex flex-col justify-center items-center gap-2 font-black text-sm uppercase tracking-wider border-8 shadow-xl transition-all duration-300 active:scale-95 ${
                                     actionLoading 
                                         ? 'bg-slate-100 border-slate-200 text-slate-400' 
                                         : 'bg-orange-500 hover:bg-orange-600 border-orange-100 text-white shadow-orange-500/20'
                                 }`}
                             >
-                                {actionLoading ? (
-                                    <RefreshCw className="animate-spin" size={32} />
-                                ) : (
-                                    <Navigation className="fill-white" size={32} />
-                                )}
-                                <span className="text-xs">{actionLoading ? "Mencari..." : "Check In"}</span>
+                                {actionLoading ? <RefreshCw className="animate-spin" size={28} /> : <Navigation className="fill-white" size={28} />}
+                                <span className="text-[11px]">{actionLoading ? "Mencari..." : "Check In"}</span>
                             </button>
                         </div>
 
-                        {/* HASIL DETEKSI GPS AUTOMATIC */}
-                        {detectedSls && !manualMode && (
-                            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-left">
-                                <div className="flex items-start gap-3">
-                                    <CheckCircle2 className="text-emerald-600 shrink-0 mt-0.5" size={18} />
-                                    <div className="flex-1 min-w-0">
-                                        <span className="text-[9px] font-black uppercase text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded">Lokasi Terdeteksi</span>
-                                        <h4 className="font-black text-slate-800 text-sm mt-1 uppercase truncate">{detectedSls.nmsls}</h4>
-                                        <p className="text-[11px] font-bold text-slate-500 uppercase">Desa {detectedSls.nmdesa}</p>
+                        {/* SLOT INTEGRASI KAMERA LINGKUNGAN (MUNCUL JIKA LOKASI SUDAH TERKUNCI) */}
+                        {(detectedSls || selectedManualSls) && (
+                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-3 animate-fadeIn">
+                                <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">
+                                    Langkah Akhir: Ambil Foto Bukti
+                                </span>
+                                
+                                {photoBase64 ? (
+                                    <div className="relative rounded-xl overflow-hidden border border-slate-300 shadow-inner">
+                                        <img src={photoBase64} alt="Preview Bukti" className="w-full h-36 object-cover" />
+                                        <label className="absolute bottom-2 right-2 bg-slate-900/80 text-white p-2 rounded-xl text-[10px] font-black cursor-pointer uppercase tracking-wider">
+                                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCapturePhoto} />
+                                            Ulangi Foto
+                                        </label>
+                                    </div>
+                                ) : (
+                                    <label className="w-full h-24 border-2 border-dashed border-slate-300 hover:border-orange-400 rounded-xl flex flex-col justify-center items-center gap-1.5 cursor-pointer bg-white transition-all text-slate-400">
+                                        {/* MANDATORY INPUT HIDDEN FOR CAMERA ONLY (SOLUSI 3) */}
+                                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCapturePhoto} />
+                                        <Camera size={24} className="text-slate-400" />
+                                        <span className="text-xs font-bold uppercase tracking-wider">Buka Kamera Lapangan</span>
+                                    </label>
+                                )}
+
+                                {/* Tombol Aksi Akhir */}
+                                {detectedSls && !manualMode && (
+                                    <div className="pt-2">
+                                        <h4 className="font-black text-slate-800 text-xs uppercase truncate">Target: {detectedSls.nmsls}</h4>
                                         <button
+                                            disabled={!photoBase64 || actionLoading}
                                             onClick={() => submitCheckInData(detectedSls.idsubsls)}
-                                            className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-xl text-xs uppercase tracking-wider shadow-md transition-all"
+                                            className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300"
                                         >
-                                            Ya, Simpan Check-In
+                                            Kirim Absen & Foto Bukti
                                         </button>
                                     </div>
-                                </div>
+                                )}
                             </div>
                         )}
 
@@ -356,13 +542,16 @@ export default function PclAssignmentPage() {
                                         </option>
                                     ))}
                                 </select>
-                                <button
-                                    disabled={!selectedManualSls}
-                                    onClick={() => submitCheckInData(selectedManualSls)}
-                                    className="w-full mt-3 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300"
-                                >
-                                    Kunci Pilihan Manual
-                                </button>
+                                
+                                {selectedManualSls && (
+                                    <button
+                                        disabled={!photoBase64 || actionLoading}
+                                        onClick={() => submitCheckInData(selectedManualSls)}
+                                        className="w-full mt-3 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300"
+                                    >
+                                        Kunci Pilihan Manual & Kirim
+                                    </button>
+                                )}
                             </div>
                         )}
 
@@ -379,11 +568,9 @@ export default function PclAssignmentPage() {
                     </div>
                 </div>
 
-                {/* PANEL 2: KALENDER ABSENSI PROGRES HIJAU (SISI KANAN) */}
+                {/* PANEL 2: KALENDER ABSENSI */}
                 <div className="w-1/2 p-4 shrink-0 flex flex-col justify-start">
                     <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm">
-                        
-                        {/* HEADER INTERNAL KALENDER (NAVIGASI BULAN) */}
                         <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
                             <button onClick={() => changeMonth(-1)} className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 transition-all">
                                 <ChevronLeft size={16} />
@@ -396,18 +583,15 @@ export default function PclAssignmentPage() {
                             </button>
                         </div>
 
-                        {/* GRID HARI: SENIN s.d MINGGU */}
                         <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-400 uppercase tracking-tight mb-2">
                             <div>Sen</div><div>Sel</div><div>Rab</div><div>Kam</div><div>Jum</div><div>Sab</div><div>Min</div>
                         </div>
 
-                        {/* DYNAMIC PETAK TANGGAL */}
                         <div className="grid grid-cols-7 gap-y-2 gap-x-1 text-center">
                             {renderCalendarCells()}
                         </div>
                     </div>
 
-                    {/* KETERANGAN WARNA KALENDER */}
                     <div className="mt-4 p-3 bg-white border border-slate-200 rounded-2xl flex items-center gap-3 text-xs">
                         <div className="h-5 w-5 bg-emerald-500 rounded-lg shadow-sm"></div>
                         <span className="font-bold text-slate-600">Hari Masuk Lapangan (Ada Log Check-In)</span>
