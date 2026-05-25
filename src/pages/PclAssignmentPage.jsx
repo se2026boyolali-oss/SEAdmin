@@ -249,17 +249,42 @@ export default function PclAssignmentPage() {
     // =========================================================================
     // SUBMIT DATA (MENDUKUNG TRANSMISI INTERNET DAN SISTEM JALUR OFFLINE)
     // =========================================================================
-    const submitCheckInData = async (targetIdSubSls) => {
-        const pclEmail = user?.email || profile?.email;
-        const tglHariIni = getTodayDateString();
+const submitCheckInData = async (targetIdSubSls) => {
+    const pclEmail = user?.email || profile?.email;
+    const tglHariIni = getTodayDateString();
 
-        if (!photoBase64) {
-            alert("Wajib mengambil foto lokasi/papan nama terlebih dahulu sebagai bukti jepret lapangan!");
-            return;
+    if (!photoBase64) {
+        alert("Wajib mengambil foto lokasi/papan nama terlebih dahulu sebagai bukti jepret lapangan!");
+        return;
+    }
+
+    setActionLoading(true);
+
+    // 1. GENERALISASI IDENTITAS FILE UNIK
+    const namaFileUnik = `SE26_${targetIdSubSls}_${pclEmail.split('@')[0]}_${tglHariIni}.jpg`;
+    let finalFotoUrl = "";
+
+    try {
+        // 2. UNGGAH FOTO BASE64 KE GOOGLE DRIVE VIA APPS SCRIPT SECARA SILUMAN
+        const gasUrl = "PASTE_URL_WEB_APP_APPS_SCRIPT_ANDA_DI_SINI"; // Masukkan URL dari Langkah 2
+        
+        const responseGas = await fetch(gasUrl, {
+            method: "POST",
+            body: JSON.stringify({
+                fotoBase64: photoBase64,
+                namaFile: namaFileUnik
+            })
+        });
+
+        const hasilGas = await responseGas.json();
+
+        if (hasilGas.status === "success") {
+            finalFotoUrl = hasilGas.url; // Selamat! Anda mendapatkan URL Google Drive gratisan
+        } else {
+            throw new Error("Google Apps Script menolak file: " + hasilGas.message);
         }
 
-        setActionLoading(true);
-
+        // 3. SUSUN PAYLOAD DATA UNTUK SUPABASE (SEKARANG JAUH LEBIH RINGAN KARENA HANYA BERISI URL TEXT)
         const payloadData = {
             tanggal: tglHariIni,
             idsubsls: targetIdSubSls,
@@ -267,44 +292,52 @@ export default function PclAssignmentPage() {
             latitude: currentCoords?.latitude || null,
             longitude: currentCoords?.longitude || null,
             is_within_range: !manualMode,
-            foto_bukti: photoBase64 // Disimpan sebagai text base64 terkompresi di tabel database
+            foto_bukti: finalFotoUrl // Berisi string URL "https://drive.google.com..." (~0.1 KB saja!)
         };
 
-        try {
-            // Coba tembak langsung ke server Supabase
-            const { error } = await supabase
-                .from('log_checkin_pcl')
-                .insert(payloadData);
+        // 4. KIRIM DATA KE TABLE UTAMA SUPABASE
+        const { error } = await supabase
+            .from('log_checkin_pcl')
+            .insert(payloadData);
 
-            if (error) throw error;
+        if (error) throw error;
 
-            // Skenario Sukses Online
-            setTodayCheckIns(prev => [...prev, targetIdSubSls]);
-            if (!historyDates.includes(tglHariIni)) {
-                setHistoryDates(prev => [...prev, tglHariIni]);
-            }
-            alert("🎉 Check-In Online Sukses Disimpan!");
-            resetForm();
-
-        } catch (err) {
-            // SOLUSI 2: JIKA INTERNET MATI / TIMEOUT, AMANKAN KE STORAGE OFFLINE HP
-            console.warn("🌐 Sinyal buruk terdeteksi, mengalihkan data ke memori lokal HP...", err.message);
-            try {
-                const db = await initOfflineDB();
-                const tx = db.transaction("pending_checkins", "readwrite");
-                const store = tx.objectStore("pending_checkins");
-                store.add(payloadData);
-
-                alert("💾 Sinyal Low! Log Check-In dan Foto Anda telah diamankan di memori lokal HP. Ingat klik tombol sinkronisasi saat sudah dapat sinyal.");
-                await checkOfflineQueueCount();
-                resetForm();
-            } catch (storageErr) {
-                alert("HP Anda kehabisan ruang penyimpanan lokal: " + storageErr.message);
-            }
-        } finally {
-            setActionLoading(false);
+        setTodayCheckIns(prev => [...prev, targetIdSubSls]);
+        if (!historyDates.includes(tglHariIni)) {
+            setHistoryDates(prev => [...prev, tglHariIni]);
         }
-    };
+        alert("🎉 Check-In Sukses & Foto Tersimpan di Google Drive!");
+        resetForm();
+
+    } catch (err) {
+        // SOLUSI CADANGAN JIKA SINYAL PUTUS ATAU GOOGLE SERVER TIMEOUT
+        console.warn("Mengalihkan data log ke antrean offline HP...", err.message);
+        try {
+            const db = await initOfflineDB();
+            const tx = db.transaction("pending_checkins", "readwrite");
+            const store = tx.objectStore("pending_checkins");
+            
+            // Simpan foto asli base64 ke IndexedDB HP agar tidak hilang saat mati sinyal
+            store.add({
+                tanggal: tglHariIni,
+                idsubsls: targetIdSubSls,
+                petugas_email: pclEmail,
+                latitude: currentCoords?.latitude || null,
+                longitude: currentCoords?.longitude || null,
+                is_within_range: !manualMode,
+                fotoBase64Cadangan: photoBase64 // Disimpan lokal di HP petugas sementara waktu
+            });
+
+            alert("💾 Sinyal Low / Google Drive sibuk! Data diamankan di memori lokal HP.");
+            await checkOfflineQueueCount();
+            resetForm();
+        } catch (storageErr) {
+            alert("Gagal mengamankan data lokal: " + storageErr.message);
+        }
+    } finally {
+        setActionLoading(false);
+    }
+};
 
     const resetForm = () => {
         setDetectedSls(null);
@@ -314,48 +347,74 @@ export default function PclAssignmentPage() {
     };
 
     // FUNGSI SINKRONISASI DATA LOG OFFLINE SAAT KEMBALI DAPAT SINYAL
-    const handleSyncOfflineData = async () => {
-        setIsSyncing(true);
-        try {
-            const db = await initOfflineDB();
-            const tx = db.transaction("pending_checkins", "readonly");
-            const store = tx.objectStore("pending_checkins");
-            const getAllRequest = store.getAll();
+const handleSyncOfflineData = async () => {
+    setIsSyncing(true);
+    try {
+        const db = await initOfflineDB();
+        const tx = db.transaction("pending_checkins", "readonly");
+        const store = tx.objectStore("pending_checkins");
+        const getAllRequest = store.getAll();
 
-            getAllRequest.onsuccess = async () => {
-                const records = getAllRequest.result;
-                if (records.length === 0) {
-                    setIsSyncing(false);
-                    return;
-                }
+        getAllRequest.onsuccess = async () => {
+            const records = getAllRequest.result;
+            if (records.length === 0) {
+                setIsSyncing(false);
+                return;
+            }
 
-                let suksesCount = 0;
-                for (let record of records) {
-                    // Hapus auto-increment id lokal sebelum didorong ke postgres
-                    const { id, ...purePayload } = record;
+            let suksesCount = 0;
+            const gasUrl = "PASTE_URL_WEB_APP_APPS_SCRIPT_ANDA_DI_SINI";
+
+            for (let record of records) {
+                try {
+                    const namaFileUnik = `SE26_${record.idsubsls}_${record.petugas_email.split('@')[0]}_${record.tanggal}.jpg`;
                     
-                    const { error } = await supabase
-                        .from('log_checkin_pcl')
-                        .insert(purePayload);
+                    // 1. Lempar foto offline yang tertunda ke Google Drive terlebih dahulu
+                    const resGas = await fetch(gasUrl, {
+                        method: "POST",
+                        body: JSON.stringify({
+                            fotoBase64: record.fotoBase64Cadangan,
+                            namaFile: namaFileUnik
+                        })
+                    });
+                    const hasilGas = await resGas.json();
 
-                    if (!error) {
-                        suksesCount++;
-                        // Hapus dari IndexedDB setelah sukses terkirim
-                        const deleteTx = db.transaction("pending_checkins", "readwrite");
-                        deleteTx.objectStore("pending_checkins").delete(id);
+                    if (hasilGas.status === "success") {
+                        // 2. Jika sukses dapat URL Google Drive, baru dorong teksnya ke Supabase
+                        const { error } = await supabase
+                            .from('log_checkin_pcl')
+                            .insert({
+                                tanggal: record.tanggal,
+                                idsubsls: record.idsubsls,
+                                petugas_email: record.petugas_email,
+                                latitude: record.latitude,
+                                longitude: record.longitude,
+                                is_within_range: record.is_within_range,
+                                foto_bukti: hasilGas.url
+                            });
+
+                        if (!error) {
+                            suksesCount++;
+                            // Hapus antrean item ini dari memori HP karena sudah sukses terunggah ganda
+                            const deleteTx = db.transaction("pending_checkins", "readwrite");
+                            deleteTx.objectStore("pending_checkins").delete(record.id);
+                        }
                     }
+                } catch (loopErr) {
+                    console.error("Gagal mengirim satu baris antrean:", loopErr);
                 }
+            }
 
-                alert(`📡 Sinkronisasi Selesai! Berhasil mengirim ${suksesCount} data tunda ke server BPS.`);
-                await checkOfflineQueueCount();
-                initPclPage(); // Muat ulang lingkaran kalender
-            };
-        } catch (err) {
-            alert("Gagal sinkronisasi: " + err.message);
-        } finally {
-            setIsSyncing(false);
-        }
-    };
+            alert(`📡 Sinkronisasi Selesai! Berhasil merestorasi ${suksesCount} log absen ke server.`);
+            await checkOfflineQueueCount();
+            initPclPage();
+        };
+    } catch (err) {
+        alert("Gagal total sinkronisasi: " + err.message);
+    } finally {
+        setIsSyncing(false);
+    }
+};
 
     // =========================================================================
     // LOGIKA GENERATOR ENGINE KALENDER BULANAN
