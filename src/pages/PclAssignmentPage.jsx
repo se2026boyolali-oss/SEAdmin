@@ -266,7 +266,7 @@ const submitCheckInData = async (targetIdSubSls) => {
 
     try {
         // 2. UNGGAH FOTO BASE64 KE GOOGLE DRIVE VIA APPS SCRIPT SECARA SILUMAN
-        const gasUrl = "PASTE_URL_WEB_APP_APPS_SCRIPT_ANDA_DI_SINI"; // Masukkan URL dari Langkah 2
+        const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec"; // Masukkan URL dari Langkah 2
         
         const responseGas = await fetch(gasUrl, {
             method: "POST",
@@ -363,7 +363,7 @@ const handleSyncOfflineData = async () => {
             }
 
             let suksesCount = 0;
-            const gasUrl = "PASTE_URL_WEB_APP_APPS_SCRIPT_ANDA_DI_SINI";
+            const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
 
             for (let record of records) {
                 try {
