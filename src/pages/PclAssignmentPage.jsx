@@ -3,11 +3,11 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { 
     MapPin, Navigation, RefreshCw, CheckCircle2, ShieldAlert, 
-    HelpCircle, Calendar, ChevronLeft, ChevronRight, Camera, WifiOff, CloudLightning 
+    HelpCircle, Calendar, ChevronLeft, ChevronRight, Camera, WifiOff, CloudLightning, AlertOctagon
 } from 'lucide-react';
 
 // =========================================================================
-// ENGINE INITIALIZATION: INDEXEDDB UNTUK ANTREAN OFFLINE (SOLUSI 2)
+// ENGINE INITIALIZATION: INDEXEDDB UNTUK ANTREAN OFFLINE
 // =========================================================================
 const initOfflineDB = () => {
     return new Promise((resolve, reject) => {
@@ -44,13 +44,16 @@ export default function PclAssignmentPage() {
     const [manualMode, setManualMode] = useState(false);
     const [selectedManualSls, setSelectedManualSls] = useState("");
 
-    // State Kalender Bulanan
-    const [currentMonth, setCurrentMonth] = useState(new Date());
+    // STATE WARNING BLOCKER JIKA PETUGAS DI LUAR WILAYAH KECAMATAN TUGAS
+    const [isOutsideBorderBlock, setIsOutsideBorderBlock] = useState(false);
 
-    // NEW STATE: FOTO, WATERMARK, DAN OFFLINE STATUS
+    // STATE: FOTO, WATERMARK, DAN OFFLINE STATUS
     const [photoBase64, setPhotoBase64] = useState(null);
     const [offlineCount, setOfflineCount] = useState(0);
     const [isSyncing, setIsSyncing] = useState(false);
+
+    // State Kalender Bulanan
+    const [currentMonth, setCurrentMonth] = useState(new Date());
 
     const minSwipeDistance = 50;
 
@@ -64,7 +67,6 @@ export default function PclAssignmentPage() {
         return match ? match[0] : null;
     };
 
-    // Fungsi menghitung jumlah antrean offline yang tersimpan di HP
     const checkOfflineQueueCount = async () => {
         try {
             const db = await initOfflineDB();
@@ -83,29 +85,50 @@ export default function PclAssignmentPage() {
 
         setLoading(true);
         const tglHariIni = getTodayDateString();
+        const cleanEmail = pclEmail.toLowerCase().trim();
         await checkOfflineQueueCount();
+
+        if (!navigator.onLine) {
+            console.warn("🌐 [LURING] Memulihkan data penugasan dari memori cache HP.");
+            const cachedSls = localStorage.getItem(`cache_sls_beban_${cleanEmail}`);
+            if (cachedSls) setAllMySls(JSON.parse(cachedSls));
+
+            const cachedToday = localStorage.getItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`);
+            if (cachedToday) setTodayCheckIns(JSON.parse(cachedToday));
+
+            const cachedHistory = localStorage.getItem(`cache_history_dates_${cleanEmail}`);
+            if (cachedHistory) setHistoryDates(JSON.parse(cachedHistory));
+
+            setLoading(false);
+            return;
+        }
 
         try {
             const { data: slsData } = await supabase
                 .from('muatan_sls')
                 .select('*')
-                .eq('petugas_id', pclEmail);
+                .eq('petugas_id', cleanEmail);
             setAllMySls(slsData || []);
+            localStorage.setItem(`cache_sls_beban_${cleanEmail}`, JSON.stringify(slsData || []));
 
             const { data: allLogs } = await supabase
                 .from('log_checkin_pcl')
                 .select('tanggal, idsubsls')
-                .eq('petugas_email', pclEmail);
+                .eq('petugas_email', cleanEmail);
 
             if (allLogs) {
                 const uniqueDates = [...new Set(allLogs.map(log => log.tanggal))];
                 setHistoryDates(uniqueDates);
+                localStorage.setItem(`cache_history_dates_${cleanEmail}`, JSON.stringify(uniqueDates));
 
                 const todayLogs = allLogs.filter(log => log.tanggal === tglHariIni).map(log => log.idsubsls);
                 setTodayCheckIns(todayLogs);
+                localStorage.setItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`, JSON.stringify(todayLogs));
             }
         } catch (err) {
-            console.error("Gagal memuat data:", err.message);
+            console.error(err.message);
+            const cachedSls = localStorage.getItem(`cache_sls_beban_${cleanEmail}`);
+            if (cachedSls) setAllMySls(JSON.parse(cachedSls));
         } finally {
             setLoading(false);
         }
@@ -117,9 +140,16 @@ export default function PclAssignmentPage() {
         }
     }, [profile, authLoading, user]);
 
-    // =========================================================================
-    // LOGIKA SWIPE LAYAR GESTURE HANDLER
-    // =========================================================================
+    useEffect(() => {
+        const handleSignalToggle = () => checkOfflineQueueCount();
+        window.addEventListener('online', handleSignalToggle);
+        window.addEventListener('offline', handleSignalToggle);
+        return () => {
+            window.removeEventListener('online', handleSignalToggle);
+            window.removeEventListener('offline', handleSignalToggle);
+        };
+    }, []);
+
     const onTouchStart = (e) => {
         setTouchEnd(null);
         setTouchStart(e.targetTouches[0].clientX);
@@ -142,9 +172,6 @@ export default function PclAssignmentPage() {
         }
     };
 
-    // =========================================================================
-    // IMPLEMENTASI SARAN 1 & 3: KAMERA LINGKUNGAN, KOMPRESI & WATERMARK
-    // =========================================================================
     const handleCapturePhoto = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -156,7 +183,6 @@ export default function PclAssignmentPage() {
             const img = new Image();
             img.src = event.target.result;
             img.onload = () => {
-                // Konfigurasi Maksimal Dimensi (Lebar dipaksa max 800px demi hemat RAM HP)
                 const MAX_WIDTH = 800;
                 let width = img.width;
                 let height = img.height;
@@ -166,24 +192,20 @@ export default function PclAssignmentPage() {
                     width = MAX_WIDTH;
                 }
 
-                // Gambar ke Canvas untuk Kompresi
                 const canvas = document.createElement('canvas');
                 canvas.width = width;
                 canvas.height = height;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
 
-                // PENYUNTIKAN WATERMARK TEKS PERMANEN DI FOTO (SOLUSI 3)
                 const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-                const latTeks = currentCoords ? `LAT: ${currentCoords.latitude.toFixed(6)}` : "LAT: -";
-                const lonTeks = currentCoords ? `LON: ${currentCoords.longitude.toFixed(6)}` : "LON: -";
+                const latTeks = currentCoords ? `LAT: ${currentCoords.latitude.toFixed(6)}` : "LAT: ERROR";
+                const lonTeks = currentCoords ? `LON: ${currentCoords.longitude.toFixed(6)}` : "LON: ERROR";
                 const labelSensus = `SENSUS EKONOMI 2026 - PCL`;
 
-                // Kotak Hitam Transparan di pojok bawah foto
                 ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
                 ctx.fillRect(0, height - 100, width, 100);
 
-                // Set Huruf Watermark
                 ctx.fillStyle = "#ffffff";
                 ctx.font = "bold 16px sans-serif";
                 ctx.fillText(labelSensus, 20, height - 70);
@@ -192,7 +214,6 @@ export default function PclAssignmentPage() {
                 ctx.fillText(tglTeks, 20, height - 45);
                 ctx.fillText(`${latTeks} | ${lonTeks}`, 20, height - 20);
 
-                // Ambil string Base64 matang ukuran ~150KB (Kualitas 0.6)
                 const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
                 setPhotoBase64(compressedBase64);
                 setActionLoading(false);
@@ -200,13 +221,55 @@ export default function PclAssignmentPage() {
         };
     };
 
+    // ALGORITMA RAY-CASTING 100% OFFLINE
+    const isPointInPolygon = (point, vs) => {
+        const x = point[0], y = point[1];
+        let inside = false;
+        for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+            const xi = vs[i][0], yi = vs[i][1];
+            const xj = vs[j][0], yj = vs[j][1];
+            const intersect = ((yi > y) !== (yj > y))
+                && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    };
+
     const prosesPencarianGeojson = async (latitude, longitude) => {
-        if (allMySls.length > 0) {
-            return {
-                idsubsls: allMySls[0].idsubsls,
-                nmsls: allMySls[0].nmsls,
-                nmdesa: allMySls[0].nmdesa
-            };
+        const kodeKec = getKecamatanCode(); 
+        if (!kodeKec) return null;
+
+        try {
+            const response = await fetch(`/geojson/${kodeKec}.geojson`);
+            const geojsonData = await response.json();
+
+            for (let feature of geojsonData.features) {
+                const geometri = feature.geometry;
+                
+                if (geometri.type === "Polygon") {
+                    const koordinatPoligon = geometri.coordinates[0];
+                    if (isPointInPolygon([longitude, latitude], koordinatPoligon)) {
+                        return {
+                            idsubsls: feature.properties.idsubsls || feature.properties.IDSUBSLS,
+                            nmsls: feature.properties.nmsls || feature.properties.NMSLS || "SLS Terdeteksi",
+                            nmdesa: feature.properties.nmdesa || feature.properties.NMDESA || "Desa Terdeteksi"
+                        };
+                    }
+                } 
+                else if (geometri.type === "MultiPolygon") {
+                    for (let polygon of geometri.coordinates) {
+                        if (isPointInPolygon([longitude, latitude], polygon[0])) {
+                            return {
+                                idsubsls: feature.properties.idsubsls || feature.properties.IDSUBSLS,
+                                nmsls: feature.properties.nmsls || feature.properties.NMSLS,
+                                nmdesa: feature.properties.nmdesa || feature.properties.NMDESA
+                            };
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("Gagal membaca berkas spasial luring:", err.message);
         }
         return null; 
     };
@@ -220,7 +283,8 @@ export default function PclAssignmentPage() {
         setActionLoading(true);
         setDetectedSls(null);
         setManualMode(false);
-        setPhotoBase64(null); // Reset foto lama
+        setPhotoBase64(null);
+        setIsOutsideBorderBlock(false);
 
         navigator.geolocation.getCurrentPosition(
             async (position) => {
@@ -232,193 +296,186 @@ export default function PclAssignmentPage() {
                 if (hasilSls) {
                     setDetectedSls(hasilSls);
                 } else {
-                    setManualMode(true);
-                    alert("📍 Lokasi Anda tidak masuk dalam poligon SLS manapun. Silakan pilih SLS secara manual.");
+                    setIsOutsideBorderBlock(true);
                 }
                 setActionLoading(false);
             },
             (error) => {
                 setActionLoading(false);
-                setManualMode(true);
-                alert("⚠️ Gagal menangkap GPS Hardware. Sistem dialihkan ke Mode Pilihan Manual.");
+                setManualMode(true); 
+                alert("⚠️ Gagal menangkap satelit GPS harian. Gunakan alternatif pilihan manual.");
             },
             { enableHighAccuracy: true, timeout: 12000 }
         );
     };
 
-    // =========================================================================
-    // SUBMIT DATA (MENDUKUNG TRANSMISI INTERNET DAN SISTEM JALUR OFFLINE)
-    // =========================================================================
-const submitCheckInData = async (targetIdSubSls) => {
-    const pclEmail = user?.email || profile?.email;
-    const tglHariIni = getTodayDateString();
-
-    if (!photoBase64) {
-        alert("Wajib mengambil foto lokasi/papan nama terlebih dahulu sebagai bukti jepret lapangan!");
-        return;
-    }
-
-    setActionLoading(true);
-
-    // 1. GENERALISASI IDENTITAS FILE UNIK
-    const namaFileUnik = `SE26_${targetIdSubSls}_${pclEmail.split('@')[0]}_${tglHariIni}.jpg`;
-    let finalFotoUrl = "";
-
-    try {
-        // 2. UNGGAH FOTO BASE64 KE GOOGLE DRIVE VIA APPS SCRIPT SECARA SILUMAN
-        const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec"; // Masukkan URL dari Langkah 2
-        
-        const responseGas = await fetch(gasUrl, {
-            method: "POST",
-            body: JSON.stringify({
-                fotoBase64: photoBase64,
-                namaFile: namaFileUnik
-            })
-        });
-
-        const hasilGas = await responseGas.json();
-
-        if (hasilGas.status === "success") {
-            finalFotoUrl = hasilGas.url; // Selamat! Anda mendapatkan URL Google Drive gratisan
-        } else {
-            throw new Error("Google Apps Script menolak file: " + hasilGas.message);
+    const submitCheckInData = async (targetIdSubSls) => {
+        if (isOutsideBorderBlock) {
+            alert("Sistem mengunci absensi! Anda berada di luar area tugas.");
+            return;
         }
 
-        // 3. SUSUN PAYLOAD DATA UNTUK SUPABASE (SEKARANG JAUH LEBIH RINGAN KARENA HANYA BERISI URL TEXT)
-        const payloadData = {
+        const pclEmail = user?.email || profile?.email;
+        const tglHariIni = getTodayDateString();
+        const cleanEmail = pclEmail.toLowerCase().trim();
+
+        if (!photoBase64) {
+            alert("Wajib mengambil foto lokasi/papan nama terlebih dahulu sebagai bukti jepret lapangan!");
+            return;
+        }
+
+        setActionLoading(true);
+        const namaFileUnik = `SE26_${targetIdSubSls}_${cleanEmail.split('@')[0]}_${tglHariIni}.jpg`;
+
+        const payloadOfflinePack = {
             tanggal: tglHariIni,
             idsubsls: targetIdSubSls,
-            petugas_email: pclEmail,
+            petugas_email: cleanEmail,
             latitude: currentCoords?.latitude || null,
             longitude: currentCoords?.longitude || null,
             is_within_range: !manualMode,
-            foto_bukti: finalFotoUrl // Berisi string URL "https://drive.google.com..." (~0.1 KB saja!)
+            fotoBase64Cadangan: photoBase64
         };
 
-        // 4. KIRIM DATA KE TABLE UTAMA SUPABASE
-        const { error } = await supabase
-            .from('log_checkin_pcl')
-            .insert(payloadData);
-
-        if (error) throw error;
-
-        setTodayCheckIns(prev => [...prev, targetIdSubSls]);
-        if (!historyDates.includes(tglHariIni)) {
-            setHistoryDates(prev => [...prev, tglHariIni]);
+        if (!navigator.onLine) {
+            await saveToIndexedDBOffline(payloadOfflinePack, targetIdSubSls, cleanEmail, tglHariIni);
+            setActionLoading(false);
+            return;
         }
-        alert("🎉 Check-In Sukses & Foto Tersimpan di Google Drive!");
-        resetForm();
 
-    } catch (err) {
-        // SOLUSI CADANGAN JIKA SINYAL PUTUS ATAU GOOGLE SERVER TIMEOUT
-        console.warn("Mengalihkan data log ke antrean offline HP...", err.message);
+        try {
+            const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
+            const responseGas = await fetch(gasUrl, {
+                method: "POST",
+                body: JSON.stringify({
+                    fotoBase64: photoBase64,
+                    namaFile: namaFileUnik
+                })
+            });
+
+            const hasilGas = await responseGas.json();
+            if (hasilGas.status !== "success") throw new Error("Google API Drive menolak file.");
+
+            const { error } = await supabase
+                .from('log_checkin_pcl')
+                .insert({
+                    tanggal: tglHariIni,
+                    idsubsls: targetIdSubSls,
+                    petugas_email: cleanEmail,
+                    latitude: currentCoords?.latitude || null,
+                    longitude: currentCoords?.longitude || null,
+                    is_within_range: !manualMode,
+                    foto_bukti: hasilGas.url
+                });
+
+            if (error) throw error;
+
+            setTodayCheckIns(prev => [...prev, targetIdSubSls]);
+            if (!historyDates.includes(tglHariIni)) {
+                setHistoryDates(prev => [...prev, tglHariIni]);
+            }
+            alert("🎉 Check-In Online Sukses Disimpan!");
+            resetForm();
+
+        } catch (err) {
+            await saveToIndexedDBOffline(payloadOfflinePack, targetIdSubSls, cleanEmail, tglHariIni);
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const saveToIndexedDBOffline = async (payload, targetIdSubSls, cleanEmail, tglHariIni) => {
         try {
             const db = await initOfflineDB();
             const tx = db.transaction("pending_checkins", "readwrite");
-            const store = tx.objectStore("pending_checkins");
-            
-            // Simpan foto asli base64 ke IndexedDB HP agar tidak hilang saat mati sinyal
-            store.add({
-                tanggal: tglHariIni,
-                idsubsls: targetIdSubSls,
-                petugas_email: pclEmail,
-                latitude: currentCoords?.latitude || null,
-                longitude: currentCoords?.longitude || null,
-                is_within_range: !manualMode,
-                fotoBase64Cadangan: photoBase64 // Disimpan lokal di HP petugas sementara waktu
-            });
+            tx.objectStore("pending_checkins").add(payload);
 
-            alert("💾 Sinyal Low / Google Drive sibuk! Data diamankan di memori lokal HP.");
+            const updatedToday = [...todayCheckIns, targetIdSubSls];
+            setTodayCheckIns(updatedToday);
+            localStorage.setItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`, JSON.stringify(updatedToday));
+
+            alert("💾 Tersimpan Offline! Log absen dan berkas foto bukti Anda aman di memori lokal HP.");
             await checkOfflineQueueCount();
             resetForm();
-        } catch (storageErr) {
-            alert("Gagal mengamankan data lokal: " + storageErr.message);
+        } catch (e) {
+            alert("Gagal mengamankan data lokal internal: " + e.message);
         }
-    } finally {
-        setActionLoading(false);
-    }
-};
+    };
 
     const resetForm = () => {
         setDetectedSls(null);
         setSelectedManualSls("");
         setManualMode(false);
         setPhotoBase64(null);
+        setIsOutsideBorderBlock(false);
     };
 
-    // FUNGSI SINKRONISASI DATA LOG OFFLINE SAAT KEMBALI DAPAT SINYAL
-const handleSyncOfflineData = async () => {
-    setIsSyncing(true);
-    try {
-        const db = await initOfflineDB();
-        const tx = db.transaction("pending_checkins", "readonly");
-        const store = tx.objectStore("pending_checkins");
-        const getAllRequest = store.getAll();
+    const handleSyncOfflineData = async () => {
+        setIsSyncing(true);
+        try {
+            const db = await initOfflineDB();
+            const tx = db.transaction("pending_checkins", "readonly");
+            const store = tx.objectStore("pending_checkins");
+            const getAllRequest = store.getAll();
 
-        getAllRequest.onsuccess = async () => {
-            const records = getAllRequest.result;
-            if (records.length === 0) {
-                setIsSyncing(false);
-                return;
-            }
-
-            let suksesCount = 0;
-            const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
-
-            for (let record of records) {
-                try {
-                    const namaFileUnik = `SE26_${record.idsubsls}_${record.petugas_email.split('@')[0]}_${record.tanggal}.jpg`;
-                    
-                    // 1. Lempar foto offline yang tertunda ke Google Drive terlebih dahulu
-                    const resGas = await fetch(gasUrl, {
-                        method: "POST",
-                        body: JSON.stringify({
-                            fotoBase64: record.fotoBase64Cadangan,
-                            namaFile: namaFileUnik
-                        })
-                    });
-                    const hasilGas = await resGas.json();
-
-                    if (hasilGas.status === "success") {
-                        // 2. Jika sukses dapat URL Google Drive, baru dorong teksnya ke Supabase
-                        const { error } = await supabase
-                            .from('log_checkin_pcl')
-                            .insert({
-                                tanggal: record.tanggal,
-                                idsubsls: record.idsubsls,
-                                petugas_email: record.petugas_email,
-                                latitude: record.latitude,
-                                longitude: record.longitude,
-                                is_within_range: record.is_within_range,
-                                foto_bukti: hasilGas.url
-                            });
-
-                        if (!error) {
-                            suksesCount++;
-                            // Hapus antrean item ini dari memori HP karena sudah sukses terunggah ganda
-                            const deleteTx = db.transaction("pending_checkins", "readwrite");
-                            deleteTx.objectStore("pending_checkins").delete(record.id);
-                        }
-                    }
-                } catch (loopErr) {
-                    console.error("Gagal mengirim satu baris antrean:", loopErr);
+            getAllRequest.onsuccess = async () => {
+                const records = getAllRequest.result;
+                if (records.length === 0) {
+                    setIsSyncing(false);
+                    return;
                 }
-            }
 
-            alert(`📡 Sinkronisasi Selesai! Berhasil merestorasi ${suksesCount} log absen ke server.`);
-            await checkOfflineQueueCount();
-            initPclPage();
-        };
-    } catch (err) {
-        alert("Gagal total sinkronisasi: " + err.message);
-    } finally {
-        setIsSyncing(false);
-    }
-};
+                let suksesCount = 0;
+                const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
 
-    // =========================================================================
-    // LOGIKA GENERATOR ENGINE KALENDER BULANAN
-    // =========================================================================
+                for (let record of records) {
+                    try {
+                        const namaFileUnik = `SE26_${record.idsubsls}_${record.petugas_email.split('@')[0]}_${record.tanggal}.jpg`;
+                        
+                        const resGas = await fetch(gasUrl, {
+                            method: "POST",
+                            body: JSON.stringify({
+                                fotoBase64: record.fotoBase64Cadangan,
+                                namaFile: namaFileUnik
+                            })
+                        });
+                        const hasilGas = await resGas.json();
+
+                        if (hasilGas.status === "success") {
+                            const { error } = await supabase
+                                .from('log_checkin_pcl')
+                                .insert({
+                                    tanggal: record.tanggal,
+                                    idsubsls: record.idsubsls,
+                                    petugas_email: record.petugas_email,
+                                    latitude: record.latitude,
+                                    longitude: record.longitude,
+                                    is_within_range: record.is_within_range,
+                                    foto_bukti: hasilGas.url
+                                });
+
+                            if (!error) {
+                                suksesCount++;
+                                const deleteTx = db.transaction("pending_checkins", "readwrite");
+                                deleteTx.objectStore("pending_checkins").delete(record.id);
+                            }
+                        }
+                    } catch (loopErr) {
+                        console.error("Gagal merestorasi baris antrean:", loopErr);
+                    }
+                }
+
+                alert(`📡 Sinkronisasi Selesai! Berhasil merestorasi ${suksesCount} log absen ke server.`);
+                await checkOfflineQueueCount();
+                initPclPage();
+            };
+        } catch (err) {
+            alert("Gagal total sinkronisasi: " + err.message);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     const renderCalendarCells = () => {
         const year = currentMonth.getFullYear();
         const month = currentMonth.getMonth();
@@ -434,7 +491,7 @@ const handleSyncOfflineData = async () => {
 
         for (let day = 1; day <= daysInMonth; day++) {
             const dString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const isCheckedIn = historyDates.includes(dString);
+            const isCheckedIn = historyDates.includes(dString) || (todayCheckIns.length > 0 && dString === getTodayDateString());
 
             cells.push(
                 <div 
@@ -456,7 +513,7 @@ const handleSyncOfflineData = async () => {
         setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + direction, 1));
     };
 
-    if (authLoading || loading) {
+    if (authLoading || (loading && allMySls.length === 0)) {
         return (
             <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-6 text-center">
                 <RefreshCw className="animate-spin text-orange-600 mb-3" size={32} />
@@ -478,7 +535,7 @@ const handleSyncOfflineData = async () => {
                     <div className="flex justify-between items-center">
                         <div>
                             <span className="text-[9px] bg-orange-500 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
-                                PCL SE2026
+                                PCL SE2026 {!navigator.onLine && "(MODE LURING)"}
                             </span>
                             <h2 className="text-base font-black mt-1 uppercase tracking-tight truncate max-w-[180px]">
                                 {profile?.nama_pengguna || 'Petugas'}
@@ -491,7 +548,7 @@ const handleSyncOfflineData = async () => {
                     </div>
                 </div>
 
-                {/* BANNER NOTIFIKASI JIKA ADA DATA OFFLINE YANG TERSANGKUT DI HP */}
+                {/* BANNER NOTIFIKASI */}
                 {offlineCount > 0 && (
                     <div className="mt-3 bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-2xl flex items-center justify-between text-xs font-bold">
                         <div className="flex items-center gap-2">
@@ -499,12 +556,12 @@ const handleSyncOfflineData = async () => {
                             <span>Ada {offlineCount} Absen Belum Terkirim</span>
                         </div>
                         <button 
-                            disabled={isSyncing}
+                            disabled={isSyncing || !navigator.onLine}
                             onClick={handleSyncOfflineData}
-                            className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-xl flex items-center gap-1 text-[11px] font-black transition-all"
+                            className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-xl flex items-center gap-1 text-[11px] font-black transition-all disabled:bg-slate-300 disabled:text-slate-500"
                         >
                             {isSyncing ? <RefreshCw className="animate-spin" size={12} /> : <CloudLightning size={12} />}
-                            KIRIM
+                            {navigator.onLine ? "KIRIM" : "SINYAL MATI"}
                         </button>
                     </div>
                 )}
@@ -518,12 +575,12 @@ const handleSyncOfflineData = async () => {
             {/* CONTAINER UTAMA SLIDER PANEL */}
             <div className="flex-1 flex w-[200%] transition-transform duration-300 ease-out" style={{ transform: `translateX(-${activeTab * 50}%)` }}>
                 
-                {/* PANEL 1: TOMBOL CENTRAL ABSEN LENGKAP JEP RET FOTO */}
+                {/* PANEL 1: TOMBOL ABSEN */}
                 <div className="w-1/2 p-4 shrink-0 flex flex-col justify-start">
                     <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm text-center space-y-5">
                         <div>
-                            <h3 className="text-base font-black text-slate-800">Pusat Absensi Lapangan</h3>
-                            <p className="text-xs text-slate-400 mt-1">Sistem otomatis mendeteksi SLS koordinat dan mewajibkan jepret foto lokasi.</p>
+                            <h3 className="text-base font-black text-slate-800">Absensi Lapangan</h3>
+                            <p className="text-xs text-slate-400 mt-1">Sistem otomatis mendukung absensi offline total di daerah blankspot sinyal.</p>
                         </div>
 
                         {/* TOMBOL UTAMA BULAT BESAR */}
@@ -538,38 +595,58 @@ const handleSyncOfflineData = async () => {
                                 }`}
                             >
                                 {actionLoading ? <RefreshCw className="animate-spin" size={28} /> : <Navigation className="fill-white" size={28} />}
-                                <span className="text-[11px]">{actionLoading ? "Mencari..." : "Check In"}</span>
+                                <span className="text-[11px]">{actionLoading ? "Mengunci..." : "Check In"}</span>
                             </button>
                         </div>
 
-                        {/* SLOT INTEGRASI KAMERA LINGKUNGAN (MUNCUL JIKA LOKASI SUDAH TERKUNCI) */}
-                        {(detectedSls || selectedManualSls) && (
+                        {/* HARD BLOCK WARNING CARD */}
+                        {isOutsideBorderBlock && (
+                            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-left space-y-2 animate-fadeIn">
+                                <div className="flex items-center gap-2 text-rose-700 font-black text-xs uppercase">
+                                    <AlertOctagon size={18} className="text-rose-600 animate-bounce" />
+                                    <span>Diluar Area Tugas</span>
+                                </div>
+                                <p className="text-[11px] text-rose-600 font-bold leading-relaxed">
+                                    Posisi Anda saat ini berada di luar wilayah tugas anda. Silakan menuju ke lokasi SLS tugas Anda dan melakukan check-in.
+                                </p>
+                                <button 
+                                    onClick={resetForm}
+                                    className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black py-2 rounded-xl text-[10px] uppercase tracking-wide transition-all"
+                                >
+                                    Ulangi Deteksi Koordinat
+                                </button>
+                            </div>
+                        )}
+
+                        {/* SLOT INTEGRASI KAMERA LINGKUNGAN */}
+                        {((detectedSls || selectedManualSls || manualMode) && !isOutsideBorderBlock) && (
                             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-3 animate-fadeIn">
                                 <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">
                                     Langkah Akhir: Ambil Foto Bukti
                                 </span>
                                 
-                                {photoBase64 ? (
-                                    <div className="relative rounded-xl overflow-hidden border border-slate-300 shadow-inner">
-                                        <img src={photoBase64} alt="Preview Bukti" className="w-full h-36 object-cover" />
-                                        <label className="absolute bottom-2 right-2 bg-slate-900/80 text-white p-2 rounded-xl text-[10px] font-black cursor-pointer uppercase tracking-wider">
-                                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCapturePhoto} />
-                                            Ulangi Foto
-                                        </label>
-                                    </div>
-                                ) : (
-                                    <label className="w-full h-24 border-2 border-dashed border-slate-300 hover:border-orange-400 rounded-xl flex flex-col justify-center items-center gap-1.5 cursor-pointer bg-white transition-all text-slate-400">
-                                        {/* MANDATORY INPUT HIDDEN FOR CAMERA ONLY (SOLUSI 3) */}
-                                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCapturePhoto} />
-                                        <Camera size={24} className="text-slate-400" />
-                                        <span className="text-xs font-bold uppercase tracking-wider">Buka Kamera Lapangan</span>
-                                    </label>
-                                )}
+{photoBase64 ? (
+    <div className="relative rounded-xl overflow-hidden border border-slate-300 shadow-inner">
+        <img src={photoBase64} alt="Preview Bukti" className="w-full h-36 object-cover" />
+        <label className="absolute bottom-2 right-2 bg-slate-900/80 text-white p-2 rounded-xl text-[10px] font-black cursor-pointer uppercase tracking-wider">
+            {/* PERBAIKAN: capture="user" untuk kamera depan */}
+            <input type="file" accept="image/*" capture="user" className="hidden" onChange={handleCapturePhoto} />
+            Ulangi Foto
+        </label>
+    </div>
+) : (
+    <label className="w-full h-24 border-2 border-dashed border-slate-300 hover:border-orange-400 rounded-xl flex flex-col justify-center items-center gap-1.5 cursor-pointer bg-white transition-all text-slate-400">
+        {/* PERBAIKAN: capture="user" untuk kamera depan */}
+        <input type="file" accept="image/*" capture="user" className="hidden" onChange={handleCapturePhoto} />
+        <Camera size={24} className="text-slate-400" />
+        <span className="text-xs font-bold uppercase tracking-wider">Buka Kamera Depan</span>
+    </label>
+)}
 
-                                {/* Tombol Aksi Akhir */}
-                                {detectedSls && !manualMode && (
+                                {detectedSls && (
                                     <div className="pt-2">
                                         <h4 className="font-black text-slate-800 text-xs uppercase truncate">Target: {detectedSls.nmsls}</h4>
+                                        <p className="text-[10px] text-slate-400 font-medium">Desa: {detectedSls.nmdesa}</p>
                                         <button
                                             disabled={!photoBase64 || actionLoading}
                                             onClick={() => submitCheckInData(detectedSls.idsubsls)}
@@ -583,11 +660,11 @@ const handleSyncOfflineData = async () => {
                         )}
 
                         {/* MENU MANUAL FALLBACK */}
-                        {manualMode && (
+                        {(manualMode && !isOutsideBorderBlock) && (
                             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left">
                                 <div className="flex gap-2 items-center text-amber-800 font-bold text-xs uppercase mb-3">
                                     <ShieldAlert size={16} />
-                                    <span>Pilih SLS Manual</span>
+                                    <span>Pilih SLS Kerja</span>
                                 </div>
                                 <select
                                     className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 outline-none"
@@ -608,16 +685,10 @@ const handleSyncOfflineData = async () => {
                                         onClick={() => submitCheckInData(selectedManualSls)}
                                         className="w-full mt-3 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300"
                                     >
-                                        Kunci Pilihan Manual & Kirim
+                                        Kunci Wilayah & Simpan Offline
                                     </button>
                                 )}
                             </div>
-                        )}
-
-                        {!actionLoading && !detectedSls && !manualMode && (
-                            <button onClick={() => setManualMode(true)} className="text-[11px] text-slate-400 flex items-center gap-1 mx-auto font-medium">
-                                <HelpCircle size={14} /> GPS error? Klik pilihan manual
-                            </button>
                         )}
                     </div>
                     
@@ -650,15 +721,10 @@ const handleSyncOfflineData = async () => {
                             {renderCalendarCells()}
                         </div>
                     </div>
-
+                    
                     <div className="mt-4 p-3 bg-white border border-slate-200 rounded-2xl flex items-center gap-3 text-xs">
                         <div className="h-5 w-5 bg-emerald-500 rounded-lg shadow-sm"></div>
                         <span className="font-bold text-slate-600">Hari Masuk Lapangan (Ada Log Check-In)</span>
-                    </div>
-
-                    <div className="text-center text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-6 flex items-center justify-center gap-1">
-                        <ChevronLeft size={14} />
-                        <span>Geser kanan kembali ke Check-In</span>
                     </div>
                 </div>
 
