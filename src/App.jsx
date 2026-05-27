@@ -52,7 +52,7 @@ const HomeRouter = () => {
   const { profile } = useAuth();
 
   if (profile?.role === 'pcl') {
-    return <Navigate to="/PCL-Assignment" replace />;
+    return <Navigate to="/" replace />;
   }
   if (profile?.role === 'pml') {
     return <Navigate to="/alokasi" replace />; // REVISI: PML langsung mendarat di halaman monitoring harian
