@@ -97,6 +97,7 @@ export default function AlokasiPage() {
     // 1. Buat key string unik berbasis data profile agar referensinya stabil
     const profileDataKey = profile ? `${profile.role}-${profile.kecamatan_tugas}` : '';
 
+
     useEffect(() => {
         // Pastikan profile benar-benar termuat
         if (profile) {
@@ -344,6 +345,43 @@ const handleBulkAssign = async (pclEmail) => {
         }
     };
 
+    const handleUpdateMuatanSls = async (idSubSls, muatanLama, muatanBaru, alasan, muatanAwalEksis) => {
+    // Proteksi sakelar global
+    if (!allowAllocation) {
+        alert("Maaf, perubahan data telah dikunci oleh Admin.");
+        return;
+    }
+
+    setLoading(true);
+    const sekarangWib = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).replace(" ", "T");
+
+    // Jika muatan_awal di DB belum ada (null/belum pernah diedit), gunakan muatanLama sebagai benchmark awal permanen.
+    // Jika sudah ada (edapan kedua/ketiga), biarkan muatan_awal yang lama tetap utuh.
+    const nilaiMuatanAwal = muatanAwalEksis !== null ? muatanAwalEksis : muatanLama;
+
+    try {
+        const { error } = await supabase
+            .from('muatan_sls')
+            .update({
+                perkiraan_jumlah_beban: parseInt(muatanBaru, 10), // Update muatan saat ini
+                muatan_awal: nilaiMuatanAwal,                    // Kunci nilai awal permanen
+                alasan_perubahan: alasan,                        // Alasan editan terbaru
+                edited_at: sekarangWib,
+                edited_by: profile?.nama_pengguna || 'Sistem BPS'
+            })
+            .eq('idsubsls', idSubSls);
+
+        if (error) throw error;
+
+        alert("Berhasil memperbarui jumlah muatan SLS!");
+        await refreshCurrentData(); // 🔄 Otomatis menghitung ulang total beban tim di panel kiri
+    } catch (err) {
+        alert("Gagal memperbarui muatan: " + err.message);
+    } finally {
+        setLoading(true); // Opsional, sesuaikan dengan state component Anda
+        setLoading(false);
+    }
+};
     // FORMAT 1 (Tetap seperti kode lama Anda)
     const handleExportExcelFormat1 = () => {
         if (!slsList || slsList.length === 0) {
@@ -540,7 +578,8 @@ const handleBulkAssign = async (pclEmail) => {
                         userRole={profile?.role}
                         handleMovePclToNewPml={handleMovePclToNewPml}
                         handleGantiPetugas={handleGantiPetugas}
-                        profile={profile} // <-- Mengirim informasi role ke sub-komponen
+                        profile={profile}
+                        handleUpdateMuatanSls={handleUpdateMuatanSls} // <-- Mengirim informasi role ke sub-komponen
                     />
                 )}
             </div>
@@ -640,10 +679,14 @@ const AllocationViewContent = ({
     rightPanelMode, setRightPanelMode, setCurrentLevel,
     selectedSlsIds, setSelectedSlsIds, slsContainerRef, desaSummary,
     userRole, handleMovePclToNewPml, handleGantiPetugas,
-    profile // <-- Tambahkan properti profile di sini untuk mendapatkan data kecamatan_tugas pegawai
+    profile, handleUpdateMuatanSls // <-- Tambahkan properti profile dan handleUpdateMuatanSls di sini untuk mendapatkan data kecamatan_tugas pegawai
 }) => {
     const [swapTarget, setSwapTarget] = useState(null);
     const [searchCadangan, setSearchCadangan] = useState("");
+    
+    const [editMuatanTarget, setEditMuatanTarget] = useState(null); // Menyimpan objek SLS yang akan diedit
+const [inputMuatanBaru, setInputMuatanBaru] = useState("");
+const [inputAlasan, setInputAlasan] = useState("");
     const pclsOnly = pcls.filter(p => p.posisi_tugas === 'PCL');
     const totalBebanKec = slsList.reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0);
     const bebanIdeal = pclsOnly.length > 0 ? Math.round(totalBebanKec / pclsOnly.length) : 0;
@@ -947,82 +990,116 @@ const AllocationViewContent = ({
                             </div>
                             
                             {/* Baris List SLS */}
-                            <div ref={slsContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2">
-                                {slsList.filter(s => s.nmdesa === selectedDesa).map(sls => {
-                                    const isSelected = selectedSlsIds.includes(sls.idsubsls);
-                                    const petugas = pcls.find(p => p.email === sls.petugas_id);
-                                    const isAllocated = !!sls.petugas_id;
+<div ref={slsContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2">
+    {slsList.filter(s => s.nmdesa === selectedDesa).map(sls => {
+        const isSelected = selectedSlsIds.includes(sls.idsubsls);
+        const petugas = pcls.find(p => p.email === sls.petugas_id);
+        const isAllocated = !!sls.petugas_id;
 
-                                    return (
-                                        <div
-                                            key={sls.idsubsls}
-                                            onClick={() => {
-                                                // 👇 JIKA READ-ONLY KARENA LUAR KECAMATAN TUGAS, BLOKIR AKSI SELEKSI CENTANG
-                                                if (isReadOnly) return;
+        return (
+            <div
+                key={sls.idsubsls}
+                onClick={() => {
+                    // JIKA READ-ONLY KARENA LUAR KECAMATAN TUGAS, BLOKIR AKSI SELEKSI CENTANG
+                    if (isReadOnly) return;
 
-                                                setSelectedSlsIds(prev =>
-                                                    prev.includes(sls.idsubsls) ? prev.filter(id => id !== sls.idsubsls) : [...prev, sls.idsubsls]
-                                                );
-                                            }}
-                                            className={`p-3 border rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0 transition-all mb-1 ${
-                                                isReadOnly ? 'cursor-not-allowed opacity-85' : 'cursor-pointer'
-                                            } ${isSelected
-                                                ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10'
-                                                : isAllocated
-                                                    ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300'
-                                                    : 'bg-white border-slate-200 hover:border-slate-300'
-                                            }`}
-                                        >
-                                            <div className="w-full sm:flex-[0.8] min-w-0 sm:pr-4">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="w-[50px] text-[10px] font-bold text-slate-400 shrink-0">[{sls.kdsls} {sls.kdsubsls}]</span>
-                                                    <span className={`font-bold truncate text-sm ${isAllocated ? 'text-emerald-900' : 'text-slate-700'}`}>
-                                                        {sls.nmsls}
-                                                    </span>
-                                                </div>
-                                                <div className="text-[10px] text-slate-500 pl-0 sm:pl-[58px]">
-                                                    {sls.jumlah_kk} Keluarga | {sls.jumlah_usaha} Usaha
-                                                </div>
-                                            </div>
+                    setSelectedSlsIds(prev =>
+                        prev.includes(sls.idsubsls) ? prev.filter(id => id !== sls.idsubsls) : [...prev, sls.idsubsls]
+                    );
+                }}
+                className={`p-3 border rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0 transition-all mb-1 ${
+                    isReadOnly ? 'cursor-not-allowed opacity-85' : 'cursor-pointer'
+                } ${isSelected
+                    ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10'
+                    : isAllocated
+                        ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300'
+                        : 'bg-white border-slate-200 hover:border-slate-300'
+                }`}
+            >
+                {/* Bagian Kiri: Identitas SLS */}
+                <div className="w-full sm:flex-[0.8] min-w-0 sm:pr-4">
+                    <div className="flex items-center gap-2">
+                        <span className="w-[50px] text-[10px] font-bold text-slate-400 shrink-0">[{sls.kdsls} {sls.kdsubsls}]</span>
+                        <span className={`font-bold truncate text-sm ${isAllocated ? 'text-emerald-900' : 'text-slate-700'}`}>
+                            {sls.nmsls}
+                        </span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 pl-0 sm:pl-[58px]">
+                        {sls.jumlah_kk} Keluarga | {sls.jumlah_usaha} Usaha
+                    </div>
+                </div>
 
-                                            <div className="w-full sm:flex-1 px-0 sm:px-4 border-l-0 sm:border-l border-slate-200/50 pt-1 sm:pt-0">
-                                                {isAllocated ? (
-                                                    <div className="flex flex-col">
-                                                        <span className="text-[9px] font-bold text-emerald-600/70 uppercase tracking-tighter">Petugas PCL</span>
-                                                        <div className="font-extrabold text-emerald-800 text-sm uppercase truncate leading-tight">
-                                                            {petugas?.nama_petugas || 'Petugas'}
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="text-[11px] text-slate-300 italic">Belum ditentukan</div>
-                                                )}
-                                            </div>
-
-                                            <div className="flex items-center justify-between sm:justify-end gap-4 ml-0 sm:ml-2 w-full sm:w-auto border-t sm:border-t-0 border-slate-100 pt-2 sm:pt-0">
-                                                <div className="flex flex-col items-start sm:items-end">
-                                                    <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Perkiraan Muatan</span>
-                                                    <div className={`min-w-[40px] text-center py-0.5 rounded px-2 text-sm font-black border ${isSelected ? 'bg-orange-500 border-orange-600 text-white' :
-                                                        isAllocated ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-600'
-                                                        }`}>
-                                                        {sls.perkiraan_jumlah_beban}
-                                                    </div>
-                                                </div>
-
-                                                {/* BOX CENTANG ALOKASI */}
-                                                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all shrink-0 ${isSelected
-                                                    ? 'bg-orange-500 border-orange-500 scale-110'
-                                                    : isAllocated
-                                                        ? 'border-emerald-400 bg-emerald-100'
-                                                        : 'border-slate-200 bg-white'
-                                                    }`}>
-                                                    {isSelected && <CheckCircle2 size={14} className="text-white" />}
-                                                    {isAllocated && !isSelected && <CheckCircle2 size={12} className="text-emerald-500" />}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                {/* Bagian Tengah: Informasi Alokasi Petugas */}
+                <div className="w-full sm:flex-1 px-0 sm:px-4 border-l-0 sm:border-l border-slate-200/50 pt-1 sm:pt-0">
+                    {isAllocated ? (
+                        <div className="flex flex-col">
+                            <span className="text-[9px] font-bold text-emerald-600/70 uppercase tracking-tighter">Petugas PCL</span>
+                            <div className="font-extrabold text-emerald-800 text-sm uppercase truncate leading-tight">
+                                {petugas?.nama_petugas || 'Petugas'}
                             </div>
+                        </div>
+                    ) : (
+                        <div className="text-[11px] text-slate-300 italic">Belum ditentukan</div>
+                    )}
+                </div>
+
+                {/* Bagian Kanan: Indikator Beban & Kontrol Aksi */}
+                <div className="flex items-center justify-between sm:justify-end gap-4 ml-0 sm:ml-2 w-full sm:w-auto border-t sm:border-t-0 border-slate-100 pt-2 sm:pt-0">
+                    <div className="flex flex-col items-start sm:items-end">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Perkiraan Muatan</span>
+                        
+                        <div className="flex items-center gap-1.5">
+                            {/* 1. BADGE METRIK JIKA MUATAN SUDAH PERNAH DIREVISI */}
+                            {sls.muatan_awal !== null && sls.muatan_awal !== undefined && (
+                                <span 
+                                    className="text-[9px] bg-amber-50 text-amber-700 font-extrabold px-1.5 py-0.5 rounded border border-amber-200 cursor-help"
+                                    title={`Muatan Awal: ${sls.muatan_awal}\nAlasan Perubahan: ${sls.alasan_perubahan || '-'}`}
+                                >
+                                    Awal: {sls.muatan_awal}
+                                </span>
+                            )}
+                            
+                            {/* Box Angka Muatan Saat Ini */}
+                            <div className={`min-w-[40px] text-center py-0.5 rounded px-2 text-sm font-black border ${
+                                isSelected ? 'bg-orange-500 border-orange-600 text-white' :
+                                isAllocated ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-600'
+                            }`}>
+                                {sls.perkiraan_jumlah_beban}
+                            </div>
+
+                            {/* 2. TOMBOL MODAL EDIT BEBAN (Hanya aktif jika tidak Read-Only) */}
+                            {!isReadOnly && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation(); // Mencegah bentrokan trigger onClick baris div induk
+                                        setEditMuatanTarget(sls);
+                                        setInputMuatanBaru(sls.perkiraan_jumlah_beban);
+                                        setInputAlasan(sls.alasan_perubahan || "");
+                                    }}
+                                    className="p-1 hover:bg-slate-100 border border-slate-200 hover:border-indigo-300 rounded text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer text-xs flex items-center justify-center"
+                                    title="Edit Jumlah Muatan SLS"
+                                >
+                                    ✏️
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* BOX CENTANG ALOKASI */}
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all shrink-0 ${isSelected
+                        ? 'bg-orange-500 border-orange-500 scale-110'
+                        : isAllocated
+                            ? 'border-emerald-400 bg-emerald-100'
+                            : 'border-slate-200 bg-white'
+                        }`}>
+                        {isSelected && <CheckCircle2 size={14} className="text-white" />}
+                        {isAllocated && !isSelected && <CheckCircle2 size={12} className="text-emerald-500" />}
+                    </div>
+                </div>
+            </div>
+        );
+    })}
+</div>
                         </>
                     )}
                 </div>
@@ -1107,6 +1184,98 @@ const AllocationViewContent = ({
                     </div>
                 </div>
             )}
+        {/* ------------------------------------------------------------- */}
+{/* MODAL EDIT JUMLAH MUATAN SLS */}
+{/* ------------------------------------------------------------- */}
+{editMuatanTarget && (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-150">
+            
+            {/* Header */}
+            <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+                <div>
+                    <h3 className="font-bold text-slate-800">Edit Muatan SLS</h3>
+                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium uppercase tracking-wider">
+                        {editMuatanTarget.nmdesa} | {editMuatanTarget.nmsls}
+                    </p>
+                </div>
+                <button 
+                    onClick={() => setEditMuatanTarget(null)}
+                    className="text-slate-400 hover:bg-slate-100 w-8 h-8 rounded-lg flex items-center justify-center font-bold transition-colors cursor-pointer"
+                >
+                    ✕
+                </button>
+            </div>
+
+            {/* Form Body */}
+            <div className="p-4 space-y-4">
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
+                        Muatan Saat Ini / Beban Baru
+                    </label>
+                    <input 
+                        type="number"
+                        min="0"
+                        value={inputMuatanBaru}
+                        onChange={(e) => setInputMuatanBaru(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl text-base font-black focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all shadow-sm"
+                        placeholder="Masukkan angka muatan..."
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
+                        Alasan Perubahan <span className="text-rose-500">*</span>
+                    </label>
+                    <textarea 
+                        rows="3"
+                        value={inputAlasan}
+                        onChange={(e) => setInputAlasan(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-medium focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all shadow-sm resize-none"
+                        placeholder="Contoh: Terjadi salah identifikasi, pasar hewan, banyak bangunan kosong, pasar belum beroperasi, penambahan muatan, dll..."
+                    />
+                </div>
+            </div>
+
+            {/* Footer Action */}
+            <div className="p-4 bg-slate-50 border-t flex justify-end gap-2">
+                <button
+                    onClick={() => setEditMuatanTarget(null)}
+                    className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                    Batal
+                </button>
+                <button
+                    onClick={async () => {
+                        if (!inputMuatanBaru || inputMuatanBaru < 0) {
+                            alert("Masukkan jumlah muatan yang valid!");
+                            return;
+                        }
+                        if (!inputAlasan.trim()) {
+                            alert("Alasan perubahan wajib diisi!");
+                            return;
+                        }
+                        
+                        await handleUpdateMuatanSls(
+                            editMuatanTarget.idsubsls,
+                            editMuatanTarget.perkiraan_jumlah_beban,
+                            inputMuatanBaru,
+                            inputAlasan,
+                            editMuatanTarget.muatan_awal // Kirim status muatan awal yang tersimpan saat ini
+                        );
+                        setEditMuatanTarget(null); // Tutup modal
+                    }}
+                    disabled={!inputAlasan.trim() || inputMuatanBaru === ""}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-colors shadow-md cursor-pointer"
+                >
+                    Simpan Perubahan
+                </button>
+            </div>
+
+        </div>
+    </div>
+)}
+    
         </div>
     );
 };
