@@ -1,8 +1,8 @@
 // src/pages/SettingsPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Trash2, Search, UserMinus, ShieldAlert } from 'lucide-react';
+import { Trash2, Search, UserMinus, RotateCcw } from 'lucide-react';
 
 export default function SettingsPage() {
   const { profile, allowAllocation, setAllowAllocation } = useAuth();
@@ -12,8 +12,9 @@ export default function SettingsPage() {
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('pegawai');
+  const [searchUserQuery, setSearchUserQuery] = useState(''); // State baru untuk pencarian pegawai internal
   
-  // State Baru: Manajemen Petugas Lapangan (PML/PCL)
+  // State Manajemen Petugas Lapangan (PML/PCL)
   const [petugasList, setPetugasList] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingPetugas, setLoadingPetugas] = useState(false);
@@ -21,6 +22,9 @@ export default function SettingsPage() {
   const [loadingUser, setLoadingUser] = useState(false);
   const [loadingToggle, setLoadingToggle] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
+
+  // Ref untuk tracking mount awal (mencegah double fetch petugas)
+  const isFirstMount = useRef(true);
 
   // 1. Ambil daftar user dari tabel app_users
   const fetchUsers = async () => {
@@ -34,7 +38,7 @@ export default function SettingsPage() {
     if (!error && data) setUsersList(data);
   };
 
-  // 2. Ambil daftar petugas lapangan (PML/PCL) dengan batasan limit agar ringan
+  // 2. Ambil daftar petugas lapangan (PML/PCL)
   const fetchPetugas = async () => {
     if (profile?.role !== 'admin') return;
     setLoadingPetugas(true);
@@ -43,10 +47,9 @@ export default function SettingsPage() {
         .from('petugas')
         .select('*')
         .order('nama_petugas', { ascending: true })
-        .limit(100); // Batasi 100 data awal untuk efisiensi UI
+        .limit(100);
 
       if (searchQuery.trim() !== '') {
-        // Jika ada pencarian, cari berdasarkan nama atau email
         query = supabase
           .from('petugas')
           .select('*')
@@ -69,16 +72,21 @@ export default function SettingsPage() {
     fetchPetugas();
   }, [profile]);
 
-  // Trigger pencarian otomatis saat Admin mengetik nama petugas
+  // Debounce untuk pencarian petugas lapangan (server-side)
   useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+
     const delayDebounce = setTimeout(() => {
       fetchPetugas();
-    }, 400); // Debounce 400ms agar tidak over-request ke Supabase
+    }, 400);
 
     return () => clearTimeout(delayDebounce);
   }, [searchQuery]);
 
-  // Aksi Menambah Pegawai/Admin Terpusat
+  // Prosedur Tambah Akun Internal
   const handleAddUser = async (e) => {
     e.preventDefault();
     setMessage({ text: '', type: '' });
@@ -89,7 +97,6 @@ export default function SettingsPage() {
       const { error } = await supabase
         .from('app_users')
         .insert({
-          id: null,
           email: targetEmail,
           nama_pengguna: nama.trim(),
           role: role,
@@ -114,7 +121,35 @@ export default function SettingsPage() {
     }
   };
 
-  // 3. AKSI HAPUS PETUGAS LAPANGAN (PML / PCL)
+  // AKSI RESET PASSWORD VIA RPC
+  const handleResetPassword = async (targetEmail, targetNama) => {
+    const konfirmasi = window.confirm(
+      `🔄 RESET PASSWORD PETUGAS\n\nApakah Anda yakin ingin mereset password untuk:\n"${targetNama}" (${targetEmail})?\n\nSistem akan menghapus kredensial lama di auth.users secara permanen dan mengembalikan status login awal petugas ke password default '123456'.`
+    );
+
+    if (!konfirmasi) return;
+
+    setMessage({ text: '', type: '' });
+    try {
+      const { error } = await supabase.rpc('reset_user_password_admin', {
+        target_email: targetEmail.toLowerCase().trim()
+      });
+
+      if (error) throw error;
+
+      setMessage({ 
+        text: `Berhasil mereset password untuk ${targetNama}. Silakan minta petugas login kembali dengan password '123456'.`, 
+        type: 'success' 
+      });
+      
+      fetchUsers(); 
+      fetchPetugas();
+    } catch (error) {
+      setMessage({ text: `Gagal mereset password: ${error.message}`, type: 'error' });
+    }
+  };
+
+  // AKSI HAPUS PETUGAS MITRA
   const handleDeletePetugas = async (targetEmail, targetNama) => {
     const konfirmasi = window.confirm(
       `⚠️ PERINGATAN MUTLAK!\n\nApakah Anda yakin ingin menghapus petugas bernama:\n"${targetNama}" (${targetEmail})?\n\nTindakan ini akan menghapus akun aksesnya dan mengosongkan status alokasi yang bersangkutan jika sudah terlanjur diplot.`
@@ -124,7 +159,6 @@ export default function SettingsPage() {
 
     setMessage({ text: '', type: '' });
     try {
-      // Langkah A: Hapus data dari tabel utama petugas
       const { error: deleteError } = await supabase
         .from('petugas')
         .delete()
@@ -132,7 +166,6 @@ export default function SettingsPage() {
 
       if (deleteError) throw deleteError;
 
-      // Langkah B: Hapus juga dari app_users jika petugas tersebut sudah terlanjur aktivasi akun login
       await supabase
         .from('app_users')
         .delete()
@@ -143,13 +176,13 @@ export default function SettingsPage() {
         type: 'success' 
       });
       
-      fetchPetugas(); // Refresh list petugas
+      fetchPetugas();
     } catch (error) {
       setMessage({ text: `Gagal menghapus petugas: ${error.message}`, type: 'error' });
     }
   };
 
-  // Aksi Mengubah Status Sakelar Pengisian Alokasi (ON/OFF)
+  // Ubah Sakelar Alokasi
   const handleToggleAllocation = async () => {
     setMessage({ text: '', type: '' });
     setLoadingToggle(true);
@@ -175,6 +208,12 @@ export default function SettingsPage() {
     }
   };
 
+  // Logika Filter untuk Tabel Internal (Instan Tanpa Load Network)
+  const filteredUsersList = usersList.filter(usr => 
+    usr.nama_pengguna?.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
+    usr.email?.toLowerCase().includes(searchUserQuery.toLowerCase())
+  );
+
   if (profile?.role !== 'admin') {
     return (
       <div className="p-4 md:p-8 text-center">
@@ -186,7 +225,6 @@ export default function SettingsPage() {
   }
 
   return (
-    // MODIFIKASI: Mengatur padding luar yang lebih fleksibel di mobile (p-4 md:p-6)
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 md:space-y-8 bg-slate-50 min-h-screen">
       <div>
         <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">PENGATURAN SISTEM</h1>
@@ -204,9 +242,8 @@ export default function SettingsPage() {
       {/* PANEL 1: SAKELAR ON/OFF PENGISIAN ALOKASI */}
       <section className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
         <h2 className="text-base md:text-lg font-bold text-slate-800 mb-1">Akses Alokasi Wilayah</h2>
-        <p className="text-slate-500 text-xs md:text-sm mb-4 md:text-left">Kunci atau izinkan seluruh petugas (Pegawai & PML) untuk mengedit data alokasi di halaman alokasi petugas.</p>
+        <p className="text-slate-500 text-xs md:text-sm mb-4">Kunci atau izinkan seluruh petugas (Pegawai & PML) untuk mengedit data alokasi di halaman alokasi petugas.</p>
         
-        {/* MODIFIKASI: Diubah flex-col pada layar HP agar tombol tidak gepeng/terpotong, sm:flex-row di desktop */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 max-w-md justify-between">
           <div className="min-w-0">
             <span className="block font-bold text-sm text-slate-700">Status Pengisian Alokasi</span>
@@ -235,7 +272,6 @@ export default function SettingsPage() {
           <form onSubmit={handleAddUser} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
             <div>
               <label className="block text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Nama Lengkap</label>
-              {/* MODIFIKASI: text-base di HP untuk cegah iOS zoom, sm:text-xs kembali normal di desktop */}
               <input
                 type="text" required placeholder="Nama Lengkap & Gelar"
                 className="w-full px-3 py-2 text-base sm:text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
@@ -244,7 +280,6 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="block text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Email Resmi BPS</label>
-              {/* MODIFIKASI: text-base di HP untuk cegah iOS zoom, sm:text-xs kembali normal di desktop */}
               <input
                 type="email" required placeholder="contoh@bps.go.id"
                 className="w-full px-3 py-2 text-base sm:text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
@@ -253,7 +288,6 @@ export default function SettingsPage() {
             </div>
             <div>
               <label className="block text-[10px] md:text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Hak Akses Peran</label>
-              {/* MODIFIKASI: text-base di HP untuk cegah iOS zoom, sm:text-xs kembali normal di desktop */}
               <select
                 className="w-full px-3 py-2 text-base sm:text-xs bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
                 value={role} onChange={(e) => setRole(e.target.value)}
@@ -271,46 +305,92 @@ export default function SettingsPage() {
           </form>
         </div>
 
-        {/* TABEL DAFTAR PEGAWAI INTERNAL */}
-        <div>
-          <h2 className="text-sm md:text-base font-bold text-slate-800 mb-3">Daftar Akun Terdaftar (Internal BPS)</h2>
-          <div className="overflow-x-auto max-h-[300px] overflow-y-auto border border-slate-100 rounded-xl scrollbar-thin">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-                <tr>
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Nama / Email</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Peran</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Aktivasi Login</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-100 text-xs">
-                {usersList.map((usr) => (
-                  <tr key={usr.email} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-2.5 whitespace-nowrap">
-                      <div className="font-bold text-slate-800">{usr.nama_pengguna}</div>
-                      <div className="text-[11px] text-slate-400 font-mono">{usr.email}</div>
-                    </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
-                        usr.role === 'admin' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
-                      }`}>{usr.role}</span>
-                    </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap">
-                      <span className={`text-xs font-bold ${usr.is_first_login ? 'text-amber-500' : 'text-emerald-500'}`}>
-                        {usr.is_first_login ? '⌛ Menunggu Aktivasi' : '✓ Sudah Aktif'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        {/* TABEL DAFTAR PEGAWAI INTERNAL + INPUT PENCARIAN BARU */}
+{/* TABEL DAFTAR PEGAWAI INTERNAL */}
+<div>
+  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-3">
+    <h2 className="text-sm md:text-base font-bold text-slate-800">Daftar Akun Terdaftar</h2>
+    
+    {/* Input Live Search Pegawai Internal */}
+    <div className="relative max-w-none sm:max-w-xs w-full">
+      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+        <Search size={14} />
+      </span>
+      <input
+        type="text"
+        placeholder="Cari nama atau email petugas..."
+        className="w-full pl-8 pr-4 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
+        value={searchUserQuery}
+        onChange={(e) => setSearchUserQuery(e.target.value)}
+      />
+    </div>
+  </div>
+
+  <div className="overflow-x-auto max-h-[300px] overflow-y-auto border border-slate-100 rounded-xl scrollbar-thin">
+    <table className="min-w-full divide-y divide-slate-200">
+      <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+        <tr>
+          <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Nama / Email</th>
+          <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Peran</th>
+          <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Aktivasi Login & Aksi</th>
+        </tr>
+      </thead>
+      <tbody className="bg-white divide-y divide-slate-100 text-xs">
+        {filteredUsersList.map((usr) => (
+          <tr key={usr.email} className="hover:bg-slate-50/50 transition-colors">
+            <td className="px-4 py-2.5 whitespace-nowrap">
+              <div className="font-bold text-slate-800">{usr.nama_pengguna}</div>
+              <div className="text-[11px] text-slate-400 font-mono">{usr.email}</div>
+            </td>
+            <td className="px-4 py-2.5 whitespace-nowrap">
+              <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
+                usr.role === 'admin' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
+              }`}>{usr.role}</span>
+            </td>
+            <td className="px-4 py-2.5 whitespace-nowrap">
+              <div className="flex items-center justify-between gap-4 max-w-[240px]">
+                
+                {/* PERBAIKAN LOGIKA DI SINI: */}
+                {usr.is_first_login ? (
+                  // JIKA TRUE (Baru didaftarkan ATAU baru saja di-reset): Tampilkan status belum aktivasi
+                  <span className="px-2 py-0.5 text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 rounded animate-pulse">
+                    ⌛ Belum Aktivasi
+                  </span>
+                ) : (
+                  // JIKA FALSE (Akun aktif): Tampilkan status aktif beserta tombol resetnya
+                  <>
+                    <span className="text-xs font-bold text-emerald-500">
+                      ✓ Sudah Aktif
+                    </span>
+                    <button
+                      onClick={() => handleResetPassword(usr.email, usr.nama_pengguna)}
+                      className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                      title="Kembalikan ke Password 123456"
+                    >
+                      <RotateCcw size={10} /> Reset
+                    </button>
+                  </>
+                )}
+
+              </div>
+            </td>
+          </tr>
+        ))}
+        {filteredUsersList.length === 0 && (
+          <tr>
+            <td colSpan="3" className="px-4 py-8 text-center text-slate-400 font-medium">
+              Data pegawai tidak ditemukan.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</div>
       </section>
 
       {/* PANEL 3: PEMBERSIHAN / HAPUS PETUGAS MITRA (PML/PCL) */}
       <section className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-        {/* MODIFIKASI: flex-col di HP agar input pencarian ditarik ke bawah judul dengan rapi, sm:flex-row di desktop */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h2 className="text-base md:text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -320,13 +400,10 @@ export default function SettingsPage() {
             <p className="text-slate-500 text-xs mt-0.5">Cari dan hapus data petugas eksternal yang mengundurkan diri atau tidak terpakai dari sistem.</p>
           </div>
           
-          {/* Input Live Search */}
-          {/* MODIFIKASI: max-w-none di HP agar kolom pencarian memenuhi lebar layar mobile */}
           <div className="relative max-w-none sm:max-w-xs w-full">
             <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
               <Search size={16} />
             </span>
-            {/* MODIFIKASI: text-base di HP untuk cegah iOS zoom, py-2 di HP agar nyaman di-tap */}
             <input
               type="text"
               placeholder="Cari nama atau email petugas..."
@@ -337,46 +414,61 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Tabel Petugas Eksternal */}
         <div className="overflow-x-auto max-h-[400px] overflow-y-auto border border-slate-100 rounded-xl scrollbar-thin">
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
               <tr>
                 <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Nama Lengkap / Email</th>
                 <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Kecamatan</th>
-                <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Posisi</th>
-                <th className="px-4 py-2.5 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Aksi</th>
+                <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Posisi & Reset</th>
+                <th className="px-4 py-2.5 text-center text-xs font-bold text-slate-500 uppercase tracking-wider">Hapus</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-100 text-xs">
-              {petugasList.map((ptg) => (
-                <tr key={ptg.email} className="hover:bg-slate-50/60 transition-colors">
-                  <td className="px-4 py-2.5 whitespace-nowrap">
-                    <div className="font-bold text-slate-700">{ptg.nama_petugas}</div>
-                    <div className="text-[11px] text-slate-400 font-mono">{ptg.email}</div>
-                  </td>
-                  <td className="px-4 py-2.5 whitespace-nowrap font-medium text-slate-600 uppercase tracking-wide">
-                    {ptg.kecamatan_tugas || '-'}
-                  </td>
-                  <td className="px-4 py-2.5 whitespace-nowrap">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
-                      ptg.posisi_tugas === 'PML' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-teal-50 text-teal-700 border border-teal-200'
-                    }`}>
-                      {ptg.posisi_tugas}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 whitespace-nowrap text-center">
-                    {/* MODIFIKASI: Memperluas area padding tombol aksi hapus (p-2) agar pas dengan tap target jempol HP */}
-                    <button
-                      onClick={() => handleDeletePetugas(ptg.email, ptg.nama_petugas)}
-                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all inline-block"
-                      title="Hapus Petugas Permanen"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {petugasList.map((ptg) => {
+                const matchingUser = usersList.find(u => u.email === ptg.email);
+                const hasActivated = matchingUser && !matchingUser.is_first_login;
+
+                return (
+                  <tr key={ptg.email} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <div className="font-bold text-slate-700">{ptg.nama_petugas}</div>
+                      <div className="text-[11px] text-slate-400 font-mono">{ptg.email}</div>
+                    </td>
+                    <td className="px-4 py-2.5 whitespace-nowrap font-medium text-slate-600 uppercase tracking-wide">
+                      {ptg.kecamatan_tugas || '-'}
+                    </td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <div className="flex items-center gap-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
+                          ptg.posisi_tugas === 'PML' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-teal-50 text-teal-700 border border-teal-200'
+                        }`}>
+                          {ptg.posisi_tugas}
+                        </span>
+
+                        {hasActivated && (
+                          <button
+                            onClick={() => handleResetPassword(ptg.email, ptg.nama_petugas)}
+                            className="px-2 py-0.5 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded text-[9px] font-extrabold flex items-center gap-0.5 transition-all cursor-pointer"
+                            title="Reset Akun Mitra ke 123456"
+                          >
+                            <RotateCcw size={8} /> Reset
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 whitespace-nowrap text-center">
+                      <button
+                        onClick={() => handleDeletePetugas(ptg.email, ptg.nama_petugas)}
+                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all inline-block cursor-pointer"
+                        title="Hapus Petugas Permanen"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               {petugasList.length === 0 && (
                 <tr>
                   <td colSpan="4" className="px-4 py-10 text-center text-slate-400 font-medium">

@@ -119,7 +119,7 @@ export default function LoginPage() {
                 id: newUid,
                 email: inputEmail,
                 nama_pengguna: registeredPcl.nama_petugas,
-                role: 'pcl', // Menyetel role ke PCL secara eksplisit
+                role: 'pcl',
                 kecamatan_tugas: registeredPcl.kecamatan_tugas,
                 is_first_login: true
               });
@@ -155,25 +155,22 @@ export default function LoginPage() {
     } catch (error) {
       setErrorMsg(error.message);
     } finally {
-      loading(false); // Diubah dari variabel langsung menjadi pemanggilan fungsi setLoding jika itu typo asli, tapi tetap pertahankan fungsi state asli Anda:
+      // PERBAIKAN: Baris pengebom sisa typo 'loading(false)' sudah dibersihkan total
       setLoading(false);
     }
   };
 
   return (
-    // MODIFIKASI: Ditambahkan px-4 dan penyesuaian jarak vertikal (py-8) agar pas di layar kecil HP
     <div className="min-h-screen bg-slate-100 flex flex-col justify-center py-8 px-4 sm:py-12 sm:px-6 lg:px-8">
       
       {/* Container Header */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        {/* MODIFIKASI: Menggunakan text-2xl di HP agar tidak terlalu memakan tempat, sm:text-3xl di desktop */}
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">SENSUS EKONOMI 2026</h2>
         <p className="mt-2 text-sm text-slate-500 font-bold uppercase tracking-wider">BPS Kabupaten Boyolali</p>
       </div>
 
       {/* Container Card Form */}
       <div className="mt-6 sm:mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        {/* MODIFIKASI: Mengurangi padding vertikal di HP (py-6) dan mengembalikan py-8 px-10 saat desktop (sm:) */}
         <div className="bg-white py-6 px-4 shadow-xl rounded-2xl sm:py-8 sm:px-10 border border-slate-200">
           <h3 className="text-xl font-bold text-slate-800 mb-6 text-center">Sign In</h3>
           
@@ -186,7 +183,6 @@ export default function LoginPage() {
           <form className="space-y-5 sm:space-y-6" onSubmit={handleLogin}>
             <div>
               <label className="block text-sm font-semibold text-slate-700">Alamat Email</label>
-              {/* MODIFIKASI: text-base di HP untuk mencegah iOS auto-zoom, sm:text-sm di desktop */}
               <input
                 type="email"
                 required
@@ -199,7 +195,6 @@ export default function LoginPage() {
 
             <div>
               <label className="block text-sm font-semibold text-slate-700">Password</label>
-              {/* MODIFIKASI: text-base di HP untuk mencegah iOS auto-zoom, sm:text-sm di desktop */}
               <input
                 type="password"
                 required

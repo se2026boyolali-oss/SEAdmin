@@ -18,45 +18,59 @@ const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {/* RESPONSIVE: Ditambahkan pembungkus overflow-x-auto agar tabel kecamatan bisa di-swipe horizontal pada layar HP */}
         <div className="w-full overflow-x-auto">
-            <table className="w-full text-left min-w-[600px] md:min-w-0">
+            <table className="w-full text-left min-w-[700px] md:min-w-0">
                 <thead className="bg-slate-50 border-b">
                     <tr>
                         <th className="px-6 py-4 text-sm font-semibold text-slate-600">Nama Kecamatan</th>
                         <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Total SLS</th>
                         <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Ter-alokasi</th>
+                        {/* INPUT KOLOM BARU DI TH */}
+                        <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Belum</th>
                         <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Progres</th>
                         <th className="px-6 py-4"></th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                    {/* REVISI: Mengubah getKecamatanSummary menjadi kecamatanSummary sesuai hulu datanya */}
-                    {kecamatanSummary.map((kec) => (
-                        <tr
-                            key={kec.name}
-                            className="hover:bg-slate-50 transition-colors cursor-pointer"
-                            onClick={() => enterKecamatan(kec.name)}
-                        >
-                            <td className="px-6 py-4 font-medium text-slate-800">({kec.code}) {kec.name}</td>
-                            <td className="px-6 py-4 text-center text-slate-600">{kec.total}</td>
-                            <td className="px-6 py-4 text-center text-emerald-600 font-medium">{kec.allocated}</td>
-                            <td className="px-6 py-4">
-                                <div className="flex items-center gap-3 justify-center">
-                                    <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
-                                        <div
-                                            className="bg-emerald-500 h-full"
-                                            style={{ width: `${kec.total > 0 ? (kec.allocated / kec.total) * 100 : 0}%` }} // Proteksi pembagian 0
-                                        ></div>
+                    {kecamatanSummary.map((kec) => {
+                        // Hitung nilai sisa alokasi langsung di sini
+                        const remaining = kec.total - kec.allocated;
+
+                        return (
+                            <tr
+                                key={kec.name}
+                                className="hover:bg-slate-50 transition-colors cursor-pointer"
+                                onClick={() => enterKecamatan(kec.name)}
+                            >
+                                <td className="px-6 py-4 font-medium text-slate-800">({kec.code}) {kec.name}</td>
+                                <td className="px-6 py-4 text-center text-slate-600">{kec.total}</td>
+                                <td className="px-6 py-4 text-center text-emerald-600 font-bold">{kec.allocated}</td>
+                                
+                                {/* INPUT KOLOM BARU DI TD */}
+                                <td className={`px-6 py-4 text-center font-bold ${
+                                    remaining > 0 ? 'text-rose-600 bg-rose-50/30' : 'text-slate-400'
+                                }`}>
+                                    {remaining}
+                                </td>
+
+                                <td className="px-6 py-4">
+                                    <div className="flex items-center gap-3 justify-center">
+                                        <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
+                                            <div
+                                                className="bg-emerald-500 h-full"
+                                                style={{ width: `${kec.total > 0 ? (kec.allocated / kec.total) * 100 : 0}%` }} // Proteksi pembagian 0
+                                            ></div>
+                                        </div>
+                                        <span className="text-xs font-bold text-slate-500">
+                                            {kec.total > 0 ? Math.round((kec.allocated / kec.total) * 100) : 0}%
+                                        </span>
                                     </div>
-                                    <span className="text-xs font-bold text-slate-500">
-                                        {kec.total > 0 ? Math.round((kec.allocated / kec.total) * 100) : 0}%
-                                    </span>
-                                </div>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                                <ChevronRight size={18} className="text-slate-300 inline" />
-                            </td>
-                        </tr>
-                    ))}
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                    <ChevronRight size={18} className="text-slate-300 inline" />
+                                </td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
         </div>
