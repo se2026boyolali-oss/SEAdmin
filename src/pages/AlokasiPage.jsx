@@ -281,14 +281,27 @@ export default function AlokasiPage() {
         }
     };
 
-    const handleBulkAssign = async (pclEmail) => {
-        // 1. PROTEKSI SAKELAR GLOBAL: Jika alokasi dikunci Admin, blokir aksi
-        if (!allowAllocation) {
-            alert("Maaf, pengisian atau perubahan alokasi telah dikunci oleh Admin.");
+const handleBulkAssign = async (pclEmail) => {
+    // 1. PROTEKSI SAKELAR GLOBAL
+    if (!allowAllocation) {
+        alert("Maaf, pengisian atau perubahan alokasi telah dikunci oleh Admin.");
+        return;
+    }
+
+    // 👇 TAMBAHKAN PROTEKSI BARU UNTUK ROLE PEGAWAI
+    if (profile?.role === 'pegawai') {
+        // Membersihkan kode/nama kecamatan agar perbandingannya adil (misal: "030 CEPOGO" vs "CEPOGO")
+        const userKec = profile.kecamatan_tugas || "";
+        const cleanUserKec = userKec.includes(" ") ? userKec.substring(userKec.indexOf(" ") + 1).trim() : userKec.trim();
+        const cleanSelectedKec = selectedKec ? selectedKec.trim() : "";
+
+        if (cleanUserKec !== cleanSelectedKec) {
+            alert(`Anda hanya memiliki hak akses alokasi untuk Kecamatan ${userKec}. Di kecamatan lain, Anda hanya bisa memonitor.`);
             return;
         }
+    }
 
-        if (selectedSlsIds.length === 0) return;
+    if (selectedSlsIds.length === 0) return;
 
         if (pclEmail === "" && pclEmail !== null) {
             alert("Pilih petugas terlebih dahulu atau klik Kosongkan");
@@ -526,7 +539,8 @@ export default function AlokasiPage() {
                         desaSummary={desaSummary}
                         userRole={profile?.role}
                         handleMovePclToNewPml={handleMovePclToNewPml}
-                        handleGantiPetugas={handleGantiPetugas} // <-- Mengirim informasi role ke sub-komponen
+                        handleGantiPetugas={handleGantiPetugas}
+                        profile={profile} // <-- Mengirim informasi role ke sub-komponen
                     />
                 )}
             </div>
@@ -625,13 +639,23 @@ const AllocationViewContent = ({
     slsList, pcls, selectedKec, selectedDesa, setSelectedDesa,
     rightPanelMode, setRightPanelMode, setCurrentLevel,
     selectedSlsIds, setSelectedSlsIds, slsContainerRef, desaSummary,
-    userRole, handleMovePclToNewPml, handleGantiPetugas // <-- Menerima properti role
+    userRole, handleMovePclToNewPml, handleGantiPetugas,
+    profile // <-- Tambahkan properti profile di sini untuk mendapatkan data kecamatan_tugas pegawai
 }) => {
     const [swapTarget, setSwapTarget] = useState(null);
     const [searchCadangan, setSearchCadangan] = useState("");
     const pclsOnly = pcls.filter(p => p.posisi_tugas === 'PCL');
     const totalBebanKec = slsList.reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0);
     const bebanIdeal = pclsOnly.length > 0 ? Math.round(totalBebanKec / pclsOnly.length) : 0;
+
+    // --- FORMULASI VALIDASI WILAYAH TUGAS PEGAWAI ---
+    const userKec = profile?.kecamatan_tugas || "";
+    // Bersihkan kode angka di depan nama kecamatan jika ada (contoh: "030 CEPOGO" menjadi "CEPOGO")
+    const cleanUserKec = userKec.includes(" ") ? userKec.substring(userKec.indexOf(" ") + 1).trim() : userKec.trim();
+    const cleanSelectedKec = selectedKec ? selectedKec.trim() : "";
+
+    // Skenario: Jika dia pegawai dan kecamatan yang dibuka tidak sama dengan kecamatan tugasnya, kunci status ke Read Only
+    const isReadOnly = userRole === 'pegawai' && cleanUserKec !== cleanSelectedKec;
 
     return (
         <div className="flex flex-col h-full gap-4">
@@ -652,212 +676,207 @@ const AllocationViewContent = ({
                 <div>
                     <h2 className="text-xl font-bold text-slate-800">Kecamatan {selectedKec}</h2>
                     <p className="text-xs text-slate-500">Target Ideal: {bebanIdeal} beban / PCL</p>
+                    {isReadOnly && (
+                        <span className="inline-block mt-1 text-[10px] bg-amber-50 text-amber-700 font-bold px-2 py-0.5 rounded border border-amber-200">
+                            👁️ Mode Lihat (Anda Hanya Dapat Mengalokasikan Kecamatan {userKec})
+                        </span>
+                    )}
                 </div>
             </div>
 
-            {/* RESPONSIVE: Mengubah pembagian layout utama panel kiri (w-1/3) & panel kanan (w-2/3) menjadi bertumpuk flex-col di HP dan mengaktifkan scroll internal */}
+            {/* RESPONSIVE LAYOUT MAIN PANEL */}
             <div className="flex-1 flex flex-col md:flex-row gap-6 overflow-y-auto md:overflow-hidden px-2">
                 
-                {/* PANEL TIM BEBAN KERJA: Diberikan min-height di mobile agar isi komponennya tidak terlipat gepeng */}
+                {/* PANEL TIM BEBAN KERJA */}
                 <div className="w-full md:w-1/3 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[350px] md:min-h-0">
                     <div className="p-4 border-b bg-slate-50 rounded-t-xl flex items-center justify-between font-bold text-slate-700">
                         <span className="flex items-center gap-2"><Users size={18} />  Beban Kerja Tim</span>
                     </div>
-<div className="flex-1 overflow-y-auto p-4 space-y-6">
-    {pcls.filter(p => p.posisi_tugas === 'PML').map(pml => {
-        const bawahan = pcls.filter(p => p.posisi_tugas === 'PCL' && p.id_pml_atasan === pml.email);
-        const slsBawahan = slsList.filter(s => bawahan.some(b => b.email === s.petugas_id));
-        const desaPml = [...new Set(slsBawahan.map(s => s.nmdesa))];
+                    <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                        {pcls.filter(p => p.posisi_tugas === 'PML').map(pml => {
+                            const bawahan = pcls.filter(p => p.posisi_tugas === 'PCL' && p.id_pml_atasan === pml.email);
+                            const slsBawahan = slsList.filter(s => bawahan.some(b => b.email === s.petugas_id));
+                            const desaPml = [...new Set(slsBawahan.map(s => s.nmdesa))];
 
-        return (
-            <div key={pml.email} className="space-y-3">
-                {/* --- CARD PML --- */}
-                <div className="bg-indigo-50/60 p-3 rounded-lg border border-indigo-100">
-                    <div className="flex items-center gap-2 mb-2">
-                        <UserCircle className="text-indigo-600 shrink-0" size={18} />
-                        <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                            {pml.nama_petugas} (PML)
-                        </div>
-                    </div>
-                    
-                    <div className="flex flex-col gap-1.5 mb-2">
-                        {desaPml.length > 0 ? (
-                            <div className="flex flex-wrap items-center gap-1">
-                                <span className="text-[10px] font-semibold text-slate-400 uppercase mr-1">
-                                    Desa Tugas :
-                                </span>
-                                {desaPml.map((d) => (
-                                    <span
-                                        key={d}
-                                        className="text-[10px] bg-white text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold uppercase shadow-sm"
-                                    >
-                                        {d}
-                                    </span>
-                                ))}
-                            </div>
-                        ) : (
-                            <span className="text-[10px] text-slate-400 italic font-medium">
-                                Belum ada wilayah tugas
-                            </span>
-                        )}
-                    </div>
-                    
-                    {/* REVISI: Menggabungkan info PCL dan SLS sejajar agar hemat ruang */}
-                    <div className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider flex items-center gap-1.5">
-                        <span>Mengawasi: {bawahan.length} PCL</span>
-                        <span className="text-indigo-300">•</span>
-                        <span>Total: {slsBawahan.length} SLS</span>
-                    </div>
-                </div>
-
-                {/* --- LIST PCL --- */}
-                <div className="pl-4 space-y-3 border-l-2 border-slate-200">
-                    {bawahan.map(pcl => {
-                        const mySls = slsList.filter(s => s.petugas_id === pcl.email);
-                        const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
-                        const myDesas = [...new Set(mySls.map(s => s.nmdesa))];
-
-                        const isUnder = workload < 0.85 * bebanIdeal;
-                        const isWarning = workload >= 1.1 * bebanIdeal && workload <= bebanIdeal * 1.2;
-                        const isOver = workload > bebanIdeal * 1.2;
-
-                        let cardStyle = 'border-slate-100 bg-white shadow-sm';
-                        let progressColor = 'bg-emerald-500';
-                        
-                        let badgeStyle = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                        let statusLabel = 'IDEAL';
-
-                        if (isUnder) {
-                            cardStyle = 'border-blue-200 bg-blue-50/50';
-                            progressColor = 'bg-blue-500';
-                            badgeStyle = 'bg-blue-50 text-blue-700 border-blue-200';
-                            statusLabel = 'UNDER';
-                        } else if (isOver) {
-                            cardStyle = 'border-rose-200 bg-rose-50/50';
-                            progressColor = 'bg-rose-500';
-                            badgeStyle = 'bg-rose-50 text-rose-700 border-rose-200';
-                            statusLabel = 'OVER';
-                        } else if (isWarning) {
-                            cardStyle = 'border-amber-200 bg-amber-50/50';
-                            progressColor = 'bg-amber-500';
-                            badgeStyle = 'bg-amber-50 text-amber-700 border-amber-200';
-                            statusLabel = 'ABOVE AVERAGE';
-                        }
-
-                        const maxBudget = bebanIdeal * 1.3;
-                        const progressPercentage = Math.min((workload / maxBudget) * 100, 100);
-
-                        return (
-                            <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${cardStyle}`}>
-                                {/* Konten Atas */}
-                                <div className="flex justify-between items-start mb-2">
-                                    <div className="flex flex-col gap-1">
-                                        {/* Nama & Tombol Ganti */}
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs font-bold text-slate-800 uppercase">
-                                                {pcl.nama_petugas}
-                                            </span>
-                                            {userRole !== 'pml' && (
-                                                <button
-                                                    onClick={() => {
-                                                        setSwapTarget(pcl.email);
-                                                        if (typeof setSearchCadangan === 'function') setSearchCadangan("");
-                                                    }}
-                                                    className="px-1 py-0.5 bg-slate-100 hover:bg-amber-100 border border-slate-200 hover:border-amber-300 rounded text-slate-500 transition-colors cursor-pointer text-[9px] font-bold"
-                                                    title="Ganti dengan petugas cadangan"
-                                                >
-                                                    🔁 Ganti Cadangan
-                                                </button>
-                                            )}
+                            return (
+                                <div key={pml.email} className="space-y-3">
+                                    {/* --- CARD PML --- */}
+                                    <div className="bg-indigo-50/60 p-3 rounded-lg border border-indigo-100">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <UserCircle className="text-indigo-600 shrink-0" size={18} />
+                                            <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                                                {pml.nama_petugas} (PML)
+                                            </div>
                                         </div>
-
-                                        {/* Daftar Desa Tugas */}
-                                        <div className="flex flex-wrap items-center gap-1">
-                                            {myDesas.length > 0 && (
-                                                <span className="text-[10px] font-medium text-slate-400 uppercase shrink-0">
-                                                    Desa Tugas:
+                                        
+                                        <div className="flex flex-col gap-1.5 mb-2">
+                                            {desaPml.length > 0 ? (
+                                                <div className="flex flex-wrap items-center gap-1">
+                                                    <span className="text-[10px] font-semibold text-slate-400 uppercase mr-1">
+                                                        Desa Tugas :
+                                                    </span>
+                                                    {desaPml.map((d) => (
+                                                        <span
+                                                            key={d}
+                                                            className="text-[10px] bg-white text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold uppercase shadow-sm"
+                                                        >
+                                                            {d}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <span className="text-[10px] text-slate-400 italic font-medium">
+                                                    Belum ada wilayah tugas
                                                 </span>
                                             )}
-                                            <span className="text-[10px] text-slate-600 font-semibold uppercase">
-                                                {myDesas.join(', ')}
-                                            </span>
+                                        </div>
+                                        
+                                        <div className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>Mengawasi: {bawahan.length} PCL</span>
+                                            <span className="text-indigo-300">•</span>
+                                            <span>Total: {slsBawahan.length} SLS</span>
                                         </div>
                                     </div>
 
-                                    {/* Sisi Kanan (Metrik Muatan) */}
-                                    <div className="text-right shrink-0">
-                                        <div className="text-[11px] font-black text-slate-700">
-                                            Perkiraan Beban: {workload}
-                                        </div>
-                                        <div className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">
-                                            {mySls.length} SLS
-                                        </div>
+                                    {/* --- LIST PCL --- */}
+                                    <div className="pl-4 space-y-3 border-l-2 border-slate-200">
+                                        {bawahan.map(pcl => {
+                                            const mySls = slsList.filter(s => s.petugas_id === pcl.email);
+                                            const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
+                                            const myDesas = [...new Set(mySls.map(s => s.nmdesa))];
+
+                                            const isUnder = workload < 0.85 * bebanIdeal;
+                                            const isWarning = workload >= 1.1 * bebanIdeal && workload <= bebanIdeal * 1.2;
+                                            const isOver = workload > bebanIdeal * 1.2;
+
+                                            let cardStyle = 'border-slate-100 bg-white shadow-sm';
+                                            let progressColor = 'bg-emerald-500';
+                                            let badgeStyle = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                            let statusLabel = 'IDEAL';
+
+                                            if (isUnder) {
+                                                cardStyle = 'border-blue-200 bg-blue-50/50';
+                                                progressColor = 'bg-blue-500';
+                                                badgeStyle = 'bg-blue-50 text-blue-700 border-blue-200';
+                                                statusLabel = 'UNDER';
+                                            } else if (isOver) {
+                                                cardStyle = 'border-rose-200 bg-rose-50/50';
+                                                progressColor = 'bg-rose-500';
+                                                badgeStyle = 'bg-rose-50 text-rose-700 border-rose-200';
+                                                statusLabel = 'OVER';
+                                            } else if (isWarning) {
+                                                cardStyle = 'border-amber-200 bg-amber-50/50';
+                                                progressColor = 'bg-amber-500';
+                                                badgeStyle = 'bg-amber-50 text-amber-700 border-amber-200';
+                                                statusLabel = 'ABOVE AVERAGE';
+                                            }
+
+                                            const maxBudget = bebanIdeal * 1.3;
+                                            const progressPercentage = Math.min((workload / maxBudget) * 100, 100);
+
+                                            return (
+                                                <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${cardStyle}`}>
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs font-bold text-slate-800 uppercase">
+                                                                    {pcl.nama_petugas}
+                                                                </span>
+                                                                {/* Sembunyikan tombol ganti cadangan jika dalam mode read-only pegawai */}
+                                                                {userRole !== 'pml' && !isReadOnly && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSwapTarget(pcl.email);
+                                                                            setSearchCadangan("");
+                                                                        }}
+                                                                        className="px-1 py-0.5 bg-slate-100 hover:bg-amber-100 border border-slate-200 hover:border-amber-300 rounded text-slate-500 transition-colors cursor-pointer text-[9px] font-bold"
+                                                                        title="Ganti dengan petugas cadangan"
+                                                                    >
+                                                                        🔁 Ganti Cadangan
+                                                                    </button>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="flex flex-wrap items-center gap-1">
+                                                                {myDesas.length > 0 && (
+                                                                    <span className="text-[10px] font-medium text-slate-400 uppercase shrink-0">
+                                                                        Desa Tugas:
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-[10px] text-slate-600 font-semibold uppercase">
+                                                                    {myDesas.join(', ')}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="text-right shrink-0">
+                                                            <div className="text-[11px] font-black text-slate-700">
+                                                                Perkiraan Beban: {workload}
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">
+                                                                {mySls.length} SLS
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex justify-between items-center mb-1 gap-2">
+                                                        <div>
+                                                            {/* Matikan selection pindah PML jika dalam keadaan read-only */}
+                                                            {userRole !== 'pml' && !isReadOnly ? (
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="text-[10px] font-medium text-slate-400 uppercase">Pindah PML:</span>
+                                                                    <select
+                                                                        value={pcl.id_pml_atasan || ""}
+                                                                        onChange={(e) => handleMovePclToNewPml(pcl.email, e.target.value, pcl.nama_petugas)}
+                                                                        className="text-[10px] bg-white border border-slate-200 rounded px-1.5 py-0.5 font-medium text-slate-700 outline-none w-28 cursor-pointer hover:border-indigo-400"
+                                                                    >
+                                                                        <option value="" disabled>Pilih Pengawas</option>
+                                                                        {pcls.filter(p => p.posisi_tugas === 'PML').map(pmlOption => (
+                                                                            <option key={pmlOption.email} value={pmlOption.email}>
+                                                                                {pmlOption.nama_petugas}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                            ) : (
+                                                                <div />
+                                                            )}
+                                                        </div>
+
+                                                        <span className={`text-[8px] font-extrabold tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${badgeStyle}`}>
+                                                            {statusLabel}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="relative w-full pt-3 pb-1">
+                                                        <div 
+                                                            className="absolute top-0 bottom-0 flex flex-col items-center z-10 pointer-events-none"
+                                                            style={{ left: '76.92%' }}
+                                                        >
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-slate-400 ring-2 ring-white mb-0.5" />
+                                                            <div className="w-[1px] h-full border-l border-dashed border-slate-300/80" />
+                                                        </div>
+
+                                                        <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full transition-all duration-500 ${progressColor}`}
+                                                                style={{ width: `${progressPercentage}%` }}
+                                                            ></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
-
-                                {/* Konten Bawah (Pindah PML & Badge Status) */}
-                                <div className="flex justify-between items-center mb-1 gap-2">
-                                    <div>
-                                        {userRole !== 'pml' ? (
-                                            <div className="flex items-center gap-1.5">
-                                                <span className="text-[10px] font-medium text-slate-400 uppercase">Pindah PML:</span>
-                                                <select
-                                                    value={pcl.id_pml_atasan || ""}
-                                                    onChange={(e) => handleMovePclToNewPml(pcl.email, e.target.value, pcl.nama_petugas)}
-                                                    className="text-[10px] bg-white border border-slate-200 rounded px-1.5 py-0.5 font-medium text-slate-700 outline-none w-28 cursor-pointer hover:border-indigo-400"
-                                                >
-                                                    <option value="" disabled>Pilih Pengawas</option>
-                                                    {pcls.filter(p => p.posisi_tugas === 'PML').map(pmlOption => (
-                                                        <option key={pmlOption.email} value={pmlOption.email}>
-                                                            {pmlOption.nama_petugas}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        ) : (
-                                            <div />
-                                        )}
-                                    </div>
-
-                                    <span className={`text-[8px] font-extrabold tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${badgeStyle}`}>
-                                        {statusLabel}
-                                    </span>
-                                </div>
-
-                                {/* Progress Bar Container dengan penanda Target Ideal yang Elegan */}
-                                <div className="relative w-full pt-3 pb-1">
-                                    {/* Penanda Batas Beban Ideal */}
-                                    <div 
-                                        className="absolute top-0 bottom-0 flex flex-col items-center z-10 pointer-events-none"
-                                        style={{ left: '76.92%' }}
-                                    >
-                                        <div className="w-1.5 h-1.5 rounded-full bg-slate-400 ring-2 ring-white mb-0.5" />
-                                        <div className="w-[1px] h-full border-l border-dashed border-slate-300/80" />
-                                    </div>
-
-                                    {/* Track Progress */}
-                                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                        <div
-                                            className={`h-full transition-all duration-500 ${progressColor}`}
-                                            style={{ width: `${progressPercentage}%` }}
-                                        ></div>
-                                    </div>
-                                </div>
-                                
-                            </div>
-                        );
-                    })}
+                            );
+                        })}
+                    </div>
                 </div>
-            </div>
-        );
-    })}
-</div>
-                </div>
 
-                {/* PANEL WILAYAH DAFTAR DESA ATAU SLS: Ditambahkan min-height agar proporsional di HP */}
+                {/* PANEL WILAYAH DAFTAR DESA ATAU SLS */}
                 <div className="w-full md:w-2/3 bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm min-h-[400px] md:min-h-0">
                     {rightPanelMode === 'desa' ? (
-                        /* RESPONSIVE: Mengubah boks grid desa menjadi 1 kolom di HP dan tetap 2 kolom di PC (`grid-cols-1 sm:grid-cols-2`) */
                         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {desaSummary.map(desa => {
                                 const isFullyAllocated = desa.total === desa.allocated;
@@ -869,7 +888,7 @@ const AllocationViewContent = ({
                                         className={`p-4 border rounded-xl cursor-pointer group transition-all ${isFullyAllocated
                                             ? 'bg-emerald-50/60 border-emerald-200 hover:bg-emerald-100/80'
                                             : 'bg-white border-slate-200 hover:bg-slate-50'
-                                            }`}
+                                        }`}
                                     >
                                         <div className="flex justify-between items-center mb-2 font-bold text-slate-800">
                                             ({desa.code}) {desa.name} <ChevronRight size={16} />
@@ -892,9 +911,7 @@ const AllocationViewContent = ({
                         </div>
                     ) : (
                         <>
-                            {/* RESPONSIVE: Header dalam panel SLS disesuaikan menjadi flex-col sm:flex-row agar judul desa tidak memotong badge muatan di HP */}
                             <div className="p-4 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 font-bold text-slate-700">
-                                {/* Tombol Kembali & Nama Desa */}
                                 <button
                                     onClick={() => setRightPanelMode('desa')}
                                     className="flex items-center gap-2 hover:text-emerald-600 transition-colors text-left group min-w-0 cursor-pointer"
@@ -902,8 +919,6 @@ const AllocationViewContent = ({
                                     <ArrowLeft size={18} className="shrink-0 group-hover:-translate-x-0.5 transition-transform" />
                                     <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 min-w-0">
                                         <span className="truncate text-base text-slate-800">{selectedDesa}</span>
-
-                                        {/* INDIKATOR TOTAL BEBAN MUATAN DESA */}
                                         <span className="text-[11px] font-bold uppercase tracking-tight text-slate-500 bg-slate-200/50 border border-slate-300/40 px-2.5 py-1 rounded-md shrink-0">
                                             Total Muatan: {' '}
                                             <span className="text-slate-800 font-black">
@@ -916,13 +931,10 @@ const AllocationViewContent = ({
                                     </div>
                                 </button>
 
-                                {/* Statistik Ringkas SLS Bagian Kanan */}
                                 <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold uppercase tracking-tight shrink-0">
-                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-200/50 rounded-md text-slate-500">
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-200/50 rounded-md text-slate-800">
                                         <span>Jumlah SLS:</span>
-                                        <span className="text-slate-800">
-                                            {slsList.filter(s => s.nmdesa === selectedDesa).length}
-                                        </span>
+                                        <span>{slsList.filter(s => s.nmdesa === selectedDesa).length}</span>
                                     </div>
 
                                     <div className="flex items-center gap-1.5 px-2 py-1 bg-rose-50 rounded-md text-rose-400">
@@ -942,20 +954,24 @@ const AllocationViewContent = ({
                                     const isAllocated = !!sls.petugas_id;
 
                                     return (
-                                        /* RESPONSIVE: Mengubah susunan dalam baris SLS dari flex baris lurus menjadi membungkus (flex-col sm:flex-row) pada HP agar teks Nama Petugas dan Kode Wilayah tidak berimpitan hancur */
                                         <div
                                             key={sls.idsubsls}
                                             onClick={() => {
+                                                // 👇 JIKA READ-ONLY KARENA LUAR KECAMATAN TUGAS, BLOKIR AKSI SELEKSI CENTANG
+                                                if (isReadOnly) return;
+
                                                 setSelectedSlsIds(prev =>
                                                     prev.includes(sls.idsubsls) ? prev.filter(id => id !== sls.idsubsls) : [...prev, sls.idsubsls]
-                                                )
+                                                );
                                             }}
-                                            className={`p-3 border rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0 transition-all cursor-pointer group mb-1 ${isSelected
+                                            className={`p-3 border rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0 transition-all mb-1 ${
+                                                isReadOnly ? 'cursor-not-allowed opacity-85' : 'cursor-pointer'
+                                            } ${isSelected
                                                 ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10'
                                                 : isAllocated
                                                     ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300'
                                                     : 'bg-white border-slate-200 hover:border-slate-300'
-                                                }`}
+                                            }`}
                                         >
                                             <div className="w-full sm:flex-[0.8] min-w-0 sm:pr-4">
                                                 <div className="flex items-center gap-2">
@@ -992,6 +1008,7 @@ const AllocationViewContent = ({
                                                     </div>
                                                 </div>
 
+                                                {/* BOX CENTANG ALOKASI */}
                                                 <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all shrink-0 ${isSelected
                                                     ? 'bg-orange-500 border-orange-500 scale-110'
                                                     : isAllocated
@@ -1010,14 +1027,11 @@ const AllocationViewContent = ({
                     )}
                 </div>
             </div>
-            {/* ------------------------------------------------------------- */}
+
             {/* MODAL PENCARIAN PETUGAS CADANGAN */}
-            {/* ------------------------------------------------------------- */}
             {swapTarget && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden transform transition-all">
-
-                        {/* Modal Header */}
                         <div className="p-4 border-b flex justify-between items-center bg-amber-50">
                             <div>
                                 <h3 className="font-bold text-amber-800">Pilih Petugas Cadangan</h3>
@@ -1033,7 +1047,6 @@ const AllocationViewContent = ({
                             </button>
                         </div>
 
-                        {/* Search Bar */}
                         <div className="p-4 border-b bg-slate-50">
                             <div className="relative">
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
@@ -1048,25 +1061,19 @@ const AllocationViewContent = ({
                             </div>
                         </div>
 
-                        {/* List Cadangan dengan Filter */}
                         <div className="flex-1 overflow-y-auto p-2 space-y-1 bg-slate-50/50">
                             {pcls
                                 .filter(p => p.status && p.status.toLowerCase() === 'cadangan')
                                 .filter(p => p.nama_petugas && p.nama_petugas.toLowerCase().includes(searchCadangan.toLowerCase()))
                                 .map(cadangan => (
                                     <div key={cadangan.email} className="flex justify-between items-center p-3 bg-white hover:bg-amber-50 border border-slate-100 hover:border-amber-200 rounded-xl transition-all shadow-sm group gap-2">
-                                        {/* List Cadangan dengan Filter (Bagian dalam map) */}
                                         <div className="flex flex-col min-w-0 pr-4">
                                             <span className="font-bold text-slate-800 text-xs uppercase truncate">{cadangan.nama_petugas}</span>
                                             <div className="flex items-center gap-2 mt-1">
                                                 <span className="text-[10px] text-slate-500 truncate">{cadangan.email}</span>
-
-                                                {/* --- TAMBAHAN BADGE KECAMATAN --- */}
                                                 <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-200/70 text-slate-600 rounded border border-slate-300 shrink-0">
                                                     📍 Kec: {cadangan.kecamatan_tugas || 'Belum Ditugaskan'}
                                                 </span>
-                                                {/* ------------------------------- */}
-
                                             </div>
                                         </div>
                                         <button
@@ -1079,7 +1086,7 @@ const AllocationViewContent = ({
                                                     cadangan.nama_petugas,
                                                     pclLama.id_pml_atasan
                                                 );
-                                                setSwapTarget(null); // Tutup Modal setelah eksekusi
+                                                setSwapTarget(null);
                                             }}
                                             className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors shrink-0 cursor-pointer"
                                         >
@@ -1089,7 +1096,6 @@ const AllocationViewContent = ({
                                 ))
                             }
 
-                            {/* Kondisi Jika Pencarian Kosong */}
                             {pcls.filter(p => p.status && p.status.toLowerCase() === 'cadangan' && p.nama_petugas?.toLowerCase().includes(searchCadangan.toLowerCase())).length === 0 && (
                                 <div className="text-center py-10 flex flex-col items-center">
                                     <span className="text-3xl mb-2">🕵️‍♂️</span>
@@ -1101,7 +1107,6 @@ const AllocationViewContent = ({
                     </div>
                 </div>
             )}
-
-        </div> // <-- INI ADALAH PENUTUP DARI <div className="flex flex-col h-full gap-4"> (Komponen Utama)
+        </div>
     );
 };
