@@ -1,7 +1,7 @@
 // src/components/Layout.jsx
 import { useState } from 'react'; // 1. TAMBAHKAN USESTATE UNTUK MENU MOBILE
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Users, Map, BarChart3, Settings, LogOut, User, Menu, X } from 'lucide-react'; // 2. IMPORT MENU DAN X ICON
+import { Users, Map, BarChart3, Settings, LogOut, User, Menu, X, ShieldAlert } from 'lucide-react'; // 💡 IMPORT SHIELDALERT DISINI
 import { useAuth } from '../context/AuthContext';
 
 export default function Layout() {
@@ -16,6 +16,8 @@ export default function Layout() {
   const allMenuItems = [
     { name: 'Dashboard', path: '/', icon: BarChart3, roles: ['admin', 'pegawai'] },
     { name: 'Alokasi Petugas', path: '/alokasi', icon: Map, roles: ['admin', 'pegawai', 'pml'] },
+    // 👇 MENU BARU: MONITORING SLS PRIORITAS (Hanya untuk Admin & Pegawai)
+    { name: 'SLS Prioritas', path: '/prioritas', icon: ShieldAlert, roles: ['admin', 'pegawai'] },
     { name: 'Pengaturan', path: '/pengaturan', icon: Settings, roles: ['admin'] },
     { name: 'PCL Assignment', path: '/PCL-Assignment', icon: Users, roles: ['pcl'] },
   ];
@@ -224,7 +226,7 @@ export default function Layout() {
           </div>
         </header>
 
-        {/* Area Render Halaman: Ditambahkan max-md:p-4 agar tidak terlalu lebar marginnya di HP */}
+        {/* Area Render Halaman */}
         <main className="flex-1 overflow-auto p-4 sm:p-6 max-md:p-3">
           <Outlet /> 
         </main>
