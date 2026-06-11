@@ -723,129 +723,191 @@ const AllocationViewContent = ({
 
             <div className="flex-1 flex flex-col md:flex-row gap-6 overflow-y-auto md:overflow-hidden px-2">
                 {/* PANEL TIM BEBAN KERJA */}
-                <div className="w-full md:w-1/3 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[350px] md:min-h-0">
-                    <div className="p-4 border-b bg-slate-50 rounded-t-xl flex items-center justify-between font-bold text-slate-700">
-                        <span className="flex items-center gap-2"><Users size={18} />  Beban Kerja Tim</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                        {pcls.filter(p => p.posisi_tugas === 'PML').map(pml => {
-                            const bawahan = pcls.filter(p => p.posisi_tugas === 'PCL' && p.id_pml_atasan === pml.email);
-                            const slsBawahan = slsList.filter(s => bawahan.some(b => b.email === s.petugas_id));
-                            const desaPml = [...new Set(slsBawahan.map(s => s.nmdesa))];
+           <div className="w-full md:w-1/3 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[350px] md:min-h-0">
+                    <div className="p-4 border-b bg-slate-50 rounded-t-xl flex items-center justify-between font-bold text-slate-700">
+                        <span className="flex items-center gap-2"><Users size={18} />  Beban Kerja Tim</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                        {pcls.filter(p => p.posisi_tugas === 'PML').map(pml => {
+                            const bawahan = pcls.filter(p => p.posisi_tugas === 'PCL' && p.id_pml_atasan === pml.email);
+                            const slsBawahan = slsList.filter(s => bawahan.some(b => b.email === s.petugas_id));
+                            const desaPml = [...new Set(slsBawahan.map(s => s.nmdesa))];
 
-                            return (
-                                <div key={pml.email} className="space-y-3">
-                                    <div className="bg-indigo-50/60 p-3 rounded-lg border border-indigo-100">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <UserCircle className="text-indigo-600 shrink-0" size={18} />
-                                            <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">{pml.nama_petugas} (PML)</div>
-                                        </div>
-                                        <div className="flex flex-col gap-1.5 mb-2">
-                                            {desaPml.length > 0 ? (
-                                                <div className="flex flex-wrap items-center gap-1">
-                                                    <span className="text-[10px] font-semibold text-slate-400 uppercase mr-1">Desa Tugas :</span>
-                                                    {desaPml.map((d) => (
-                                                        <span key={d} className="text-[10px] bg-white text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold uppercase shadow-sm">{d}</span>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <span className="text-[10px] text-slate-400 italic font-medium">Belum ada wilayah tugas</span>
-                                            )}
-                                        </div>
-                                        <div className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider flex items-center gap-1.5">
-                                            <span>Mengawasi: {bawahan.length} PCL</span>
-                                            <span className="text-indigo-300">•</span>
-                                            <span>Total: {slsBawahan.length} SLS</span>
-                                        </div>
-                                    </div>
+                            return (
+                                <div key={pml.email} className="space-y-3">
+                                    {/* --- CARD PML --- */}
+                                    <div className="bg-indigo-50/60 p-3 rounded-lg border border-indigo-100">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <UserCircle className="text-indigo-600 shrink-0" size={18} />
+                                            <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                                                {pml.nama_petugas} (PML)
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex flex-col gap-1.5 mb-2">
+                                            {desaPml.length > 0 ? (
+                                                <div className="flex flex-wrap items-center gap-1">
+                                                    <span className="text-[10px] font-semibold text-slate-400 uppercase mr-1">
+                                                        Desa Tugas :
+                                                    </span>
+                                                    {desaPml.map((d) => (
+                                                        <span
+                                                            key={d}
+                                                            className="text-[10px] bg-white text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold uppercase shadow-sm"
+                                                        >
+                                                            {d}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <span className="text-[10px] text-slate-400 italic font-medium">
+                                                    Belum ada wilayah tugas
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>Mengawasi: {bawahan.length} PCL</span>
+                                            <span className="text-indigo-300">•</span>
+                                            <span>Total: {slsBawahan.length} SLS</span>
+                                        </div>
+                                    </div>
 
-                                    <div className="pl-4 space-y-3 border-l-2 border-slate-200">
-                                        {bawahan.map(pcl => {
-                                            const mySls = slsList.filter(s => s.petugas_id === pcl.email);
-                                            const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
-                                            const myDesas = [...new Set(mySls.map(s => s.nmdesa))];
+                                    {/* --- LIST PCL --- */}
+                                    <div className="pl-4 space-y-3 border-l-2 border-slate-200">
+                                        {bawahan.map(pcl => {
+                                            const mySls = slsList.filter(s => s.petugas_id === pcl.email);
+                                            const workload = mySls.reduce((a, b) => a + (b.perkiraan_jumlah_beban || 0), 0);
+                                            const myDesas = [...new Set(mySls.map(s => s.nmdesa))];
 
-                                            const isUnder = workload < 0.85 * bebanIdeal;
-                                            const isWarning = workload >= 1.1 * bebanIdeal && workload <= bebanIdeal * 1.2;
-                                            const isOver = workload > bebanIdeal * 1.2;
+                                            const isUnder = workload < 0.85 * bebanIdeal;
+                                            const isWarning = workload >= 1.1 * bebanIdeal && workload <= bebanIdeal * 1.2;
+                                            const isOver = workload > bebanIdeal * 1.2;
 
-                                            let cardStyle = 'border-slate-100 bg-white shadow-sm';
-                                            let progressColor = 'bg-emerald-500';
-                                            let badgeStyle = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                                            let statusLabel = 'IDEAL';
+                                            let cardStyle = 'border-slate-100 bg-white shadow-sm';
+                                            let progressColor = 'bg-emerald-500';
+                                            let badgeStyle = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                            let statusLabel = 'IDEAL';
 
-                                            if (isUnder) {
-                                                cardStyle = 'border-blue-200 bg-blue-50/50';
-                                                progressColor = 'bg-blue-500';
-                                                badgeStyle = 'bg-blue-50 text-blue-700 border-blue-200';
-                                                statusLabel = 'UNDER';
-                                            } else if (isOver) {
-                                                cardStyle = 'border-rose-200 bg-rose-50/50';
-                                                progressColor = 'bg-rose-500';
-                                                badgeStyle = 'bg-rose-50 text-rose-700 border-rose-200';
-                                                statusLabel = 'OVER';
-                                            } else if (isWarning) {
-                                                cardStyle = 'border-amber-200 bg-amber-50/50';
-                                                progressColor = 'bg-amber-500';
-                                                badgeStyle = 'bg-amber-50 text-amber-700 border-amber-200';
-                                                statusLabel = 'ABOVE AVERAGE';
-                                            }
+                                            if (isUnder) {
+                                                cardStyle = 'border-blue-200 bg-blue-50/50';
+                                                progressColor = 'bg-blue-500';
+                                                badgeStyle = 'bg-blue-50 text-blue-700 border-blue-200';
+                                                statusLabel = 'UNDER';
+                                            } else if (isOver) {
+                                                cardStyle = 'border-rose-200 bg-rose-50/50';
+                                                progressColor = 'bg-rose-500';
+                                                badgeStyle = 'bg-rose-50 text-rose-700 border-rose-200';
+                                                statusLabel = 'OVER';
+                                            } else if (isWarning) {
+                                                cardStyle = 'border-amber-200 bg-amber-50/50';
+                                                progressColor = 'bg-amber-500';
+                                                badgeStyle = 'bg-amber-50 text-amber-700 border-amber-200';
+                                                statusLabel = 'ABOVE AVERAGE';
+                                            }
 
-                                            return (
-                                                <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${cardStyle}`}>
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <div className="flex flex-col gap-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs font-bold text-slate-800 uppercase">{pcl.nama_petugas}</span>
-                                                                {userRole !== 'pml' && !isReadOnly && (
-                                                                    <button
-                                                                        onClick={() => { setSwapTarget(pcl.email); setSearchCadangan(""); }}
-                                                                        className="px-1 py-0.5 bg-slate-100 hover:bg-amber-100 border border-slate-200 rounded text-slate-500 text-[9px] font-bold"
-                                                                    >
-                                                                        🔁 Ganti Cadangan
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                            <div className="flex flex-wrap items-center gap-1">
-                                                                {myDesas.length > 0 && <span className="text-[10px] font-medium text-slate-400 uppercase">Desa Tugas:</span>}
-                                                                <span className="text-[10px] text-slate-600 font-semibold uppercase">{myDesas.join(', ')}</span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <div className="text-[11px] font-black text-slate-700">Beban: {workload}</div>
-                                                            <div className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">{mySls.length} SLS</div>
-                                                        </div>
-                                                    </div>
+                                            const maxBudget = bebanIdeal * 1.3;
+                                            const progressPercentage = Math.min((workload / maxBudget) * 100, 100);
 
-                                                    <div className="flex justify-between items-center mb-1 gap-2">
-                                                        <div>
-                                                            {userRole !== 'pml' && !isReadOnly ? (
-                                                                <div className="flex items-center gap-1.5">
-                                                                    <span className="text-[10px] font-medium text-slate-400 uppercase">Pindah PML:</span>
-                                                                    <select
-                                                                        value={pcl.id_pml_atasan || ""}
-                                                                        onChange={(e) => handleMovePclToNewPml(pcl.email, e.target.value, pcl.nama_petugas)}
-                                                                        className="text-[10px] bg-white border border-slate-200 rounded px-1.5 py-0.5 font-medium text-slate-700 outline-none w-28 cursor-pointer"
-                                                                    >
-                                                                        <option value="" disabled>Pilih Pengawas</option>
-                                                                        {pcls.filter(p => p.posisi_tugas === 'PML').map(pmlOption => (
-                                                                            <option key={pmlOption.email} value={pmlOption.email}>{pmlOption.nama_petugas}</option>
-                                                                        ))}
-                                                                    </select>
-                                                                </div>
-                                                            ) : <div />}
-                                                        </div>
-                                                        <span className={`text-[8px] font-extrabold tracking-wider px-1.5 py-0.5 rounded border ${badgeStyle}`}>{statusLabel}</span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
+                                            return (
+                                                <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${cardStyle}`}>
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs font-bold text-slate-800 uppercase">
+                                                                    {pcl.nama_petugas}
+                                                                </span>
+                                                                {/* Sembunyikan tombol ganti cadangan jika dalam mode read-only pegawai */}
+                                                                {userRole !== 'pml' && !isReadOnly && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setSwapTarget(pcl.email);
+                                                                            setSearchCadangan("");
+                                                                        }}
+                                                                        className="px-1 py-0.5 bg-slate-100 hover:bg-amber-100 border border-slate-200 hover:border-amber-300 rounded text-slate-500 transition-colors cursor-pointer text-[9px] font-bold"
+                                                                        title="Ganti dengan petugas cadangan"
+                                                                    >
+                                                                        🔁 Ganti Cadangan
+                                                                    </button>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="flex flex-wrap items-center gap-1">
+                                                                {myDesas.length > 0 && (
+                                                                    <span className="text-[10px] font-medium text-slate-400 uppercase shrink-0">
+                                                                        Desa Tugas:
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-[10px] text-slate-600 font-semibold uppercase">
+                                                                    {myDesas.join(', ')}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="text-right shrink-0">
+                                                            <div className="text-[11px] font-black text-slate-700">
+                                                                Perkiraan Beban: {workload}
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">
+                                                                {mySls.length} SLS
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex justify-between items-center mb-1 gap-2">
+                                                        <div>
+                                                            {/* Matikan selection pindah PML jika dalam keadaan read-only */}
+                                                            {userRole !== 'pml' && !isReadOnly ? (
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="text-[10px] font-medium text-slate-400 uppercase">Pindah PML:</span>
+                                                                    <select
+                                                                        value={pcl.id_pml_atasan || ""}
+                                                                        onChange={(e) => handleMovePclToNewPml(pcl.email, e.target.value, pcl.nama_petugas)}
+                                                                        className="text-[10px] bg-white border border-slate-200 rounded px-1.5 py-0.5 font-medium text-slate-700 outline-none w-28 cursor-pointer hover:border-indigo-400"
+                                                                    >
+                                                                        <option value="" disabled>Pilih Pengawas</option>
+                                                                        {pcls.filter(p => p.posisi_tugas === 'PML').map(pmlOption => (
+                                                                            <option key={pmlOption.email} value={pmlOption.email}>
+                                                                                {pmlOption.nama_petugas}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                            ) : (
+                                                                <div />
+                                                            )}
+                                                        </div>
+
+                                                        <span className={`text-[8px] font-extrabold tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${badgeStyle}`}>
+                                                            {statusLabel}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="relative w-full pt-3 pb-1">
+                                                        <div 
+                                                            className="absolute top-0 bottom-0 flex flex-col items-center z-10 pointer-events-none"
+                                                            style={{ left: '76.92%' }}
+                                                        >
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-slate-400 ring-2 ring-white mb-0.5" />
+                                                            <div className="w-[1px] h-full border-l border-dashed border-slate-300/80" />
+                                                        </div>
+
+                                                        <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full transition-all duration-500 ${progressColor}`}
+                                                                style={{ width: `${progressPercentage}%` }}
+                                                            ></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+</div>
 
                 {/* PANEL WILAYAH DESA DAN SLS */}
                 <div className="w-full md:w-2/3 bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm min-h-[400px] md:min-h-0">
