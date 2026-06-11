@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../supabaseClient';
-import { useAuth } from '../context/AuthContext'; // <-- Integrasi Auth Terpercaya
+import { useAuth } from '../context/AuthContext'; 
 import {
     ChevronRight,
     ArrowLeft,
@@ -13,18 +13,16 @@ import {
 } from 'lucide-react';
 
 // --- KOMPONEN TABEL KECAMATAN (LEVEL 1) ---
-// Perbaikan pada Komponen Tabel Kecamatan (LEVEL 1)
-const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
+const KecamatanTable = ({ kecamatanSummary, enterKecamatan, lockedKecamatan }) => (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        {/* RESPONSIVE: Ditambahkan pembungkus overflow-x-auto agar tabel kecamatan bisa di-swipe horizontal pada layar HP */}
         <div className="w-full overflow-x-auto">
             <table className="w-full text-left min-w-[700px] md:min-w-0">
                 <thead className="bg-slate-50 border-b">
                     <tr>
                         <th className="px-6 py-4 text-sm font-semibold text-slate-600">Nama Kecamatan</th>
+                        <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Status Akses</th>
                         <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Total SLS</th>
                         <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Ter-alokasi</th>
-                        {/* INPUT KOLOM BARU DI TH */}
                         <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Belum</th>
                         <th className="px-6 py-4 text-sm font-semibold text-slate-600 text-center">Progres</th>
                         <th className="px-6 py-4"></th>
@@ -32,8 +30,8 @@ const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                     {kecamatanSummary.map((kec) => {
-                        // Hitung nilai sisa alokasi langsung di sini
                         const remaining = kec.total - kec.allocated;
+                        const isKecLocked = lockedKecamatan.includes(kec.name.toLowerCase().trim());
 
                         return (
                             <tr
@@ -42,22 +40,26 @@ const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
                                 onClick={() => enterKecamatan(kec.name)}
                             >
                                 <td className="px-6 py-4 font-medium text-slate-800">({kec.code}) {kec.name}</td>
+                                <td className="px-6 py-4 text-center">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                        isKecLocked ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                                    }`}>
+                                        {isKecLocked ? '🔒 TERKUNCI' : '🔓 TERBUKA'}
+                                    </span>
+                                </td>
                                 <td className="px-6 py-4 text-center text-slate-600">{kec.total}</td>
                                 <td className="px-6 py-4 text-center text-emerald-600 font-bold">{kec.allocated}</td>
-                                
-                                {/* INPUT KOLOM BARU DI TD */}
                                 <td className={`px-6 py-4 text-center font-bold ${
                                     remaining > 0 ? 'text-rose-600 bg-rose-50/30' : 'text-slate-400'
                                 }`}>
                                     {remaining}
                                 </td>
-
                                 <td className="px-6 py-4">
                                     <div className="flex items-center gap-3 justify-center">
                                         <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
                                             <div
                                                 className="bg-emerald-500 h-full"
-                                                style={{ width: `${kec.total > 0 ? (kec.allocated / kec.total) * 100 : 0}%` }} // Proteksi pembagian 0
+                                                style={{ width: `${kec.total > 0 ? (kec.allocated / kec.total) * 100 : 0}%` }}
                                             ></div>
                                         </div>
                                         <span className="text-xs font-bold text-slate-500">
@@ -79,7 +81,7 @@ const KecamatanTable = ({ kecamatanSummary, enterKecamatan }) => (
 
 // --- KOMPONEN UTAMA ---
 export default function AlokasiPage() {
-    const { user, profile, allowAllocation } = useAuth(); // <-- Mengambil data profil yang login
+    const { profile } = useAuth(); 
     const [currentLevel, setCurrentLevel] = useState('kecamatan');
     const [rightPanelMode, setRightPanelMode] = useState('desa');
     const [selectedKec, setSelectedKec] = useState(null);
@@ -92,33 +94,42 @@ export default function AlokasiPage() {
     const [loading, setLoading] = useState(false);
     const [tempSelectedPcl, setTempSelectedPcl] = useState("");
 
-    const slsContainerRef = useRef(null);
+    // STATE KUNCI DINAMIS PER KECAMATAN
+    const [lockedKecamatan, setLockedKecamatan] = useState([]);
 
-    // 1. Buat key string unik berbasis data profile agar referensinya stabil
+    const slsContainerRef = useRef(null);
     const profileDataKey = profile ? `${profile.role}-${profile.kecamatan_tugas}` : '';
 
+const fetchLockedKecamatan = async () => {
+    try {
+        const { data, error } = await supabase
+            .from('app_settings')
+            .select('value_json')
+            .eq('key', 'locked_kecamatan_list')
+            .single();
+        
+        if (!error && data && data.value_json) {
+            // Ubah semua list kecamatan dari DB menjadi lowercase agar aman dari bentrok abjad
+            const lowercaseKecamatan = data.value_json.map(k => k.toLowerCase().trim());
+            setLockedKecamatan(lowercaseKecamatan);
+        }
+    } catch (err) {
+        console.error("Gagal memuat status kunci kecamatan:", err.message);
+    }
+};
 
     useEffect(() => {
-        // Pastikan profile benar-benar termuat
+        fetchLockedKecamatan();
         if (profile) {
             if (profile.role === 'pml' && profile.kecamatan_tugas) {
                 const rawKec = profile.kecamatan_tugas;
-
-                let cleanKecName = rawKec;
-                if (rawKec.includes(" ")) {
-                    cleanKecName = rawKec.substring(rawKec.indexOf(" ") + 1).trim();
-                } else {
-                    cleanKecName = rawKec.trim();
-                }
-
-                console.log("PML Login, mengunci ke kecamatan:", cleanKecName);
+                let cleanKecName = rawKec.includes(" ") ? rawKec.substring(rawKec.indexOf(" ") + 1).trim() : rawKec.trim();
+                setSelectedKec(cleanKecName);
                 enterKecamatan(cleanKecName);
             } else {
-                // Admin atau Pegawai biasa melihat rekap kabupaten seluruhnya
                 fetchKecamatanSummary();
             }
         }
-        // 2. Ganti dependensi objek [profile] dengan string primitif [profileDataKey]
     }, [profileDataKey]);
 
     const fetchKecamatanSummary = async () => {
@@ -156,7 +167,6 @@ export default function AlokasiPage() {
             }, {});
             setDesaSummary(Object.values(dSummary));
 
-            // Kembalikan scroll setelah state terupdate
             setTimeout(() => {
                 if (slsContainerRef.current) slsContainerRef.current.scrollTop = currentPos;
             }, 0);
@@ -166,10 +176,10 @@ export default function AlokasiPage() {
     const enterKecamatan = async (kecName) => {
         setSelectedKec(kecName);
         setLoading(true);
+        await fetchLockedKecamatan();
         try {
             const { data: p } = await supabase.from('petugas')
                 .select('*')
-                // Menggunakan format and/or dari Supabase:
                 .or(`and(status.eq.Diterima,kecamatan_tugas.ilike.%${kecName}%),status.eq.Cadangan`);
 
             setPcls(p || []);
@@ -196,23 +206,101 @@ export default function AlokasiPage() {
         } catch (err) { console.error(err); } finally { setLoading(false); }
     };
 
+    const handleExportWilayahTugas = async () => {
+        setLoading(true);
+        const toProperCase = (str) => {
+            if (!str) return "-";
+            return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+        };
+
+        try {
+            let fullPetugasList = pcls;
+            let fullSlsList = slsList;
+
+            if (!fullPetugasList || fullPetugasList.length === 0) {
+                const { data: allPetugas, error: errPetugas } = await supabase
+                    .from('petugas')
+                    .select('*')
+                    .in('status', ['Diterima', 'diterima']);
+                if (errPetugas) throw errPetugas;
+                fullPetugasList = allPetugas || [];
+            }
+
+            if (!fullSlsList || fullSlsList.length === 0) {
+                const { data: allSls, error: errSls } = await supabase
+                    .from('muatan_sls')
+                    .select('petugas_id, nmkec, nmdesa');
+                if (errSls) throw errSls;
+                fullSlsList = allSls || [];
+            }
+
+            const dataToExport = fullPetugasList
+                .filter(p => p.posisi_tugas === 'PCL' || p.posisi_tugas === 'PML')
+                .map(p => {
+                    let listDesa = [];
+                    if (p.posisi_tugas === 'PCL') {
+                        const mySls = fullSlsList.filter(s => s.petugas_id === p.email);
+                        listDesa = [...new Set(mySls.map(s => s.nmdesa || ''))].filter(Boolean);
+                    } else if (p.posisi_tugas === 'PML') {
+                        const bawahanEmails = fullPetugasList.filter(b => b.id_pml_atasan === p.email).map(b => b.email);
+                        const teamSls = fullSlsList.filter(s => bawahanEmails.includes(s.petugas_id));
+                        listDesa = [...new Set(teamSls.map(s => s.nmdesa || ''))].filter(Boolean);
+                    }
+
+                    const listDesaProper = listDesa.map(desa => toProperCase(desa));
+                    let desaTugasFormatted = "-";
+                    const jmlDesa = listDesaProper.length;
+
+                    if (jmlDesa === 1) {
+                        desaTugasFormatted = `Desa ${listDesaProper[0]}`;
+                    } else if (jmlDesa === 2) {
+                        desaTugasFormatted = `Desa ${listDesaProper[0]} dan Desa ${listDesaProper[1]}`;
+                    } else if (jmlDesa > 2) {
+                        const desaAwal = listDesaProper.slice(0, -1).map(d => `Desa ${d}`).join(', ');
+                        const desaTerakhir = `dan Desa ${listDesaProper[jmlDesa - 1]}`;
+                        desaTugasFormatted = `${desaAwal}, ${desaTerakhir}`;
+                    }
+
+                    return {
+                        "Nama": toProperCase(p.nama_petugas),
+                        "Email": p.email || "-",
+                        "Kecamatan Tugas": toProperCase(p.kecamatan_tugas),
+                        "Posisi": p.posisi_tugas || "-",
+                        "Desa Tugas": desaTugasFormatted
+                    };
+                })
+                .sort((a, b) => {
+                    const compareKecamatan = a["Kecamatan Tugas"].localeCompare(b["Kecamatan Tugas"]);
+                    if (compareKecamatan !== 0) return compareKecamatan;
+                    const bobotPosisi = (posisi) => posisi === 'PML' ? 1 : 2;
+                    return bobotPosisi(a["Posisi"]) - bobotPosisi(b["Posisi"]);
+                });
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            worksheet['!cols'] = [{ wch: 25 }, { wch: 30 }, { wch: 25 }, { wch: 12 }, { wch: 55 }];
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Wilayah Tugas");
+            XLSX.writeFile(workbook, `Rekap_Wilayah_Tugas_Kabupaten.xlsx`);
+        } catch (error) {
+            alert("Gagal mengekspor data: " + error.message);
+        } finally { setLoading(false); }
+    };
+
     const handleGantiPetugas = async (emailLama, emailCadangan, namaLama, namaCadangan, pmlAtasan) => {
-        if (!allowAllocation) {
-            alert("Sistem terkunci.");
+        if (lockedKecamatan.includes(selectedKec)) {
+            alert(`Sistem terkunci. Alokasi untuk Kecamatan ${selectedKec} sudah ditutup.`);
             return;
         }
 
         const confirmSwap = window.confirm(
             `PERINGATAN: Anda akan mengganti ${namaLama} dengan ${namaCadangan} (Cadangan).\n\nSeluruh beban SLS akan dipindah, dan status ${namaLama} akan dinonaktifkan. Lanjutkan?`
         );
-
         if (!confirmSwap) return;
 
         setLoading(true);
         const sekarangWib = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).replace(" ", "T");
 
         try {
-            // 1. Pindahkan seluruh beban SLS ke petugas baru
             const { error: errSls } = await supabase
                 .from('muatan_sls')
                 .update({
@@ -223,177 +311,132 @@ export default function AlokasiPage() {
                 .eq('petugas_id', emailLama);
             if (errSls) throw errSls;
 
-            // 2. Aktifkan petugas Cadangan (Menjadi PCL Diterima & masuk tim PML)
             const { error: errCadangan } = await supabase
                 .from('petugas')
                 .update({
                     status: 'Diterima',
                     posisi_tugas: 'PCL',
                     id_pml_atasan: pmlAtasan || '-',
-
-                    // 👇 TAMBAHKAN BARIS INI AGAR PETUGAS TIDAK GAIB SAAT DI-REFRESH
                     kecamatan_tugas: selectedKec
                 })
                 .eq('email', emailCadangan);
             if (errCadangan) throw errCadangan;
 
-            // 3. Nonaktifkan petugas Lama
             const { error: errLama } = await supabase
                 .from('petugas')
-                .update({
-                    status: 'Mundur', // Atau 'Diganti', sesuaikan dengan master status Anda
-                    id_pml_atasan: '-'
-                })
+                .update({ status: 'Mundur', id_pml_atasan: '-' })
                 .eq('email', emailLama);
             if (errLama) throw errLama;
 
             alert("Berhasil melakukan pergantian petugas!");
-
-            // Refresh data di layar
             if (selectedKec) await enterKecamatan(selectedKec);
-
         } catch (err) {
             alert("Gagal melakukan pergantian: " + err.message);
-        } finally {
-            setLoading(false);
-        }
+        } finally { setLoading(false); }
     };
 
     const handleMovePclToNewPml = async (pclEmail, newPmlEmail, pclName) => {
-        setLoading(true); // Tambahkan loading state
+        if (lockedKecamatan.includes(selectedKec)) {
+            alert(`Sistem terkunci. Perubahan pengawas PML untuk Kecamatan ${selectedKec} sudah ditutup.`);
+            return;
+        }
+        setLoading(true);
         try {
             const { error } = await supabase
                 .from('petugas')
                 .update({ id_pml_atasan: newPmlEmail })
                 .eq('email', pclEmail);
-
             if (error) throw error;
-
             alert(`Berhasil memindahkan ${pclName} ke pengawas baru.`);
-
-            // REVISI: Gunakan enterKecamatan untuk memuat ulang SEMUA data (Petugas & SLS)
-            if (selectedKec) {
-                await enterKecamatan(selectedKec);
-            }
+            if (selectedKec) await enterKecamatan(selectedKec);
         } catch (err) {
             alert("Gagal memindahkan PCL: " + err.message);
-        } finally {
-            setLoading(false); // Matikan loading
-        }
+        } finally { setLoading(false); }
     };
 
-const handleBulkAssign = async (pclEmail) => {
-    // 1. PROTEKSI SAKELAR GLOBAL
-    if (!allowAllocation) {
-        alert("Maaf, pengisian atau perubahan alokasi telah dikunci oleh Admin.");
-        return;
-    }
-
-    // 👇 TAMBAHKAN PROTEKSI BARU UNTUK ROLE PEGAWAI
-    if (profile?.role === 'pegawai') {
-        // Membersihkan kode/nama kecamatan agar perbandingannya adil (misal: "030 CEPOGO" vs "CEPOGO")
-        const userKec = profile.kecamatan_tugas || "";
-        const cleanUserKec = userKec.includes(" ") ? userKec.substring(userKec.indexOf(" ") + 1).trim() : userKec.trim();
-        const cleanSelectedKec = selectedKec ? selectedKec.trim() : "";
-
-        if (cleanUserKec !== cleanSelectedKec) {
-            alert(`Anda hanya memiliki hak akses alokasi untuk Kecamatan ${userKec}. Di kecamatan lain, Anda hanya bisa memonitor.`);
+    const handleBulkAssign = async (pclEmail) => {
+        if (lockedKecamatan.includes(selectedKec)) {
+            alert(`Maaf, pengisian atau perubahan alokasi untuk Kecamatan ${selectedKec} telah dikunci oleh Admin.`);
             return;
         }
-    }
 
-    if (selectedSlsIds.length === 0) return;
+        if (profile?.role === 'pegawai') {
+            const userKec = profile.kecamatan_tugas || "";
+            const cleanUserKec = userKec.includes(" ") ? userKec.substring(userKec.indexOf(" ") + 1).trim() : userKec.trim();
+            const cleanSelectedKec = selectedKec ? selectedKec.trim() : "";
 
+            if (cleanUserKec !== cleanSelectedKec) {
+                alert(`Anda hanya memiliki hak akses alokasi untuk Kecamatan ${userKec}. Di kecamatan lain, Anda hanya bisa memonitor.`);
+                return;
+            }
+        }
+
+        if (selectedSlsIds.length === 0) return;
         if (pclEmail === "" && pclEmail !== null) {
             alert("Pilih petugas terlebih dahulu atau klik Kosongkan");
             return;
         }
 
         setLoading(true);
-
-        // --- FORMULASI WAKTU UTC+7 (WIB) ---
-        // Membuat string waktu lokal Jakarta dengan format ISO tanpa huruf 'Z' di ujungnya
         const sekarangWib = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).replace(" ", "T");
 
         try {
-            // Ambil data 'profile' dari useAuth() di atas komponen Anda
-            // const { user, profile, allowAllocation } = useAuth();
-
-            // 2. JALANKAN UPDATE: Sertakan kolom alokasi dan audit trail versi baru
             const { error } = await supabase.from('muatan_sls')
                 .update({
                     petugas_id: pclEmail,
-                    // --- REVISI KOLOM AUDIT ---
-                    edited_at: sekarangWib,                            // Jam otomatis +7 (Asia/Jakarta)
-                    edited_by: profile?.nama_pengguna || 'Sistem BPS'  // Menyimpan NAMA LENGKAP saja
+                    edited_at: sekarangWib,
+                    edited_by: profile?.nama_pengguna || 'Sistem BPS'
                 })
                 .in('idsubsls', selectedSlsIds);
 
             if (error) throw error;
-
-            // 3. RESET STATE & REFRESH DATA
             setSelectedSlsIds([]);
             setTempSelectedPcl("");
             await refreshCurrentData();
-
             alert(`Berhasil memperbarui alokasi untuk ${selectedSlsIds.length} SLS.`);
-
         } catch (err) {
             alert("Gagal: " + err.message);
-        } finally {
-            setLoading(false);
-        }
+        } finally { setLoading(false); }
     };
 
     const handleUpdateMuatanSls = async (idSubSls, muatanLama, muatanBaru, alasan, muatanAwalEksis) => {
-    // Proteksi sakelar global
-    if (!allowAllocation) {
-        alert("Maaf, perubahan data telah dikunci oleh Admin.");
-        return;
-    }
+        if (lockedKecamatan.includes(selectedKec)) {
+            alert(`Maaf, perubahan data muatan untuk Kecamatan ${selectedKec} telah dikunci oleh Admin.`);
+            return;
+        }
 
-    setLoading(true);
-    const sekarangWib = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).replace(" ", "T");
+        setLoading(true);
+        const sekarangWib = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).replace(" ", "T");
+        const nilaiMuatanAwal = muatanAwalEksis !== null ? muatanAwalEksis : muatanLama;
 
-    // Jika muatan_awal di DB belum ada (null/belum pernah diedit), gunakan muatanLama sebagai benchmark awal permanen.
-    // Jika sudah ada (edapan kedua/ketiga), biarkan muatan_awal yang lama tetap utuh.
-    const nilaiMuatanAwal = muatanAwalEksis !== null ? muatanAwalEksis : muatanLama;
+        try {
+            const { error } = await supabase
+                .from('muatan_sls')
+                .update({
+                    perkiraan_jumlah_beban: parseInt(muatanBaru, 10),
+                    muatan_awal: nilaiMuatanAwal,
+                    alasan_perubahan: alasan,
+                    edited_at: sekarangWib,
+                    edited_by: profile?.nama_pengguna || 'Sistem BPS'
+                })
+                .eq('idsubsls', idSubSls);
 
-    try {
-        const { error } = await supabase
-            .from('muatan_sls')
-            .update({
-                perkiraan_jumlah_beban: parseInt(muatanBaru, 10), // Update muatan saat ini
-                muatan_awal: nilaiMuatanAwal,                    // Kunci nilai awal permanen
-                alasan_perubahan: alasan,                        // Alasan editan terbaru
-                edited_at: sekarangWib,
-                edited_by: profile?.nama_pengguna || 'Sistem BPS'
-            })
-            .eq('idsubsls', idSubSls);
+            if (error) throw error;
+            alert("Berhasil memperbarui jumlah muatan SLS!");
+            await refreshCurrentData();
+        } catch (err) {
+            alert("Gagal memperbarui muatan: " + err.message);
+        } finally { setLoading(false); }
+    };
 
-        if (error) throw error;
-
-        alert("Berhasil memperbarui jumlah muatan SLS!");
-        await refreshCurrentData(); // 🔄 Otomatis menghitung ulang total beban tim di panel kiri
-    } catch (err) {
-        alert("Gagal memperbarui muatan: " + err.message);
-    } finally {
-        setLoading(true); // Opsional, sesuaikan dengan state component Anda
-        setLoading(false);
-    }
-};
-    // FORMAT 1 (Tetap seperti kode lama Anda)
     const handleExportExcelFormat1 = () => {
         if (!slsList || slsList.length === 0) {
             alert("Tidak ada data untuk diekspor");
             return;
         }
-
         try {
             const dataToExport = slsList.map(s => {
                 const petugasPpl = pcls.find(p => p.email === s.petugas_id);
-                const emailPmlAtasan = petugasPpl ? petugasPpl.id_pml_atasan : "-";
-
                 return {
                     "PROVINSI": String(s.kdprov || '33'),
                     "KABUPATEN/KOTA": String(s.kdkab || '09'),
@@ -401,19 +444,13 @@ const handleBulkAssign = async (pclEmail) => {
                     "DESA": String(s.kddesa || ''),
                     "SLS": String(s.kdsls || ''),
                     "SUBSLS": String(s.kdsubsls || '00'),
-                    "Email PML": emailPmlAtasan,
+                    "Email PML": petugasPpl ? petugasPpl.id_pml_atasan : "-",
                     "Email PPL": s.petugas_id || "-"
                 };
             });
 
             const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-
-            worksheet['!cols'] = [
-                { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 10 },
-                { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 30 }
-            ];
-
-            // Paksa kolom 0 sampai 5 (Kode wilayah) menjadi Text ('s')
+            worksheet['!cols'] = [{ wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 30 }];
             const range = XLSX.utils.decode_range(worksheet['!ref']);
             for (let R = range.s.r + 1; R <= range.e.r; ++R) {
                 for (let C = 0; C <= 5; ++C) {
@@ -421,40 +458,26 @@ const handleBulkAssign = async (pclEmail) => {
                     if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
                 }
             }
-
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "Data Alokasi");
             XLSX.writeFile(workbook, `Rekap_Alokasi_${selectedKec.replace(/\s+/g, '_')}_Format1.xlsx`);
-
-        } catch (error) {
-            console.error("Export Error:", error);
-            alert("Gagal mengekspor data");
-        }
+        } catch (error) { alert("Gagal mengekspor data"); }
     };
 
-    // FORMAT 2 (Format Baru dengan Nama/Teks)
-    // FORMAT 2 (Sudah Diperbaiki Properti Nama & Relasi PML)
     const handleExportExcelFormat2 = () => {
         if (!slsList || slsList.length === 0) {
             alert("Tidak ada data untuk diekspor");
             return;
         }
-
         try {
             const dataToExport = slsList.map(s => {
-                // 1. Mencari data petugas PPL berdasarkan petugas_id (email)
                 const petugasPpl = pcls.find(p => p.email === s.petugas_id);
-                // REVISI: Menggunakan properti 'nama_petugas' sesuai isi komponen Anda
                 const namaPpl = petugasPpl ? petugasPpl.nama_petugas : "-";
-
-                // 2. Mencari data petugas PML berdasarkan 'id_pml_atasan' yang ada di PPL
                 let namaPml = "-";
                 if (petugasPpl && petugasPpl.id_pml_atasan && petugasPpl.id_pml_atasan !== "-") {
-                    // Cari data PML di array pcls berdasarkan email PML
                     const petugasPml = pcls.find(p => p.email === petugasPpl.id_pml_atasan);
                     namaPml = petugasPml ? petugasPml.nama_petugas : "-";
                 }
-
                 return {
                     "kdkec": String(s.kdkec || ''),
                     "nmkec": s.nmkec || '',
@@ -469,81 +492,73 @@ const handleBulkAssign = async (pclEmail) => {
             });
 
             const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-
-            // Menyesuaikan lebar kolom untuk Format 2 (9 Kolom)
-            worksheet['!cols'] = [
-                { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 20 },
-                { wch: 10 }, { wch: 10 }, { wch: 25 }, { wch: 25 }, { wch: 25 }
-            ];
-
-            // Memaksa kolom kode menjadi string agar angka '0' di depan tidak hilang
+            worksheet['!cols'] = [{ wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 25 }, { wch: 25 }, { wch: 25 }];
             const range = XLSX.utils.decode_range(worksheet['!ref']);
             const kodeColumnIndices = [0, 2, 4, 5];
-
             for (let R = range.s.r + 1; R <= range.e.r; ++R) {
                 kodeColumnIndices.forEach(C => {
                     const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
                     if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
                 });
             }
-
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "Nama Alokasi");
             XLSX.writeFile(workbook, `Rekap_Nama_Alokasi_${selectedKec.replace(/\s+/g, '_')}_Format2.xlsx`);
-
-        } catch (error) {
-            console.error("Export Error:", error);
-            alert("Gagal mengekspor data");
-        }
+        } catch (error) { alert("Gagal mengekspor data"); }
     };
+
+    // CARI BARIS INI SEBELUM RETURN UTAMA (~Baris 380):
+const isCurrentKecamatanLocked = selectedKec && lockedKecamatan.includes(selectedKec.toLowerCase().trim());
 
     return (
         <div className="h-full flex flex-col gap-6 relative">
-            {!allowAllocation && (
-                <div className="bg-rose-50 border-l-4 border-rose-500 p-4 mb-4 rounded-xl text-rose-700 text-sm font-semibold">
-                    ⚠️ Batas waktu pengisian atau perubahan alokasi Sensus Ekonomi 2026 telah berakhir. Seluruh alokasi wilayah saat ini dikunci oleh Administrator.
+            {isCurrentKecamatanLocked && (
+                <div className="bg-rose-50 border-l-4 border-rose-500 p-4 mb-2 rounded-xl text-rose-700 text-sm font-semibold animate-pulse">
+                    ⚠️ Akses Pengisian Terkunci: Batas waktu alokasi wilayah untuk Kecamatan {selectedKec} telah ditutup oleh Admin BPS Kabupaten.
                 </div>
             )}
             
-            {/* RESPONSIVE: Diubah dari flex biasa menjadi flex-col sm:flex-row agar judul halaman dan tombol tidak bertumpuk di HP */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 px-2">
-
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900">Dashboard Alokasi</h1>
                     <p className="text-slate-500">Distribusi beban kerja Sensus Ekonomi 2026</p>
                 </div>
 
-                {/* RESPONSIVE: flex-wrap ditambahkan agar tombol unduh excel otomatis rapi ke bawah jika dibuka di hp yang layarnya sempit */}
                 <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
                     {currentLevel === 'alokasi' && (
                         <>
-                            {/* Tombol Export Pertama (Format Email / Kode) */}
                             <button
                                 onClick={handleExportExcelFormat2}
                                 className="w-full sm:w-auto flex items-center justify-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all font-bold text-sm shadow-sm cursor-pointer"
                             >
-                                <Database size={18} />
-                                Export Alokasi Kecamatan
+                                <Database size={18} /> Export Alokasi Kecamatan
                             </button>
 
-                            {/* Tombol Export Kedua (Format Nama Wilayah & Petugas) */}
                             <button
                                 onClick={handleExportExcelFormat1}
                                 className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 px-4 py-2 rounded-xl border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all font-bold text-sm shadow-sm cursor-pointer"
                             >
-                                <Database size={18} />
-                                Export Fasih
+                                <Database size={18} /> Export Fasih
                             </button>
                         </>
                     )}
 
                     {currentLevel === 'kecamatan' && (
-                        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                            <Database className="text-indigo-500" size={20} />
-                            <div className="text-right">
-                                <div className="text-[10px] uppercase font-bold text-slate-400">Total SLS</div>
-                                <div className="font-bold text-slate-800">
-                                    {kecamatanSummary.reduce((a, b) => a + b.total, 0)}
+                        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                            <button
+                                onClick={handleExportWilayahTugas}
+                                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-amber-100 text-amber-700 px-4 py-2 rounded-xl border border-amber-200 hover:bg-amber-600 hover:text-white transition-all font-bold text-sm shadow-sm cursor-pointer"
+                            >
+                                <Database size={18} /> Export Wilayah Tugas
+                            </button>
+
+                            <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                                <Database className="text-indigo-500" size={20} />
+                                <div className="text-right">
+                                    <div className="text-[10px] uppercase font-bold text-slate-400">Total SLS</div>
+                                    <div className="font-bold text-slate-800">
+                                        {kecamatanSummary.reduce((a, b) => a + b.total, 0)}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -552,14 +567,13 @@ const handleBulkAssign = async (pclEmail) => {
             </div>
 
             <div className="flex-1 min-h-0">
-                {/* RESPONSIVE: Diubah dari absolute menjadi fixed inset-0 agar loading menutupi seluruh layar smartphone dengan sempurna */}
                 {loading && <div className="fixed inset-0 bg-white/50 backdrop-blur-sm z-50 flex items-center justify-center font-bold text-slate-600">Loading...</div>}
 
                 {currentLevel === 'kecamatan' ? (
                     <KecamatanTable
-                        getKecamatanSummary={kecamatanSummary}
                         kecamatanSummary={kecamatanSummary}
                         enterKecamatan={enterKecamatan}
+                        lockedKecamatan={lockedKecamatan}
                     />
                 ) : (
                     <AllocationViewContent
@@ -579,83 +593,66 @@ const handleBulkAssign = async (pclEmail) => {
                         handleMovePclToNewPml={handleMovePclToNewPml}
                         handleGantiPetugas={handleGantiPetugas}
                         profile={profile}
-                        handleUpdateMuatanSls={handleUpdateMuatanSls} // <-- Mengirim informasi role ke sub-komponen
+                        handleUpdateMuatanSls={handleUpdateMuatanSls}
+                        isKecamatanLocked={isCurrentKecamatanLocked}
                     />
                 )}
             </div>
 
-            {/* RESPONSIVE: Floating bar hitam di bawah diatur menjadi lebar penuh (w-[92vw]) dan flex-col di HP agar tidak gepeng */}
+            {/* FLOATING ACTION BOX REALOKASI MASSAL */}
             {selectedSlsIds.length > 0 && (
                 <div className="fixed bottom-4 sm:bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-3 sm:p-4 rounded-2xl shadow-2xl flex flex-col sm:flex-row items-center gap-4 sm:gap-6 z-[100] border border-slate-700 w-[92vw] sm:w-auto">
-
-                    {/* REVISI INDIKATOR: SEKARANG MENAMPILKAN SLS DAN TOTAL MUATAN TERPILIH */}
                     <div className="flex items-center justify-around sm:justify-start gap-4 px-2 border-b sm:border-b-0 sm:border-r border-slate-700 w-full sm:w-auto pb-2.5 sm:pb-0">
-                        {/* Indikator SLS */}
                         <div className="text-center min-w-[40px]">
                             <span className="text-xl font-bold text-orange-400">{selectedSlsIds.length}</span>
                             <span className="text-[10px] block uppercase text-slate-400 font-bold">SLS</span>
                         </div>
-
-                        {/* Indikator Total Muatan Usaha Terpilih */}
                         <div className="text-center min-w-[50px] border-l border-slate-800 pl-4">
                             <span className="text-xl font-bold text-emerald-400">
-                                {slsList
-                                    .filter(s => selectedSlsIds.includes(s.idsubsls))
-                                    .reduce((sum, curr) => sum + (curr.perkiraan_jumlah_beban || 0), 0)
-                                    .toLocaleString('id-ID')}
+                                {slsList.filter(s => selectedSlsIds.includes(s.idsubsls)).reduce((sum, curr) => sum + (curr.perkiraan_jumlah_beban || 0), 0).toLocaleString('id-ID')}
                             </span>
                             <span className="text-[10px] block uppercase text-slate-400 font-bold">Muatan</span>
                         </div>
                     </div>
 
-                    {/* 1. SELEKSI PETUGAS (Tambahkan disabled jika alokasi off) */}
-                    {/* 1. SELEKSI PETUGAS (Sudah Terurut Abjad A-Z) */}
                     <div className="flex flex-col w-full sm:w-auto">
                         <span className="text-[10px] text-slate-400 mb-1 ml-1">
-                            {!allowAllocation ? 'Sistem Terkunci:' : 'Realokasi ke:'}
+                            {isCurrentKecamatanLocked ? 'Sistem Terkunci:' : 'Realokasi ke:'}
                         </span>
-                        {/* RESPONSIVE: text-base pada select di HP untuk mencegah browser Safari/Chrome iOS otomatis melakukan zoom-in paksa */}
                         <select
-                            disabled={!allowAllocation}
+                            disabled={isCurrentKecamatanLocked}
                             className="bg-slate-800 border-slate-700 text-base sm:text-sm rounded-lg p-2 outline-none w-full sm:w-48 disabled:opacity-40 disabled:cursor-not-allowed text-white"
                             value={tempSelectedPcl}
                             onChange={(e) => setTempSelectedPcl(e.target.value)}
                         >
                             <option value="" disabled>Pilih Petugas...</option>
-
-                            {/* PROSES FILTER & SORTING URUT NAMA PETUGAS */}
                             {pcls
                                 .filter(p => p.posisi_tugas === 'PCL')
                                 .sort((a, b) => (a.nama_petugas || '').localeCompare(b.nama_petugas || ''))
                                 .map(p => (
-                                    <option key={p.email} value={p.email}>
-                                        {p.nama_petugas}
-                                    </option>
+                                    <option key={p.email} value={p.email}>{p.nama_petugas}</option>
                                 ))
                             }
                         </select>
                     </div>
 
                     <div className="flex items-center justify-end gap-2 w-full sm:w-auto">
-                        {/* 2. TOMBOL UPDATE ALOKASI */}
                         <button
                             onClick={() => handleBulkAssign(tempSelectedPcl)}
-                            disabled={!allowAllocation || !tempSelectedPcl || loading}
-                            className="flex-1 sm:flex-none bg-orange-600 hover:bg-orange-500 px-4 py-2.5 sm:py-2 rounded-xl text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-lg shadow-orange-900/20 cursor-pointer"
+                            disabled={isCurrentKecamatanLocked || !tempSelectedPcl || loading}
+                            className="flex-1 sm:flex-none bg-orange-600 hover:bg-orange-500 px-4 py-2.5 sm:py-2 rounded-xl text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-lg cursor-pointer"
                         >
-                            {!allowAllocation ? 'Terkunci' : 'Update Alokasi'}
+                            {isCurrentKecamatanLocked ? 'Terkunci' : 'Update Alokasi'}
                         </button>
 
-                        {/* 3. TOMBOL KOSONGKAN */}
                         <button
                             onClick={() => {
                                 if (window.confirm("Kosongkan petugas untuk SLS terpilih?")) {
                                     handleBulkAssign(null);
                                 }
                             }}
-                            disabled={!allowAllocation || loading}
-                            className="bg-slate-700 hover:bg-rose-900 px-3 py-2.5 sm:py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:hover:bg-slate-700 disabled:cursor-not-allowed cursor-pointer"
-                            title="Hapus Petugas dari SLS ini"
+                            disabled={isCurrentKecamatanLocked || loading}
+                            className="bg-slate-700 hover:bg-rose-900 px-3 py-2.5 sm:py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                         >
                             Kosongkan
                         </button>
@@ -679,31 +676,28 @@ const AllocationViewContent = ({
     rightPanelMode, setRightPanelMode, setCurrentLevel,
     selectedSlsIds, setSelectedSlsIds, slsContainerRef, desaSummary,
     userRole, handleMovePclToNewPml, handleGantiPetugas,
-    profile, handleUpdateMuatanSls // <-- Tambahkan properti profile dan handleUpdateMuatanSls di sini untuk mendapatkan data kecamatan_tugas pegawai
+    profile, handleUpdateMuatanSls, isKecamatanLocked
 }) => {
     const [swapTarget, setSwapTarget] = useState(null);
     const [searchCadangan, setSearchCadangan] = useState("");
-    
-    const [editMuatanTarget, setEditMuatanTarget] = useState(null); // Menyimpan objek SLS yang akan diedit
-const [inputMuatanBaru, setInputMuatanBaru] = useState("");
-const [inputAlasan, setInputAlasan] = useState("");
+    const [editMuatanTarget, setEditMuatanTarget] = useState(null);
+    const [inputMuatanBaru, setInputMuatanBaru] = useState("");
+    const [inputAlasan, setInputAlasan] = useState("");
+
     const pclsOnly = pcls.filter(p => p.posisi_tugas === 'PCL');
     const totalBebanKec = slsList.reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0);
     const bebanIdeal = pclsOnly.length > 0 ? Math.round(totalBebanKec / pclsOnly.length) : 0;
 
-    // --- FORMULASI VALIDASI WILAYAH TUGAS PEGAWAI ---
     const userKec = profile?.kecamatan_tugas || "";
-    // Bersihkan kode angka di depan nama kecamatan jika ada (contoh: "030 CEPOGO" menjadi "CEPOGO")
     const cleanUserKec = userKec.includes(" ") ? userKec.substring(userKec.indexOf(" ") + 1).trim() : userKec.trim();
     const cleanSelectedKec = selectedKec ? selectedKec.trim() : "";
 
-    // Skenario: Jika dia pegawai dan kecamatan yang dibuka tidak sama dengan kecamatan tugasnya, kunci status ke Read Only
-    const isReadOnly = userRole === 'pegawai' && cleanUserKec !== cleanSelectedKec;
+    // Gabungkan aturan role pegawai dan penguncian administrasi per wilayah
+    const isReadOnly = (userRole === 'pegawai' && cleanUserKec !== cleanSelectedKec) || isKecamatanLocked;
 
     return (
         <div className="flex flex-col h-full gap-4">
             <div className="flex items-center gap-4 px-2">
-                {/* TOMBOL KEMBALI HANYA MUNCUL JIKA USER BUKAN PML */}
                 {userRole !== 'pml' ? (
                     <button
                         onClick={() => setCurrentLevel('kecamatan')}
@@ -721,15 +715,13 @@ const [inputAlasan, setInputAlasan] = useState("");
                     <p className="text-xs text-slate-500">Target Ideal: {bebanIdeal} beban / PCL</p>
                     {isReadOnly && (
                         <span className="inline-block mt-1 text-[10px] bg-amber-50 text-amber-700 font-bold px-2 py-0.5 rounded border border-amber-200">
-                            👁️ Mode Lihat (Anda Hanya Dapat Mengalokasikan Kecamatan {userKec})
+                            {isKecamatanLocked ? '🔒 MODAL READ-ONLY (Kecamatan Dikunci Admin)' : `👁️ Mode Lihat (Anda Hanya Dapat Mengalokasikan Kecamatan {userKec})`}
                         </span>
                     )}
                 </div>
             </div>
 
-            {/* RESPONSIVE LAYOUT MAIN PANEL */}
             <div className="flex-1 flex flex-col md:flex-row gap-6 overflow-y-auto md:overflow-hidden px-2">
-                
                 {/* PANEL TIM BEBAN KERJA */}
                 <div className="w-full md:w-1/3 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[350px] md:min-h-0">
                     <div className="p-4 border-b bg-slate-50 rounded-t-xl flex items-center justify-between font-bold text-slate-700">
@@ -743,37 +735,23 @@ const [inputAlasan, setInputAlasan] = useState("");
 
                             return (
                                 <div key={pml.email} className="space-y-3">
-                                    {/* --- CARD PML --- */}
                                     <div className="bg-indigo-50/60 p-3 rounded-lg border border-indigo-100">
                                         <div className="flex items-center gap-2 mb-2">
                                             <UserCircle className="text-indigo-600 shrink-0" size={18} />
-                                            <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                                                {pml.nama_petugas} (PML)
-                                            </div>
+                                            <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">{pml.nama_petugas} (PML)</div>
                                         </div>
-                                        
                                         <div className="flex flex-col gap-1.5 mb-2">
                                             {desaPml.length > 0 ? (
                                                 <div className="flex flex-wrap items-center gap-1">
-                                                    <span className="text-[10px] font-semibold text-slate-400 uppercase mr-1">
-                                                        Desa Tugas :
-                                                    </span>
+                                                    <span className="text-[10px] font-semibold text-slate-400 uppercase mr-1">Desa Tugas :</span>
                                                     {desaPml.map((d) => (
-                                                        <span
-                                                            key={d}
-                                                            className="text-[10px] bg-white text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold uppercase shadow-sm"
-                                                        >
-                                                            {d}
-                                                        </span>
+                                                        <span key={d} className="text-[10px] bg-white text-indigo-600 px-1.5 py-0.5 rounded border border-indigo-100 font-bold uppercase shadow-sm">{d}</span>
                                                     ))}
                                                 </div>
                                             ) : (
-                                                <span className="text-[10px] text-slate-400 italic font-medium">
-                                                    Belum ada wilayah tugas
-                                                </span>
+                                                <span className="text-[10px] text-slate-400 italic font-medium">Belum ada wilayah tugas</span>
                                             )}
                                         </div>
-                                        
                                         <div className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider flex items-center gap-1.5">
                                             <span>Mengawasi: {bawahan.length} PCL</span>
                                             <span className="text-indigo-300">•</span>
@@ -781,7 +759,6 @@ const [inputAlasan, setInputAlasan] = useState("");
                                         </div>
                                     </div>
 
-                                    {/* --- LIST PCL --- */}
                                     <div className="pl-4 space-y-3 border-l-2 border-slate-200">
                                         {bawahan.map(pcl => {
                                             const mySls = slsList.filter(s => s.petugas_id === pcl.email);
@@ -814,98 +791,51 @@ const [inputAlasan, setInputAlasan] = useState("");
                                                 statusLabel = 'ABOVE AVERAGE';
                                             }
 
-                                            const maxBudget = bebanIdeal * 1.3;
-                                            const progressPercentage = Math.min((workload / maxBudget) * 100, 100);
-
                                             return (
                                                 <div key={pcl.email} className={`p-3 border rounded-lg transition-all ${cardStyle}`}>
                                                     <div className="flex justify-between items-start mb-2">
                                                         <div className="flex flex-col gap-1">
                                                             <div className="flex items-center gap-2">
-                                                                <span className="text-xs font-bold text-slate-800 uppercase">
-                                                                    {pcl.nama_petugas}
-                                                                </span>
-                                                                {/* Sembunyikan tombol ganti cadangan jika dalam mode read-only pegawai */}
+                                                                <span className="text-xs font-bold text-slate-800 uppercase">{pcl.nama_petugas}</span>
                                                                 {userRole !== 'pml' && !isReadOnly && (
                                                                     <button
-                                                                        onClick={() => {
-                                                                            setSwapTarget(pcl.email);
-                                                                            setSearchCadangan("");
-                                                                        }}
-                                                                        className="px-1 py-0.5 bg-slate-100 hover:bg-amber-100 border border-slate-200 hover:border-amber-300 rounded text-slate-500 transition-colors cursor-pointer text-[9px] font-bold"
-                                                                        title="Ganti dengan petugas cadangan"
+                                                                        onClick={() => { setSwapTarget(pcl.email); setSearchCadangan(""); }}
+                                                                        className="px-1 py-0.5 bg-slate-100 hover:bg-amber-100 border border-slate-200 rounded text-slate-500 text-[9px] font-bold"
                                                                     >
                                                                         🔁 Ganti Cadangan
                                                                     </button>
                                                                 )}
                                                             </div>
-
                                                             <div className="flex flex-wrap items-center gap-1">
-                                                                {myDesas.length > 0 && (
-                                                                    <span className="text-[10px] font-medium text-slate-400 uppercase shrink-0">
-                                                                        Desa Tugas:
-                                                                    </span>
-                                                                )}
-                                                                <span className="text-[10px] text-slate-600 font-semibold uppercase">
-                                                                    {myDesas.join(', ')}
-                                                                </span>
+                                                                {myDesas.length > 0 && <span className="text-[10px] font-medium text-slate-400 uppercase">Desa Tugas:</span>}
+                                                                <span className="text-[10px] text-slate-600 font-semibold uppercase">{myDesas.join(', ')}</span>
                                                             </div>
                                                         </div>
-
-                                                        <div className="text-right shrink-0">
-                                                            <div className="text-[11px] font-black text-slate-700">
-                                                                Perkiraan Beban: {workload}
-                                                            </div>
-                                                            <div className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">
-                                                                {mySls.length} SLS
-                                                            </div>
+                                                        <div className="text-right">
+                                                            <div className="text-[11px] font-black text-slate-700">Beban: {workload}</div>
+                                                            <div className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">{mySls.length} SLS</div>
                                                         </div>
                                                     </div>
 
                                                     <div className="flex justify-between items-center mb-1 gap-2">
                                                         <div>
-                                                            {/* Matikan selection pindah PML jika dalam keadaan read-only */}
                                                             {userRole !== 'pml' && !isReadOnly ? (
                                                                 <div className="flex items-center gap-1.5">
                                                                     <span className="text-[10px] font-medium text-slate-400 uppercase">Pindah PML:</span>
                                                                     <select
                                                                         value={pcl.id_pml_atasan || ""}
                                                                         onChange={(e) => handleMovePclToNewPml(pcl.email, e.target.value, pcl.nama_petugas)}
-                                                                        className="text-[10px] bg-white border border-slate-200 rounded px-1.5 py-0.5 font-medium text-slate-700 outline-none w-28 cursor-pointer hover:border-indigo-400"
+                                                                        className="text-[10px] bg-white border border-slate-200 rounded px-1.5 py-0.5 font-medium text-slate-700 outline-none w-28 cursor-pointer"
                                                                     >
                                                                         <option value="" disabled>Pilih Pengawas</option>
                                                                         {pcls.filter(p => p.posisi_tugas === 'PML').map(pmlOption => (
-                                                                            <option key={pmlOption.email} value={pmlOption.email}>
-                                                                                {pmlOption.nama_petugas}
-                                                                            </option>
+                                                                            <option key={pmlOption.email} value={pmlOption.email}>{pmlOption.nama_petugas}</option>
                                                                         ))}
                                                                     </select>
                                                                 </div>
-                                                            ) : (
-                                                                <div />
-                                                            )}
+                                                            ) : <div />}
                                                         </div>
-
-                                                        <span className={`text-[8px] font-extrabold tracking-wider px-1.5 py-0.5 rounded border shrink-0 ${badgeStyle}`}>
-                                                            {statusLabel}
-                                                        </span>
-                                                    </div>
-
-                                                    <div className="relative w-full pt-3 pb-1">
-                                                        <div 
-                                                            className="absolute top-0 bottom-0 flex flex-col items-center z-10 pointer-events-none"
-                                                            style={{ left: '76.92%' }}
-                                                        >
-                                                            <div className="w-1.5 h-1.5 rounded-full bg-slate-400 ring-2 ring-white mb-0.5" />
-                                                            <div className="w-[1px] h-full border-l border-dashed border-slate-300/80" />
-                                                        </div>
-
-                                                        <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                                                            <div
-                                                                className={`h-full transition-all duration-500 ${progressColor}`}
-                                                                style={{ width: `${progressPercentage}%` }}
-                                                            ></div>
-                                                        </div>
+                                                        <span className={`text-[8px] font-extrabold tracking-wider px-1.5 py-0.5 rounded border ${badgeStyle}`}>{statusLabel}</span>
                                                     </div>
                                                 </div>
                                             );
@@ -917,36 +847,23 @@ const [inputAlasan, setInputAlasan] = useState("");
                     </div>
                 </div>
 
-                {/* PANEL WILAYAH DAFTAR DESA ATAU SLS */}
+                {/* PANEL WILAYAH DESA DAN SLS */}
                 <div className="w-full md:w-2/3 bg-white rounded-xl border border-slate-200 flex flex-col shadow-sm min-h-[400px] md:min-h-0">
                     {rightPanelMode === 'desa' ? (
                         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {desaSummary.map(desa => {
                                 const isFullyAllocated = desa.total === desa.allocated;
-
                                 return (
                                     <div
                                         key={desa.name}
                                         onClick={() => { setSelectedDesa(desa.name); setRightPanelMode('sls'); }}
-                                        className={`p-4 border rounded-xl cursor-pointer group transition-all ${isFullyAllocated
-                                            ? 'bg-emerald-50/60 border-emerald-200 hover:bg-emerald-100/80'
-                                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                                        }`}
+                                        className={`p-4 border rounded-xl cursor-pointer group transition-all ${isFullyAllocated ? 'bg-emerald-50/60 border-emerald-200 hover:bg-emerald-100/80' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
                                     >
-                                        <div className="flex justify-between items-center mb-2 font-bold text-slate-800">
-                                            ({desa.code}) {desa.name} <ChevronRight size={16} />
-                                        </div>
-
+                                        <div className="flex justify-between items-center mb-2 font-bold text-slate-800">({desa.code}) {desa.name} <ChevronRight size={16} /></div>
                                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                                             <div>Total SLS: <span className="font-semibold text-slate-700">{desa.total}</span></div>
                                             <div>Teralokasi: <span className="font-semibold text-slate-700">{desa.allocated}</span></div>
-
-                                            <div className={`border-l pl-4 ${isFullyAllocated ? 'border-emerald-200' : 'border-slate-200'}`}>
-                                                Sisa Alokasi: {' '}
-                                                <span className={`font-semibold ${isFullyAllocated ? 'text-emerald-700' : 'text-amber-600'}`}>
-                                                    {desa.total - desa.allocated} SLS {isFullyAllocated && '(Selesai)'}
-                                                </span>
-                                            </div>
+                                            <div className="border-l pl-4">Sisa Alokasi: <span className={`font-semibold ${isFullyAllocated ? 'text-emerald-700' : 'text-amber-600'}`}>{desa.total - desa.allocated} SLS {isFullyAllocated && '(Selesai)'}</span></div>
                                         </div>
                                     </div>
                                 );
@@ -955,20 +872,14 @@ const [inputAlasan, setInputAlasan] = useState("");
                     ) : (
                         <>
                             <div className="p-4 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 font-bold text-slate-700">
-                                <button
-                                    onClick={() => setRightPanelMode('desa')}
-                                    className="flex items-center gap-2 hover:text-emerald-600 transition-colors text-left group min-w-0 cursor-pointer"
-                                >
+                                <button onClick={() => setRightPanelMode('desa')} className="flex items-center gap-2 hover:text-emerald-600 text-left group min-w-0 cursor-pointer">
                                     <ArrowLeft size={18} className="shrink-0 group-hover:-translate-x-0.5 transition-transform" />
                                     <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3 min-w-0">
                                         <span className="truncate text-base text-slate-800">{selectedDesa}</span>
                                         <span className="text-[11px] font-bold uppercase tracking-tight text-slate-500 bg-slate-200/50 border border-slate-300/40 px-2.5 py-1 rounded-md shrink-0">
                                             Total Muatan: {' '}
                                             <span className="text-slate-800 font-black">
-                                                {slsList
-                                                    .filter(s => s.nmdesa === selectedDesa)
-                                                    .reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0)
-                                                    .toLocaleString('id-ID')}
+                                                {slsList.filter(s => s.nmdesa === selectedDesa).reduce((acc, curr) => acc + (curr.perkiraan_jumlah_beban || 0), 0).toLocaleString('id-ID')}
                                             </span>
                                         </span>
                                     </div>
@@ -979,17 +890,15 @@ const [inputAlasan, setInputAlasan] = useState("");
                                         <span>Jumlah SLS:</span>
                                         <span>{slsList.filter(s => s.nmdesa === selectedDesa).length}</span>
                                     </div>
-
                                     <div className="flex items-center gap-1.5 px-2 py-1 bg-rose-50 rounded-md text-rose-400">
                                         <span>Belum dialokasi:</span>
-                                        <span className="text-rose-600">
-                                            {slsList.filter(s => s.nmdesa === selectedDesa && !s.petugas_id).length}
-                                        </span>
+                                        <span className="text-rose-600">{slsList.filter(s => s.nmdesa === selectedDesa && !s.petugas_id).length}</span>
                                     </div>
                                 </div>
                             </div>
-                            
-                            {/* Baris List SLS */}
+
+                            {/* PANEL UTAMA DETAIL LIST BARIS SLS */}
+{/* List Baris SLS */}
 <div ref={slsContainerRef} className="flex-1 overflow-y-auto p-4 space-y-2">
     {slsList.filter(s => s.nmdesa === selectedDesa).map(sls => {
         const isSelected = selectedSlsIds.includes(sls.idsubsls);
@@ -1000,79 +909,43 @@ const [inputAlasan, setInputAlasan] = useState("");
             <div
                 key={sls.idsubsls}
                 onClick={() => {
-                    // JIKA READ-ONLY KARENA LUAR KECAMATAN TUGAS, BLOKIR AKSI SELEKSI CENTANG
                     if (isReadOnly) return;
-
-                    setSelectedSlsIds(prev =>
-                        prev.includes(sls.idsubsls) ? prev.filter(id => id !== sls.idsubsls) : [...prev, sls.idsubsls]
-                    );
+                    setSelectedSlsIds(prev => prev.includes(sls.idsubsls) ? prev.filter(id => id !== sls.idsubsls) : [...prev, sls.idsubsls]);
                 }}
-                className={`p-3 border rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0 transition-all mb-1 ${
-                    isReadOnly ? 'cursor-not-allowed opacity-85' : 'cursor-pointer'
-                } ${isSelected
-                    ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10'
-                    : isAllocated
-                        ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300'
-                        : 'bg-white border-slate-200 hover:border-slate-300'
-                }`}
+                className={`p-3 border rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0 transition-all mb-1 ${isReadOnly ? 'cursor-not-allowed opacity-85' : 'cursor-pointer'} ${isSelected ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500 z-10' : isAllocated ? 'bg-emerald-50 border-emerald-100 hover:border-emerald-300' : 'bg-white border-slate-200 hover:border-slate-300'}`}
             >
-                {/* Bagian Kiri: Identitas SLS */}
                 <div className="w-full sm:flex-[0.8] min-w-0 sm:pr-4">
                     <div className="flex items-center gap-2">
                         <span className="w-[50px] text-[10px] font-bold text-slate-400 shrink-0">[{sls.kdsls} {sls.kdsubsls}]</span>
-                        <span className={`font-bold truncate text-sm ${isAllocated ? 'text-emerald-900' : 'text-slate-700'}`}>
-                            {sls.nmsls}
-                        </span>
+                        <span className={`font-bold truncate text-sm ${isAllocated ? 'text-emerald-900' : 'text-slate-700'}`}>{sls.nmsls}</span>
                     </div>
-                    <div className="text-[10px] text-slate-500 pl-0 sm:pl-[58px]">
-                        {sls.jumlah_kk} Keluarga | {sls.jumlah_usaha} Usaha
-                    </div>
+                    <div className="text-[10px] text-slate-500 pl-0 sm:pl-[58px]">{sls.jumlah_kk} Keluarga | {sls.jumlah_usaha} Usaha</div>
                 </div>
 
-                {/* Bagian Tengah: Informasi Alokasi Petugas */}
                 <div className="w-full sm:flex-1 px-0 sm:px-4 border-l-0 sm:border-l border-slate-200/50 pt-1 sm:pt-0">
                     {isAllocated ? (
                         <div className="flex flex-col">
                             <span className="text-[9px] font-bold text-emerald-600/70 uppercase tracking-tighter">Petugas PCL</span>
-                            <div className="font-extrabold text-emerald-800 text-sm uppercase truncate leading-tight">
-                                {petugas?.nama_petugas || 'Petugas'}
-                            </div>
+                            <div className="font-extrabold text-emerald-800 text-sm uppercase truncate leading-tight">{petugas?.nama_petugas || 'Petugas'}</div>
                         </div>
-                    ) : (
-                        <div className="text-[11px] text-slate-300 italic">Belum ditentukan</div>
-                    )}
+                    ) : <div className="text-[11px] text-slate-300 italic">Belum ditentukan</div>}
                 </div>
 
-                {/* Bagian Kanan: Indikator Beban & Kontrol Aksi */}
                 <div className="flex items-center justify-between sm:justify-end gap-4 ml-0 sm:ml-2 w-full sm:w-auto border-t sm:border-t-0 border-slate-100 pt-2 sm:pt-0">
                     <div className="flex flex-col items-start sm:items-end">
                         <span className="text-[9px] font-bold text-slate-400 uppercase leading-none mb-1">Perkiraan Muatan</span>
-                        
                         <div className="flex items-center gap-1.5">
-                            {/* 1. BADGE METRIK JIKA MUATAN SUDAH PERNAH DIREVISI */}
                             {sls.muatan_awal !== null && sls.muatan_awal !== undefined && (
-                                <span 
-                                    className="text-[9px] bg-amber-50 text-amber-700 font-extrabold px-1.5 py-0.5 rounded border border-amber-200 cursor-help"
-                                    title={`Muatan Awal: ${sls.muatan_awal}\nAlasan Perubahan: ${sls.alasan_perubahan || '-'}`}
-                                >
-                                    Awal: {sls.muatan_awal}
-                                </span>
+                                <span className="text-[9px] bg-amber-50 text-amber-700 font-extrabold px-1.5 py-0.5 rounded border border-amber-200 cursor-help" title={`Muatan Awal: ${sls.muatan_awal}\nAlasan Perubahan: ${sls.alasan_perubahan || '-'}`}>Awal: {sls.muatan_awal}</span>
                             )}
+                            <div className={`min-w-[40px] text-center py-0.5 rounded px-2 text-sm font-black border ${isSelected ? 'bg-orange-500 border-orange-600 text-white' : isAllocated ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>{sls.perkiraan_jumlah_beban}</div>
                             
-                            {/* Box Angka Muatan Saat Ini */}
-                            <div className={`min-w-[40px] text-center py-0.5 rounded px-2 text-sm font-black border ${
-                                isSelected ? 'bg-orange-500 border-orange-600 text-white' :
-                                isAllocated ? 'bg-emerald-600 border-emerald-700 text-white' : 'bg-slate-100 border-slate-200 text-slate-600'
-                            }`}>
-                                {sls.perkiraan_jumlah_beban}
-                            </div>
-
-                            {/* 2. TOMBOL MODAL EDIT BEBAN (Hanya aktif jika tidak Read-Only) */}
+                            {/* FIX PERBAIKAN: setEditMuatanTarget diganti ke nama yang benar */}
                             {!isReadOnly && (
                                 <button
                                     onClick={(e) => {
-                                        e.stopPropagation(); // Mencegah bentrokan trigger onClick baris div induk
-                                        setEditMuatanTarget(sls);
+                                        e.stopPropagation();
+                                        setEditMuatanTarget(sls); 
                                         setInputMuatanBaru(sls.perkiraan_jumlah_beban);
                                         setInputAlasan(sls.alasan_perubahan || "");
                                     }}
@@ -1085,13 +958,7 @@ const [inputAlasan, setInputAlasan] = useState("");
                         </div>
                     </div>
 
-                    {/* BOX CENTANG ALOKASI */}
-                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all shrink-0 ${isSelected
-                        ? 'bg-orange-500 border-orange-500 scale-110'
-                        : isAllocated
-                            ? 'border-emerald-400 bg-emerald-100'
-                            : 'border-slate-200 bg-white'
-                        }`}>
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all shrink-0 ${isSelected ? 'bg-orange-500 border-orange-500 scale-110' : isAllocated ? 'border-emerald-400 bg-emerald-100' : 'border-slate-200 bg-white'}`}>
                         {isSelected && <CheckCircle2 size={14} className="text-white" />}
                         {isAllocated && !isSelected && <CheckCircle2 size={12} className="text-emerald-500" />}
                     </div>
@@ -1100,93 +967,10 @@ const [inputAlasan, setInputAlasan] = useState("");
         );
     })}
 </div>
-                        </>
-                    )}
-                </div>
-            </div>
 
-            {/* MODAL PENCARIAN PETUGAS CADANGAN */}
-            {swapTarget && (
-                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden transform transition-all">
-                        <div className="p-4 border-b flex justify-between items-center bg-amber-50">
-                            <div>
-                                <h3 className="font-bold text-amber-800">Pilih Petugas Cadangan</h3>
-                                <p className="text-[10px] text-amber-600 mt-0.5">
-                                    Mengganti PCL aktif: <span className="font-black uppercase">{pcls.find(p => p.email === swapTarget)?.nama_petugas}</span>
-                                </p>
-                            </div>
-                            <button
-                                onClick={() => setSwapTarget(null)}
-                                className="text-amber-700 hover:bg-amber-200 w-8 h-8 rounded-lg flex items-center justify-center font-bold transition-colors cursor-pointer"
-                            >
-                                ✕
-                            </button>
-                        </div>
-
-                        <div className="p-4 border-b bg-slate-50">
-                            <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
-                                <input
-                                    type="text"
-                                    placeholder="Ketik nama cadangan..."
-                                    value={searchCadangan}
-                                    onChange={(e) => setSearchCadangan(e.target.value)}
-                                    className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-base sm:text-sm font-medium focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition-all shadow-sm"
-                                    autoFocus
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-2 space-y-1 bg-slate-50/50">
-                            {pcls
-                                .filter(p => p.status && p.status.toLowerCase() === 'cadangan')
-                                .filter(p => p.nama_petugas && p.nama_petugas.toLowerCase().includes(searchCadangan.toLowerCase()))
-                                .map(cadangan => (
-                                    <div key={cadangan.email} className="flex justify-between items-center p-3 bg-white hover:bg-amber-50 border border-slate-100 hover:border-amber-200 rounded-xl transition-all shadow-sm group gap-2">
-                                        <div className="flex flex-col min-w-0 pr-4">
-                                            <span className="font-bold text-slate-800 text-xs uppercase truncate">{cadangan.nama_petugas}</span>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <span className="text-[10px] text-slate-500 truncate">{cadangan.email}</span>
-                                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-200/70 text-slate-600 rounded border border-slate-300 shrink-0">
-                                                    📍 Kec: {cadangan.kecamatan_tugas || 'Belum Ditugaskan'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                const pclLama = pcls.find(p => p.email === swapTarget);
-                                                handleGantiPetugas(
-                                                    pclLama.email,
-                                                    cadangan.email,
-                                                    pclLama.nama_petugas,
-                                                    cadangan.nama_petugas,
-                                                    pclLama.id_pml_atasan
-                                                );
-                                                setSwapTarget(null);
-                                            }}
-                                            className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors shrink-0 cursor-pointer"
-                                        >
-                                            Pilih & Ganti
-                                        </button>
-                                    </div>
-                                ))
-                            }
-
-                            {pcls.filter(p => p.status && p.status.toLowerCase() === 'cadangan' && p.nama_petugas?.toLowerCase().includes(searchCadangan.toLowerCase())).length === 0 && (
-                                <div className="text-center py-10 flex flex-col items-center">
-                                    <span className="text-3xl mb-2">🕵️‍♂️</span>
-                                    <span className="text-sm font-bold text-slate-500">Tidak ada cadangan ditemukan</span>
-                                    <span className="text-xs text-slate-400">Coba gunakan kata kunci nama yang lain.</span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-        {/* ------------------------------------------------------------- */}
-{/* MODAL EDIT JUMLAH MUATAN SLS */}
-{/* ------------------------------------------------------------- */}
+{/* ============================================================= */}
+{/* MODAL EDIT JUMLAH MUATAN SLS (Sudah Sinkron & Muncul Kembali) */}
+{/* ============================================================= */}
 {editMuatanTarget && (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-150">
@@ -1210,7 +994,7 @@ const [inputAlasan, setInputAlasan] = useState("");
             {/* Form Body */}
             <div className="p-4 space-y-4">
                 <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 ml-1">
                         Muatan Saat Ini / Beban Baru
                     </label>
                     <input 
@@ -1224,7 +1008,7 @@ const [inputAlasan, setInputAlasan] = useState("");
                 </div>
 
                 <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 ml-1">
                         Alasan Perubahan <span className="text-rose-500">*</span>
                     </label>
                     <textarea 
@@ -1261,9 +1045,9 @@ const [inputAlasan, setInputAlasan] = useState("");
                             editMuatanTarget.perkiraan_jumlah_beban,
                             inputMuatanBaru,
                             inputAlasan,
-                            editMuatanTarget.muatan_awal // Kirim status muatan awal yang tersimpan saat ini
+                            editMuatanTarget.muatan_awal
                         );
-                        setEditMuatanTarget(null); // Tutup modal
+                        setEditMuatanTarget(null);
                     }}
                     disabled={!inputAlasan.trim() || inputMuatanBaru === ""}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-colors shadow-md cursor-pointer"
@@ -1275,7 +1059,100 @@ const [inputAlasan, setInputAlasan] = useState("");
         </div>
     </div>
 )}
-    
+                        </>
+                    )}
+                </div>
+            </div>
+
+            {/* MODAL EDIT JUMLAH BEBAN SLS */}
+            {editMuatanTarget && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-150">
+                        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+                            <div>
+                                <h3 className="font-bold text-slate-800">Edit Muatan SLS</h3>
+                                <p className="text-[10px] text-slate-500 mt-0.5 font-medium uppercase tracking-wider">{editMuatanTarget.nmdesa} | {editMuatanTarget.nmsls}</p>
+                            </div>
+                            <button onClick={() => setEditMuatanTarget(null)} className="text-slate-400 hover:bg-slate-100 w-8 h-8 rounded-lg flex items-center justify-center font-bold transition-colors cursor-pointer">✕</button>
+                        </div>
+                        <div className="p-4 space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Muatan Saat Ini / Beban Baru</label>
+                                <input type="number" min="0" value={inputMuatanBaru} onChange={(e) => setInputMuatanBaru(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-xl text-base font-black focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all shadow-sm" placeholder="Masukkan angka muatan..." />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Alasan Perubahan <span className="text-rose-500">*</span></label>
+                                <textarea rows="3" value={inputAlasan} onChange={(e) => setInputAlasan(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-medium focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all shadow-sm resize-none" placeholder="Contoh: Terjadi salah identifikasi, pasar hewan, banyak bangunan kosong..." />
+                            </div>
+                        </div>
+                        <div className="p-4 bg-slate-50 border-t flex justify-end gap-2">
+                            <button onClick={() => setEditMuatanTarget(null)} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-100 transition-colors cursor-pointer">Batal</button>
+                            <button
+                                onClick={async () => {
+                                    if (!inputMuatanBaru || inputMuatanBaru < 0) return alert("Masukkan jumlah muatan yang valid!");
+                                    if (!inputAlasan.trim()) return alert("Alasan perubahan wajib diisi!");
+                                    await handleUpdateMuatanSls(editMuatanTarget.idsubsls, editMuatanTarget.perkiraan_jumlah_beban, inputMuatanBaru, inputAlasan, editMuatanTarget.muatan_awal);
+                                    setEditMuatanTarget(null);
+                                }}
+                                disabled={!inputAlasan.trim() || inputMuatanBaru === ""}
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-colors shadow-md cursor-pointer"
+                            >Simpan Perubahan</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL PETUGAS CADANGAN */}
+            {swapTarget && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh] overflow-hidden transform transition-all">
+                        <div className="p-4 border-b flex justify-between items-center bg-amber-50">
+                            <div>
+                                <h3 className="font-bold text-amber-800">Pilih Petugas Cadangan</h3>
+                                <p className="text-[10px] text-amber-600 mt-0.5">Mengganti PCL aktif: <span className="font-black uppercase">{pcls.find(p => p.email === swapTarget)?.nama_petugas}</span></p>
+                            </div>
+                            <button onClick={() => setSwapTarget(null)} className="text-amber-700 hover:bg-amber-200 w-8 h-8 rounded-lg flex items-center justify-center font-bold transition-colors cursor-pointer">✕</button>
+                        </div>
+                        <div className="p-4 border-b bg-slate-50">
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+                                <input type="text" placeholder="Ketik nama cadangan..." value={searchCadangan} onChange={(e) => setSearchCadangan(e.target.value)} className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-base sm:text-sm font-medium focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 transition-all shadow-sm" autoFocus />
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-2 space-y-1 bg-slate-50/50">
+                            {pcls
+                                .filter(p => p.status && p.status.toLowerCase() === 'cadangan')
+                                .filter(p => p.nama_petugas && p.nama_petugas.toLowerCase().includes(searchCadangan.toLowerCase()))
+                                .map(cadangan => (
+                                    <div key={cadangan.email} className="flex justify-between items-center p-3 bg-white hover:bg-amber-50 border border-slate-100 hover:border-amber-200 rounded-xl transition-all shadow-sm group gap-2">
+                                        <div className="flex flex-col min-w-0 pr-4">
+                                            <span className="font-bold text-slate-800 text-xs uppercase truncate">{cadangan.nama_petugas}</span>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <span className="text-[10px] text-slate-500 truncate">{cadangan.email}</span>
+                                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-200/70 text-slate-600 rounded border border-slate-300 shrink-0">📍 Kec: {cadangan.kecamatan_tugas || 'Belum Ditugaskan'}</span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                const pclLama = pcls.find(p => p.email === swapTarget);
+                                                handleGantiPetugas(pclLama.email, cadangan.email, pclLama.nama_petugas, cadangan.nama_petugas, pclLama.id_pml_atasan);
+                                                setSwapTarget(null);
+                                            }}
+                                            className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors shrink-0 cursor-pointer"
+                                        >Pilih & Ganti</button>
+                                    </div>
+                                ))
+                            }
+                            {pcls.filter(p => p.status && p.status.toLowerCase() === 'cadangan' && p.nama_petugas?.toLowerCase().includes(searchCadangan.toLowerCase())).length === 0 && (
+                                <div className="text-center py-10 flex flex-col items-center">
+                                    <span className="text-3xl mb-2">🕵️‍♂️</span>
+                                    <span className="text-sm font-bold text-slate-500">Tidak ada cadangan ditemukan</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

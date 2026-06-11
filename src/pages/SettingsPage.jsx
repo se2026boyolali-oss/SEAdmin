@@ -2,17 +2,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Trash2, Search, UserMinus, RotateCcw } from 'lucide-react';
+import { Trash2, Search, UserMinus, RotateCcw, Lock, Unlock } from 'lucide-react';
+
+// Daftar 22 Kecamatan di Boyolali untuk opsi sakelar
+const DAFTAR_KECAMATAN = [
+  "Selo", "Ampel", "Gladagsari", "Cepogo", "Musuk", "Tamansari", "Boyolali", "Mojosongo", 
+  "Teras", "Sawit", "Banyudono", "Sambi", "Ngemplak", "Nogosari", "Simo", "Karanggede", 
+  "Klego", "Andong", "Kemusu", "Wonosegoro", "Wonosamodro", "Juwangi"
+].sort();
 
 export default function SettingsPage() {
-  const { profile, allowAllocation, setAllowAllocation } = useAuth();
+  const { profile } = useAuth();
   
   // State Manajemen User (Pegawai Organik)
   const [usersList, setUsersList] = useState([]);
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('pegawai');
-  const [searchUserQuery, setSearchUserQuery] = useState(''); // State baru untuk pencarian pegawai internal
+  const [searchUserQuery, setSearchUserQuery] = useState(''); 
   
   // State Manajemen Petugas Lapangan (PML/PCL)
   const [petugasList, setPetugasList] = useState([]);
@@ -20,8 +27,11 @@ export default function SettingsPage() {
   const [loadingPetugas, setLoadingPetugas] = useState(false);
 
   const [loadingUser, setLoadingUser] = useState(false);
-  const [loadingToggle, setLoadingToggle] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
+
+  // NEW STATE: Menyimpan list kecamatan yang DIKUNCI
+  const [lockedKecamatan, setLockedKecamatan] = useState([]);
+  const [loadingToggleKec, setLoadingToggleKec] = useState(null); // Menyimpan nama kecamatan yang sedang di-loading
 
   // Ref untuk tracking mount awal (mencegah double fetch petugas)
   const isFirstMount = useRef(true);
@@ -67,9 +77,33 @@ export default function SettingsPage() {
     }
   };
 
+  // 3. Ambil status pengaturan kecamatan yang dikunci dari DB
+  const fetchLockedSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('value_json')
+        .eq('key', 'locked_kecamatan_list')
+        .single();
+
+      if (error) {
+        // Jika belum ada row-nya di DB, biarkan array kosong
+        if (error.code === 'PGRST116') return; 
+        throw error;
+      }
+      
+      if (data && data.value_json) {
+        setLockedKecamatan(data.value_json);
+      }
+    } catch (err) {
+      console.error("Gagal memuat status kunci kecamatan:", err.message);
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
     fetchPetugas();
+    fetchLockedSettings();
   }, [profile]);
 
   // Debounce untuk pencarian petugas lapangan (server-side)
@@ -182,33 +216,42 @@ export default function SettingsPage() {
     }
   };
 
-  // Ubah Sakelar Alokasi
-  const handleToggleAllocation = async () => {
+  // NEW FUNCTION: Mengubah status Kunci/Buka Per Kecamatan
+  const handleToggleKecamatanLock = async (namaKecamatan) => {
+    setLoadingToggleKec(namaKecamatan);
     setMessage({ text: '', type: '' });
-    setLoadingToggle(true);
-    const nextState = !allowAllocation;
+    
+    // Tentukan list barunya (jika sudah ada maka hapus [buka kunci], jika belum ada maka tambah [kunci])
+    const isCurrentlyLocked = lockedKecamatan.includes(namaKecamatan);
+    const updatedList = isCurrentlyLocked 
+      ? lockedKecamatan.filter(k => k !== namaKecamatan)
+      : [...lockedKecamatan, namaKecamatan];
 
     try {
+      // Menggunakan upsert agar jika key belum ada, baris otomatis dibuat
       const { error } = await supabase
         .from('app_settings')
-        .update({ value_boolean: nextState, updated_at: new Date() })
-        .eq('key', 'allow_allocation_changes');
+        .upsert({ 
+          key: 'locked_kecamatan_list', 
+          value_json: updatedList,
+          updated_at: new Date() 
+        }, { onConflict: 'key' });
 
       if (error) throw error;
 
-      setAllowAllocation(nextState);
+      setLockedKecamatan(updatedList);
       setMessage({ 
-        text: `Pengisian Alokasi berhasil diubah menjadi: ${nextState ? 'DIIZINKAN (ON)' : 'DIKUNCI (OFF)'}`, 
+        text: `Akses alokasi Kecamatan ${namaKecamatan} berhasil ${isCurrentlyLocked ? 'DIBUKA (ON)' : 'DIKUNCI (OFF)'}`, 
         type: 'success' 
       });
     } catch (error) {
-      setMessage({ text: `Gagal mengubah status pengisian: ${error.message}`, type: 'error' });
+      setMessage({ text: `Gagal memperbarui status wilayah: ${error.message}`, type: 'error' });
     } finally {
-      setLoadingToggle(false);
+      setLoadingToggleKec(null);
     }
   };
 
-  // Logika Filter untuk Tabel Internal (Instan Tanpa Load Network)
+  // Logika Filter untuk Tabel Internal
   const filteredUsersList = usersList.filter(usr => 
     usr.nama_pengguna?.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
     usr.email?.toLowerCase().includes(searchUserQuery.toLowerCase())
@@ -239,27 +282,54 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* PANEL 1: SAKELAR ON/OFF PENGISIAN ALOKASI */}
+      {/* REVISI PANEL 1: SAKELAR KUNCI/BUKA ALOKASI PER KECAMATAN */}
       <section className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
-        <h2 className="text-base md:text-lg font-bold text-slate-800 mb-1">Akses Alokasi Wilayah</h2>
-        <p className="text-slate-500 text-xs md:text-sm mb-4">Kunci atau izinkan seluruh petugas (Pegawai & PML) untuk mengedit data alokasi di halaman alokasi petugas.</p>
+        <h2 className="text-base md:text-lg font-bold text-slate-800 mb-1">Kontrol Alokasi Wilayah per Kecamatan</h2>
+        <p className="text-slate-500 text-xs md:text-sm mb-6">Kunci (*OFF*) atau Izinkan (*ON*) petugas di masing-masing kecamatan untuk memperbarui data pemetaan alokasi.</p>
         
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100 max-w-md justify-between">
-          <div className="min-w-0">
-            <span className="block font-bold text-sm text-slate-700">Status Pengisian Alokasi</span>
-            <span className={`text-xs font-bold uppercase tracking-wider ${allowAllocation ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {allowAllocation ? '● Diizinkan (Buka Akses)' : '■ Dikunci (Waktu Habis)'}
-            </span>
-          </div>
-          <button
-            onClick={handleToggleAllocation}
-            disabled={loadingToggle}
-            className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl text-xs font-bold shadow-sm text-white transition-all shrink-0 ${
-              allowAllocation ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'
-            } disabled:bg-slate-300 cursor-pointer`}
-          >
-            {loadingToggle ? 'Memproses...' : allowAllocation ? 'Kunci Alokasi (OFF)' : 'Buka Alokasi (ON)'}
-          </button>
+        {/* Grid Opsi Sakelar Kecamatan */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {DAFTAR_KECAMATAN.map((kec) => {
+            const isLocked = lockedKecamatan.includes(kec);
+            const isLoading = loadingToggleKec === kec;
+
+            return (
+              <div 
+                key={kec} 
+                className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                  isLocked 
+                    ? 'bg-rose-50/50 border-rose-200 text-rose-900' 
+                    : 'bg-emerald-50/30 border-emerald-200 text-emerald-900'
+                }`}
+              >
+                <div className="min-w-0 truncate pr-2">
+                  <span className="block font-bold text-xs uppercase tracking-wide truncate">{kec}</span>
+                  <span className={`text-[10px] font-bold ${isLocked ? 'text-rose-600' : 'text-emerald-600'}`}>
+                    {isLocked ? '🔒 Dikunci' : '🔓 Diizinkan'}
+                  </span>
+                </div>
+
+                <button
+                  onClick={() => handleToggleKecamatanLock(kec)}
+                  disabled={loadingToggleKec !== null}
+                  className={`p-2 rounded-lg text-white transition-all shadow-sm shrink-0 cursor-pointer ${
+                    isLocked 
+                      ? 'bg-emerald-600 hover:bg-emerald-700' 
+                      : 'bg-rose-600 hover:bg-rose-700'
+                  } disabled:bg-slate-300 disabled:cursor-not-allowed`}
+                  title={isLocked ? `Buka Kunci Kecamatan ${kec}` : `Kunci Kecamatan ${kec}`}
+                >
+                  {isLoading ? (
+                    <span className="text-[10px] px-1 font-bold animate-pulse">...</span>
+                  ) : isLocked ? (
+                    <Unlock size={14} />
+                  ) : (
+                    <Lock size={14} />
+                  )}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -298,98 +368,82 @@ export default function SettingsPage() {
             </div>
             <button
               type="submit" disabled={loadingUser}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 sm:py-2 px-4 rounded-xl shadow-sm text-xs transition-all h-[42px] sm:h-[34px] disabled:bg-slate-300 cursor-pointer"
+              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-4 rounded-xl shadow-sm text-xs transition-all h-[42px] sm:h-[34px] disabled:bg-slate-300 cursor-pointer"
             >
-              {loadingUser ? 'Menyimpan...' : '⚡ Daftarkan Akun'}
+              {loadingUser ? 'Memproses...' : '⚡ Daftarkan Akun'}
             </button>
           </form>
         </div>
 
-        {/* TABEL DAFTAR PEGAWAI INTERNAL + INPUT PENCARIAN BARU */}
-{/* TABEL DAFTAR PEGAWAI INTERNAL */}
-<div>
-  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-3">
-    <h2 className="text-sm md:text-base font-bold text-slate-800">Daftar Akun Terdaftar</h2>
-    
-    {/* Input Live Search Pegawai Internal */}
-    <div className="relative max-w-none sm:max-w-xs w-full">
-      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-        <Search size={14} />
-      </span>
-      <input
-        type="text"
-        placeholder="Cari nama atau email petugas..."
-        className="w-full pl-8 pr-4 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
-        value={searchUserQuery}
-        onChange={(e) => setSearchUserQuery(e.target.value)}
-      />
-    </div>
-  </div>
+        {/* TABEL DAFTAR PEGAWAI INTERNAL */}
+        <div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-3">
+            <h2 className="text-sm md:text-base font-bold text-slate-800">Daftar Akun Terdaftar</h2>
+            
+            <div className="relative max-w-none sm:max-w-xs w-full">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                <Search size={14} />
+              </span>
+              <input
+                type="text"
+                placeholder="Cari nama atau email petugas..."
+                className="w-full pl-8 pr-4 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:bg-white transition-all"
+                value={searchUserQuery}
+                onChange={(e) => setSearchUserQuery(e.target.value)}
+              />
+            </div>
+          </div>
 
-  <div className="overflow-x-auto max-h-[300px] overflow-y-auto border border-slate-100 rounded-xl scrollbar-thin">
-    <table className="min-w-full divide-y divide-slate-200">
-      <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-        <tr>
-          <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Nama / Email</th>
-          <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Peran</th>
-          <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Aktivasi Login & Aksi</th>
-        </tr>
-      </thead>
-      <tbody className="bg-white divide-y divide-slate-100 text-xs">
-        {filteredUsersList.map((usr) => (
-          <tr key={usr.email} className="hover:bg-slate-50/50 transition-colors">
-            <td className="px-4 py-2.5 whitespace-nowrap">
-              <div className="font-bold text-slate-800">{usr.nama_pengguna}</div>
-              <div className="text-[11px] text-slate-400 font-mono">{usr.email}</div>
-            </td>
-            <td className="px-4 py-2.5 whitespace-nowrap">
-              <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
-                usr.role === 'admin' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
-              }`}>{usr.role}</span>
-            </td>
-            <td className="px-4 py-2.5 whitespace-nowrap">
-              <div className="flex items-center justify-between gap-4 max-w-[240px]">
-                
-                {/* PERBAIKAN LOGIKA DI SINI: */}
-                {usr.is_first_login ? (
-                  // JIKA TRUE (Baru didaftarkan ATAU baru saja di-reset): Tampilkan status belum aktivasi
-                  <span className="px-2 py-0.5 text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 rounded animate-pulse">
-                    ⌛ Belum Aktivasi
-                  </span>
-                ) : (
-                  // JIKA FALSE (Akun aktif): Tampilkan status aktif beserta tombol resetnya
-                  <>
-                    <span className="text-xs font-bold text-emerald-500">
-                      ✓ Sudah Aktif
-                    </span>
-                    <button
-                      onClick={() => handleResetPassword(usr.email, usr.nama_pengguna)}
-                      className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-sm"
-                      title="Kembalikan ke Password 123456"
-                    >
-                      <RotateCcw size={10} /> Reset
-                    </button>
-                  </>
-                )}
+          <div className="overflow-x-auto max-h-[300px] overflow-y-auto border border-slate-100 rounded-xl scrollbar-thin">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                <tr>
+                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Nama / Email</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Peran</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Aktivasi Login & Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-slate-100 text-xs">
+                {filteredUsersList.map((usr) => (
+                  <tr key={usr.email} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <div className="font-bold text-slate-800">{usr.nama_pengguna}</div>
+                      <div className="text-[11px] text-slate-400 font-mono">{usr.email}</div>
+                    </td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
+                        usr.role === 'admin' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
+                      }`}>{usr.role}</span>
+                    </td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <div className="flex items-center gap-4 max-w-[280px]">
+                        {usr.is_first_login ? (
+                          <span className="px-2 py-0.5 text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 rounded animate-pulse shrink-0">
+                            ⌛ Belum Aktivasi
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold text-emerald-500 shrink-0">
+                            ✓ Sudah Aktif
+                          </span>
+                        )}
 
-              </div>
-            </td>
-          </tr>
-        ))}
-        {filteredUsersList.length === 0 && (
-          <tr>
-            <td colSpan="3" className="px-4 py-8 text-center text-slate-400 font-medium">
-              Data pegawai tidak ditemukan.
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
-</div>
+                        <button
+                          onClick={() => handleResetPassword(usr.email, usr.nama_pengguna)}
+                          className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-lg text-[10px] font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-sm ml-auto"
+                        >
+                          <RotateCcw size={10} /> Reset Password
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
-      {/* PANEL 3: PEMBERSIHAN / HAPUS PETUGAS MITRA (PML/PCL) */}
+      {/* PANEL 3: MANAJEMEN ELIMINASI PETUGAS LAPANGAN */}
       <section className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
@@ -407,7 +461,7 @@ export default function SettingsPage() {
             <input
               type="text"
               placeholder="Cari nama atau email petugas..."
-              className="w-full pl-9 pr-4 py-2 sm:py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs focus:outline-none focus:ring-1 focus:ring-rose-500 focus:bg-white transition-all"
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs focus:outline-none focus:ring-1 focus:ring-rose-500 focus:bg-white transition-all"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -425,57 +479,39 @@ export default function SettingsPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-slate-100 text-xs">
-              {petugasList.map((ptg) => {
-                const matchingUser = usersList.find(u => u.email === ptg.email);
-                const hasActivated = matchingUser && !matchingUser.is_first_login;
+              {petugasList.map((ptg) => (
+                <tr key={ptg.email} className="hover:bg-slate-50/60 transition-colors">
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    <div className="font-bold text-slate-700">{ptg.nama_petugas}</div>
+                    <div className="text-[11px] text-slate-400 font-mono">{ptg.email}</div>
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap font-medium text-slate-600 uppercase tracking-wide">
+                    {ptg.kecamatan_tugas || '-'}
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    <div className="flex items-center gap-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
+                        ptg.posisi_tugas === 'PML' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-teal-50 text-teal-700 border border-teal-200'
+                      }`}>{ptg.posisi_tugas}</span>
 
-                return (
-                  <tr key={ptg.email} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-4 py-2.5 whitespace-nowrap">
-                      <div className="font-bold text-slate-700">{ptg.nama_petugas}</div>
-                      <div className="text-[11px] text-slate-400 font-mono">{ptg.email}</div>
-                    </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap font-medium text-slate-600 uppercase tracking-wide">
-                      {ptg.kecamatan_tugas || '-'}
-                    </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap">
-                      <div className="flex items-center gap-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider ${
-                          ptg.posisi_tugas === 'PML' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-teal-50 text-teal-700 border border-teal-200'
-                        }`}>
-                          {ptg.posisi_tugas}
-                        </span>
-
-                        {hasActivated && (
-                          <button
-                            onClick={() => handleResetPassword(ptg.email, ptg.nama_petugas)}
-                            className="px-2 py-0.5 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded text-[9px] font-extrabold flex items-center gap-0.5 transition-all cursor-pointer"
-                            title="Reset Akun Mitra ke 123456"
-                          >
-                            <RotateCcw size={8} /> Reset
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap text-center">
                       <button
-                        onClick={() => handleDeletePetugas(ptg.email, ptg.nama_petugas)}
-                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all inline-block cursor-pointer"
-                        title="Hapus Petugas Permanen"
+                        onClick={() => handleResetPassword(ptg.email, ptg.nama_petugas)}
+                        className="px-2 py-0.5 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded text-[9px] font-extrabold flex items-center gap-0.5 transition-all cursor-pointer shadow-sm"
                       >
-                        <Trash2 size={16} />
+                        <RotateCcw size={8} /> Reset Password
                       </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {petugasList.length === 0 && (
-                <tr>
-                  <td colSpan="4" className="px-4 py-10 text-center text-slate-400 font-medium">
-                    {loadingPetugas ? 'Memuat database petugas...' : 'Data petugas tidak ditemukan.'}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap text-center">
+                    <button
+                      onClick={() => handleDeletePetugas(ptg.email, ptg.nama_petugas)}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all inline-block cursor-pointer"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </td>
                 </tr>
-              )}
+              ))}
             </tbody>
           </table>
         </div>
