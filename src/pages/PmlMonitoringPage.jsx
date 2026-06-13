@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import {
     Users, MapPin, AlertTriangle, CheckCircle2,
-    Save, RefreshCw, Phone, Search, ChevronDown, ChevronUp, 
-    Navigation, Camera, WifiOff, CloudLightning, Filter, Layers, LogOut, Send, HelpCircle
+    Save, RefreshCw, Search, ChevronDown, ChevronUp, 
+    Navigation, Camera, WifiOff, CloudLightning, Filter, LogOut, Send, HelpCircle
 } from 'lucide-react';
 
 // =========================================================================
@@ -24,8 +24,105 @@ const initPmlOfflineDB = () => {
     });
 };
 
+// 🏃‍♂️ SUB-KOMPONEN BARIS SLS: Isolasi State Input untuk Performa Tinggi Lapangan (Zero-Lag)
+const SlsCardRow = React.memo(({ sls, initialValue, onSave, onToggleSelesai, actionLoading }) => {
+    const [inputValue, setInputValue] = useState(initialValue);
+
+    useEffect(() => {
+        setInputValue(initialValue);
+    }, [initialValue]);
+
+    const realisasi = sls.realisasi_pencacahan || 0;
+    const muatan = sls.jml_muatan || 0;
+    const persen = muatan > 0 ? Math.min(Math.round((realisasi / muatan) * 100), 100) : 0;
+    
+    const isSelesaiMutlak = sls.is_selesai === true;
+    const isClean = realisasi >= muatan && muatan > 0;
+    const isTouched = realisasi > 0;
+    
+    const borderWarna = isSelesaiMutlak ? 'border-l-emerald-500' : isTouched ? 'border-l-amber-500' : 'border-l-rose-500';
+
+    return (
+        <div className={`bg-white border border-slate-200 border-l-4 ${borderWarna} rounded-xl p-3 shadow-2xs flex flex-col gap-2 relative ${isSelesaiMutlak ? 'bg-emerald-50/10' : ''}`}>
+            <div className="flex justify-between items-start gap-2">
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${isSelesaiMutlak ? 'bg-emerald-500 animate-pulse' : isClean ? 'bg-emerald-500' : isTouched ? 'bg-amber-400' : 'bg-rose-500'}`}></span>
+                        <h5 className="font-black text-slate-800 text-xs uppercase truncate">
+                            ({sls.kdsls}) {sls.nmsls}
+                        </h5>
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">
+                        Desa: <span className="text-slate-600 font-black">{sls.nmdesa}</span>
+                    </p>
+                </div>
+                
+                <button
+                    disabled={actionLoading === `status-${sls.idsubsls}`}
+                    onClick={() => onToggleSelesai(sls.idsubsls, isSelesaiMutlak)}
+                    className={`px-2 py-1 rounded-lg font-black text-[9px] uppercase tracking-wider active:scale-95 transition-all flex items-center justify-center border shrink-0 ${
+                        isSelesaiMutlak 
+                            ? 'bg-rose-500 border-rose-600 text-white shadow-xs' 
+                            : 'bg-emerald-600 border-emerald-700 text-white shadow-xs'
+                    }`}
+                >
+                    {actionLoading === `status-${sls.idsubsls}` ? (
+                        <RefreshCw className="animate-spin" size={10} />
+                    ) : isSelesaiMutlak ? (
+                        <span>Batal Selesai</span>
+                    ) : (
+                        <span>Tandai Selesai</span>
+                    )}
+                </button>
+            </div>
+
+            <div className="w-full bg-slate-100 rounded-full h-1 overflow-hidden">
+                <div 
+                    className={`h-full rounded-full transition-all duration-300 ${isSelesaiMutlak || isClean ? 'bg-emerald-500' : isTouched ? 'bg-amber-500' : 'bg-rose-500'}`}
+                    style={{ width: `${isSelesaiMutlak ? 100 : persen}%` }}
+                ></div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 mt-1 pt-1.5 border-t border-slate-100">
+                <div className="flex flex-col">
+                    <span className="text-[9px] font-bold text-slate-400 font-mono">
+                        Realisasi: <span className="font-black text-slate-700">{realisasi}</span> / {muatan} Muatan
+                    </span>
+                    <span className="text-[9px] font-mono font-black text-indigo-600">
+                        Progres: {isSelesaiMutlak ? '100' : persen}%
+                    </span>
+                </div>
+                
+                <div className="flex items-center gap-1.5 shrink-0">
+                    <input
+                        type="number"
+                        disabled={isSelesaiMutlak}
+                        placeholder="Hasil"
+                        className="w-12 bg-slate-50 border border-slate-200 rounded-lg py-1 text-center font-black text-xs text-slate-800 outline-none focus:bg-white focus:border-indigo-500 transition-all disabled:opacity-40"
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                    />
+
+                    <button
+                        disabled={isSelesaiMutlak || actionLoading === sls.idsubsls}
+                        onClick={() => onSave(sls.idsubsls, inputValue)}
+                        className="bg-slate-800 active:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black active:scale-95 transition-all disabled:bg-slate-100 disabled:text-slate-300 flex items-center gap-1 shadow-xs"
+                    >
+                        {actionLoading === sls.idsubsls ? <RefreshCw className="animate-spin" size={10} /> : <Save size={10} />}
+                        <span>SIMPAN</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+});
+SlsCardRow.displayName = 'SlsCardRow';
+
 export default function PmlMonitoringPage() {
     const { user, profile, loading: authLoading, logout } = useAuth();
+
+    // Ref khusus pemicu instant camera trigger
+    const pmlFileInputRef = useRef(null);
 
     // MANAGEMENT STATE NAVIGASI HALAMAN (0: TIM PCL, 1: CAPAIAN PER SLS)
     const [activeTab, setActiveTab] = useState(0);
@@ -36,6 +133,9 @@ export default function PmlMonitoringPage() {
     const [actionLoading, setActionLoading] = useState(null);
     const [pmlCheckingIn, setPmlCheckingIn] = useState(false);
     const [pmlCheckedInToday, setPmlCheckedInToday] = useState(false);
+
+    // KELOMPOK RINGKASAN METRIK AKTIF TIM
+    const [rekapStatusTim, setRekapStatusTim] = useState({ aktif: 0, absen: 0 });
 
     // CONTROL FOTO MANDIRI PML & KOORDINAT GPS PML
     const [pmlPhotoBase64, setPmlPhotoBase64] = useState(null);
@@ -121,7 +221,12 @@ export default function PmlMonitoringPage() {
             setPmlCheckedInToday(pmlCheckInStatus === 'true');
 
             const cachedPclList = localStorage.getItem(`cache_pml_monitoring_list_${cleanPmlEmail}`);
-            if (cachedPclList) setPcls(JSON.parse(cachedPclList));
+            if (cachedPclList) {
+                const parsedPcls = JSON.parse(cachedPclList);
+                setPcls(parsedPcls);
+                const aktif = parsedPcls.filter(p => p.statusHariIni === 'AKTIF').length;
+                setRekapStatusTim({ aktif, absen: parsedPcls.length - aktif });
+            }
 
             const cachedFlatSls = localStorage.getItem(`cache_pml_flat_sls_${cleanPmlEmail}`);
             if (cachedFlatSls) {
@@ -175,6 +280,16 @@ export default function PmlMonitoringPage() {
                 .select('idsubsls, kdsls, nmsls, nmdesa, petugas_id, jml_muatan, realisasi_pencacahan, is_selesai');
 
             const allMasterSlsArray = masterSls || [];
+            const masterSlsMap = new Map(allMasterSlsArray.map(m => [String(m.idsubsls).trim(), m]));
+
+            // Optimasi Indexing Log Check-in PCL via HashMap O(1)
+            const logsPclMap = new Map();
+            (rentangLogs || []).forEach(log => {
+                const emailKey = log.petugas_email.toLowerCase().trim();
+                if (!logsPclMap.has(emailKey)) logsPclMap.set(emailKey, []);
+                logsPclMap.get(emailKey).push(log);
+            });
+
             const daftarEmailBinaan = (petugasData || []).map(pcl => pcl.email.toLowerCase().trim());
 
             // Ambil daftar SLS khusus binaan untuk target input halaman ke-2
@@ -187,19 +302,30 @@ export default function PmlMonitoringPage() {
             setDesaList([...new Set(slsKhususBinaan.map(s => s.nmdesa))]);
             localStorage.setItem(`cache_pml_flat_sls_${cleanPmlEmail}`, JSON.stringify(slsKhususBinaan));
 
-            // 5. Kompilasi data gabungan untuk visualisasi monitoring tim PCL (Tanpa log_harian_pml)
+            // 5. Kompilasi data gabungan untuk visualisasi monitoring tim PCL
+            let countAktif = 0;
             const combinedData = (petugasData || []).map(pcl => {
                 const cleanPclEmail = pcl.email.toLowerCase().trim();
-                const logsPcl = (rentangLogs || []).filter(l => l.petugas_email.toLowerCase().trim() === cleanPclEmail);
-                const semuaAbsenHariIni = logsPcl.filter(l => l.tanggal === tglHariIni);
+                const logsPcl = logsPclMap.get(cleanPclEmail) || [];
+                
+                // 🛠 FIX OPTIMIZATION: Ambil 10 Karakter Utama YYYY-MM-DD dari string log Supabase
+                const semuaAbsenHariIni = logsPcl.filter(l => {
+                    const stringTanggalLog = l.tanggal ? l.tanggal.substring(0, 10) : "";
+                    return stringTanggalLog === tglHariIni;
+                });
+                
                 const checkInHariIni = semuaAbsenHariIni.length > 0 ? semuaAbsenHariIni[0] : null; 
                 const totalCheckInHariIni = semuaAbsenHariIni.length;
-                const tanggalMasukList = logsPcl.map(l => l.tanggal);
+                
+                // 🛠 CORE FIX KALENDER MINI: Normalisasi string agar seragam YYYY-MM-DD
+                const tanggalMasukList = logsPcl.map(l => l.tanggal ? l.tanggal.substring(0, 10) : "");
+
+                if (checkInHariIni) countAktif++;
 
                 let hariTanpaKabar = 0;
                 if (!checkInHariIni) {
-                    if (logsPcl && logsPcl.length > 0 && logsPcl[0]?.tanggal) {
-                        const tglTerakhir = new Date(logsPcl[0].tanggal);
+                    if (logsPcl.length > 0 && logsPcl[0]?.tanggal) {
+                        const tglTerakhir = new Date(logsPcl[0].tanggal.substring(0, 10));
                         const tglSkrg = new Date(tglHariIni);
                         const diffTime = Math.abs(tglSkrg - tglTerakhir);
                         hariTanpaKabar = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -210,7 +336,7 @@ export default function PmlMonitoringPage() {
 
                 const logTerpilih = checkInHariIni || logsPcl[0];
                 const idSlsPetugas = logTerpilih?.idsubsls;
-                const infoSlsGlobal = allMasterSlsArray.find(m => String(m.idsubsls).trim() === String(idSlsPetugas).trim());
+                const infoSlsGlobal = idSlsPetugas ? masterSlsMap.get(String(idSlsPetugas).trim()) : null;
                 
                 let isLuarWilayahLast = false;
                 if (infoSlsGlobal && infoSlsGlobal.petugas_id) {
@@ -230,12 +356,13 @@ export default function PmlMonitoringPage() {
                     isLuarWilayahLast: isLuarWilayahLast, 
                     totalAbsenHariIni: totalCheckInHariIni,
                     absenDays: hariTanpaKabar,
-                    history7Hari: tanggalMasukList,
+                    history7Hari: tanggalMasukList, // Mengandung list murni YYYY-MM-DD
                     fotoBuktiHariIni: checkInHariIni?.foto_bukti || null
                 };
             });
 
             setPcls(combinedData);
+            setRekapStatusTim({ aktif: countAktif, absen: combinedData.length - countAktif });
             localStorage.setItem(`cache_pml_monitoring_list_${cleanPmlEmail}`, JSON.stringify(combinedData));
 
             const initialSlsInputs = {};
@@ -295,8 +422,8 @@ export default function PmlMonitoringPage() {
                 ctx.drawImage(img, 0, 0, width, height);
 
                 const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-                const latTeks = pmlCoords ? `LAT: ${pmlCoords.latitude.toFixed(6)}` : "LAT: LURING";
-                const lonTeks = pmlCoords ? `LON: ${pmlCoords.longitude.toFixed(6)}` : "LON: LURING";
+                const latTeks = pmlCoords ? `LAT: ${pmlCoords.latitude.toFixed(6)}` : "LAT: MEMINDAI...";
+                const lonTeks = pmlCoords ? `LON: ${pmlCoords.longitude.toFixed(6)}` : "LON: MEMINDAI...";
                 const labelSensus = `PENGAWASAN SE2026 BOYOLALI - PML`;
 
                 ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
@@ -369,6 +496,7 @@ export default function PmlMonitoringPage() {
         return null;
     };
 
+    // ⚡ BYPASS SIKLUS INSTAN KAMERA + BACKGROUND GPS TRACKING
     const handleTriggerPmlLocation = () => {
         if (!navigator.geolocation) {
             alert("HP Anda memblokir fitur lokasi.");
@@ -378,6 +506,7 @@ export default function PmlMonitoringPage() {
         setPmlCheckingIn(true);
         setIsPmlOutsideBorder(false);
         setShowPmlValidationDialog(false);
+        setShowPmlCameraCard(true); // Langsung munculkan kotak rangkuman tanpa nunggu delay satelit
 
         navigator.geolocation.getCurrentPosition(
             async (position) => {
@@ -397,10 +526,7 @@ export default function PmlMonitoringPage() {
 
                     if (kecTerdeteksi !== kodeKecTugas) {
                         setIsPmlOutsideBorder(true);
-                        setShowPmlCameraCard(true);
                         setShowPmlValidationDialog(true); 
-                        setPmlCheckingIn(false);
-                        return;
                     }
                 } else {
                     setPmlCoords({
@@ -410,24 +536,21 @@ export default function PmlMonitoringPage() {
                         nmsls: 'Di Luar Poligon SLS'
                     });
                     setIsPmlOutsideBorder(true);
-                    setShowPmlCameraCard(true);
                     setShowPmlValidationDialog(true); 
-                    setPmlCheckingIn(false);
-                    return;
                 }
-
-                setShowPmlCameraCard(true);
                 setPmlCheckingIn(false);
             },
             () => {
                 setPmlCoords({ latitude: null, longitude: null, idsubsls: 'WILAYAH-PML', nmsls: 'Sinyal GPS Lemah' });
                 setIsPmlOutsideBorder(true); 
-                setShowPmlCameraCard(true);
                 setShowPmlValidationDialog(true);
                 setPmlCheckingIn(false);
             },
-            { enableHighAccuracy: true, timeout: 10000 }
+            { enableHighAccuracy: true, timeout: 25000 }
         );
+
+        // Langsung tembak buka kamera HP secara sinkronus agar tidak terblokir browser
+        pmlFileInputRef.current?.click();
     };
 
     const submitPmlCheckIn = async () => {
@@ -446,7 +569,6 @@ export default function PmlMonitoringPage() {
         const tglClean = tglHariIni.replace(/-/g, ''); 
         
         const namaFileUnik = `SE26_PML_${idSlsClean}_${namaClean}_${tglClean}.jpg`;
-
         let finalFotoUrl = "OFFLINE_LINK";
 
         if (!navigator.onLine) {
@@ -506,8 +628,7 @@ export default function PmlMonitoringPage() {
     // =========================================================================
     // ACTION HANDLERS: SIMPAN REALISASI LANGSUNG PER SLS DAN VERIFIKASI SIKLUS
     // =========================================================================
-    const handleSaveSlsProgressDirect = async (idsubsls) => {
-        const jumlah = slsInputs[idsubsls];
+    const handleSaveSlsProgressDirect = useCallback(async (idsubsls, jumlah) => {
         const pmlEmail = user?.email || profile?.email;
 
         if (jumlah === undefined || jumlah < 0 || jumlah === "") {
@@ -530,6 +651,7 @@ export default function PmlMonitoringPage() {
                 tx.objectStore("pending_realisasi").add({ ...payload, isDirectSls: true });
 
                 setAllSlsFlat(prev => prev.map(s => s.idsubsls === idsubsls ? { ...s, realisasi_pencacahan: parseInt(jumlah) } : s));
+                setSlsInputs(prev => ({ ...prev, [idsubsls]: parseInt(jumlah) }));
                 alert("💾 Data Capaian SLS Berhasil Dikunci Offline di HP!");
                 await checkOfflineInputQueueCount();
             } catch (e) { alert(e.message); } finally { setActionLoading(null); }
@@ -539,12 +661,12 @@ export default function PmlMonitoringPage() {
         try {
             const { error } = await supabase.from('muatan_sls').update({ realisasi_pencacahan: parseInt(jumlah) }).eq('idsubsls', idsubsls);
             if (error) throw error;
+            setSlsInputs(prev => ({ ...prev, [idsubsls]: parseInt(jumlah) }));
+            setAllSlsFlat(prev => prev.map(s => s.idsubsls === idsubsls ? { ...s, realisasi_pencacahan: parseInt(jumlah) } : s));
             alert("✅ Progres SLS Sukses Diunggah!");
-            fetchPmlData();
         } catch (err) { alert(err.message); } finally { setActionLoading(null); }
-    };
+    }, [user, profile]);
 
-    // HANDLER UTAMA UNTUK MENGIRIM REKAP BATCH REALISASI SIKLUS KE TABEL BARU
     const handleSubmitRealisasiSiklus = async () => {
         const pmlEmail = user?.email || profile?.email;
         const now = new Date();
@@ -577,7 +699,6 @@ export default function PmlMonitoringPage() {
                 }, { onConflict: 'tanggal,pml_email' });
 
             if (error) throw error;
-
             alert("🚀 Progres Realisasi Siklus Berhasil Dikirim ke Dashboard Pusat!");
         } catch (err) {
             console.error("Gagal mengirim realisasi siklus:", err.message);
@@ -587,7 +708,7 @@ export default function PmlMonitoringPage() {
         }
     };
 
-    const handleToggleSlsSelesai = async (idsubsls, currentStatus) => {
+    const handleToggleSlsSelesai = useCallback(async (idsubsls, currentStatus) => {
         const pmlEmail = user?.email || profile?.email;
         const nextStatus = !currentStatus;
 
@@ -634,23 +755,27 @@ export default function PmlMonitoringPage() {
                 .eq('idsubsls', idsubsls);
 
             if (error) throw error;
-            alert(`✅ SLS Berhasil Diperbarui Menjadi: ${nextStatus ? 'SELESAI' : 'BELUM SELESAI'}`);
-            fetchPmlData(); 
+            setAllSlsFlat(prev => prev.map(s => s.idsubsls === idsubsls ? { 
+                ...s, 
+                is_selesai: nextStatus,
+                pml_validator: nextStatus ? pmlEmail.toLowerCase().trim() : null,
+                validated_at: tglSekarang
+            } : s));
+            alert(`SLS Berhasil Diperbarui Menjadi: ${nextStatus ? 'SELESAI' : 'BELUM SELESAI'}`);
         } catch (err) { 
             alert(err.message); 
         } finally { 
             setActionLoading(null); 
         }
-    };
+    }, [user, profile]);
 
-    // SINKRONISASI OFFLINE DICOMPILE ULANG KHUSUS UNTUK DATA MUATAN SLS
     const handleSyncPmlOfflineInputs = async () => {
         setIsSyncingInput(true);
         try {
             const db = await initPmlOfflineDB();
-            const tx = db.transaction("pending_realisasi", "readonly");
-            const store = tx.objectStore("pending_realisasi");
-            const getAllRequest = store.getAll();
+            const txRead = db.transaction("pending_realisasi", "readonly");
+            const storeRead = txRead.objectStore("pending_realisasi");
+            const getAllRequest = storeRead.getAll();
 
             getAllRequest.onsuccess = async () => {
                 const records = getAllRequest.result;
@@ -660,6 +785,7 @@ export default function PmlMonitoringPage() {
                 }
 
                 let suksesPmlCount = 0;
+                const idToDelete = [];
 
                 for (let record of records) {
                     try {
@@ -678,20 +804,29 @@ export default function PmlMonitoringPage() {
 
                         if (!error) {
                             suksesPmlCount++;
-                            const deleteTx = db.transaction("pending_realisasi", "readwrite");
-                            deleteTx.objectStore("pending_realisasi").delete(record.id);
+                            idToDelete.push(record.id);
                         }
                     } catch (loopErr) {
                         console.error(loopErr);
                     }
                 }
-                alert(`📡 Sinkronisasi Selesai! Berhasil merestorasi ${suksesPmlCount} antrean perubahan SLS ke server.`);
-                await checkOfflineInputQueueCount();
-                fetchPmlData();
+
+                if (idToDelete.length > 0) {
+                    const txDelete = db.transaction("pending_realisasi", "readwrite");
+                    const storeDelete = txDelete.objectStore("pending_realisasi");
+                    idToDelete.forEach(id => storeDelete.delete(id));
+                    
+                    txDelete.oncomplete = () => {
+                        alert(`📡 Sinkronisasi Selesai! Berhasil mengunggah ${suksesPmlCount} antrean perubahan SLS ke server.`);
+                        checkOfflineInputQueueCount();
+                        fetchPmlData();
+                    };
+                } else {
+                    setIsSyncingInput(false);
+                }
             };
         } catch (err) {
             alert("Gagal sinkronisasi data: " + err.message);
-        } finally {
             setIsSyncingInput(false);
         }
     };
@@ -700,7 +835,8 @@ export default function PmlMonitoringPage() {
     // FILTERING & MEMOIZATION DATA FILTER ARRAY
     // =========================================================================
     const filteredPcls = useMemo(() => {
-        return pcls.filter(p => p.nama_pengguna.toLowerCase().includes(searchTerm.toLowerCase()));
+        const lowerSearch = searchTerm.toLowerCase();
+        return pcls.filter(p => p.nama_pengguna.toLowerCase().includes(lowerSearch));
     }, [pcls, searchTerm]);
 
     const filteredSlsInputs = useMemo(() => {
@@ -714,11 +850,12 @@ export default function PmlMonitoringPage() {
             return (a.kdsls || "").localeCompare(b.kdsls || "");
         });
 
+        const pclsMap = new Map(pcls.map(p => [p.email.toLowerCase().trim(), p.nama_pengguna]));
         const groups = {};
+        
         sortedSls.forEach((sls) => {
-            const petugasKey = sls.petugas_id || "BELUM ADA PETUGAS";
-            const pclMatch = pcls.find(p => p.email.toLowerCase().trim() === petugasKey.toLowerCase().trim());
-            const namaTampil = pclMatch ? pclMatch.nama_pengguna : petugasKey;
+            const petugasKey = sls.petugas_id ? sls.petugas_id.toLowerCase().trim() : "BELUM ADA PETUGAS";
+            const namaTampil = pclsMap.get(petugasKey) || sls.petugas_id || "BELUM ADA PETUGAS";
 
             if (!groups[namaTampil]) {
                 groups[namaTampil] = [];
@@ -729,7 +866,6 @@ export default function PmlMonitoringPage() {
         return groups;
     }, [filteredSlsInputs, pcls]);
 
-    // HANDLER REKONSILIASI GERAKAN SWIPE TAB MOBILE
     const handleTouchStart = (e) => { setTouchEnd(null); setTouchStart(e.targetTouches[0].clientX); };
     const handleTouchMove = (e) => { setTouchEnd(e.targetTouches[0].clientX); };
     const handleTouchEnd = () => {
@@ -755,10 +891,19 @@ export default function PmlMonitoringPage() {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
         >
-            {/* AREA UTAMA DENGAN SCROLL MANDIRI */}
+            {/* HIDDEN INPUT KAMERA UNTUK PML (ANTI-GESTURE BLOCKER BROWSER MOBILE) */}
+            <input 
+                type="file" 
+                ref={pmlFileInputRef} 
+                accept="image/*" 
+                capture="user" 
+                className="hidden" 
+                onChange={handlePmlCapturePhoto} 
+            />
+
             <div className="flex-1 overflow-y-auto px-4 pt-4 pb-24">
 
-                {/* BOX PROFIL UTAMA (TERKUNCI DI ATAS KEDUA HALAMAN) */}
+                {/* BOX PROFIL UTAMA */}
                 <div className="bg-slate-900 text-white rounded-3xl p-5 shadow-xl border border-slate-800 mb-4">
                     <div className="flex justify-between items-start gap-2">
                         <div className="min-w-0 flex-1">
@@ -773,7 +918,6 @@ export default function PmlMonitoringPage() {
                             </p>
                         </div>
                         
-                        {/* KELOMPOK TOMBOL AKSI KANAN (REFRESH & LOGOUT) */}
                         <div className="flex items-center gap-1.5 shrink-0">
                             <button
                                 disabled={!navigator.onLine}
@@ -794,7 +938,7 @@ export default function PmlMonitoringPage() {
                         </div>
                     </div>
 
-                    {/* TOMBOL SWAFOTO / CHECK-IN AKTIVITAS PML */}
+                    {/* ABSEN PENGAWASAN */}
                     <div className="mt-4 pt-4 border-t border-slate-800/60 space-y-3">
                         {pmlCheckedInToday ? (
                             <div className="w-full bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-2xl py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wide">
@@ -805,46 +949,48 @@ export default function PmlMonitoringPage() {
                             <>
                                 {!showPmlCameraCard ? (
                                     <button
-                                        disabled={pmlCheckingIn}
                                         onClick={handleTriggerPmlLocation}
                                         className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3 px-4 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all"
                                     >
-                                        {pmlCheckingIn ? (
-                                            <>
-                                                <RefreshCw className="animate-spin" size={14} />
-                                                Membaca Satelit GPS...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Navigation size={14} className="fill-white" />
-                                                Absen Pendampingan Lapangan
-                                            </>
-                                        )}
+                                        <Navigation size={14} className="fill-white" />
+                                        <span>Absen Pendampingan Lapangan</span>
                                     </button>
                                 ) : (
-                                    <div className="bg-slate-800 border border-slate-700 p-3 rounded-2xl space-y-3">
+                                    <div className="bg-slate-800 border border-slate-700 p-3 rounded-2xl space-y-3 animate-fadeIn">
                                         <span className="text-[9px] font-black uppercase text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded block text-center">
-                                            Ambil Foto Lapangan (SLS: {pmlCoords?.nmsls || 'Memindai...'})
+                                            Rangkuman Hasil Jepret & Deteksi Lapangan
                                         </span>
 
                                         {pmlPhotoBase64 ? (
                                             <div className="relative rounded-xl overflow-hidden border border-slate-600">
                                                 <img src={pmlPhotoBase64} alt="PML Bukti" className="w-full h-32 object-cover" />
-                                                <label className="absolute bottom-2 right-2 bg-slate-900/90 text-white p-2 rounded-xl text-[9px] font-black cursor-pointer uppercase">
-                                                    <input type="file" accept="image/*" capture="user" className="hidden" onChange={handlePmlCapturePhoto} />
+                                                <button 
+                                                    onClick={() => pmlFileInputRef.current?.click()} 
+                                                    className="absolute bottom-2 right-2 bg-slate-900/90 text-white p-2 rounded-xl text-[9px] font-black cursor-pointer uppercase"
+                                                >
                                                     Ulangi Foto
-                                                </label>
+                                                </button>
                                             </div>
                                         ) : (
-                                            <label className="w-full h-20 border-2 border-dashed border-slate-600 hover:border-orange-500 rounded-xl flex flex-col justify-center items-center gap-1 cursor-pointer bg-slate-900 text-slate-400">
-                                                <input type="file" accept="image/*" capture="user" className="hidden" onChange={handlePmlCapturePhoto} />
-                                                <Camera size={20} />
-                                                <span className="text-[10px] font-bold uppercase">Ambil Kamera Depan (Selfie)</span>
-                                            </label>
+                                            <div className="flex items-center justify-center gap-2 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
+                                                <RefreshCw className="animate-spin text-orange-500" size={14} />
+                                                <span>Mengunci Posisi Satelit...</span>
+                                            </div>
+                                        )}
+
+                                        {!pmlCheckingIn && pmlCoords && (
+                                            <div className="text-[10px] text-slate-300 font-bold px-1 space-y-0.5 text-left">
+                                                <p>SLS Terkunci: <span className="text-orange-400 font-black uppercase">{pmlCoords.nmsls}</span></p>
+                                            </div>
                                         )}
 
                                         <div className="flex gap-2">
-                                            <button onClick={() => setShowPmlCameraCard(false)} className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase">Batal</button>
+                                            <button 
+                                                onClick={() => { setShowPmlCameraCard(false); setPmlPhotoBase64(null); }} 
+                                                className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase"
+                                            >
+                                                Batal
+                                            </button>
                                             <button
                                                 disabled={!pmlPhotoBase64 || pmlCheckingIn}
                                                 onClick={submitPmlCheckIn}
@@ -860,7 +1006,7 @@ export default function PmlMonitoringPage() {
                     </div>
                 </div>
 
-                {/* BANNER NOTIFIKASI SINKRONISASI DATA LURING */}
+                {/* NOTIFIKASI OFFLINE QUEUE */}
                 {offlineInputCount > 0 && (
                     <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl flex items-center justify-between text-xs font-bold animate-fadeIn">
                         <div className="flex items-center gap-2">
@@ -878,9 +1024,7 @@ export default function PmlMonitoringPage() {
                     </div>
                 )}
 
-                {/* =========================================================================
-                    RENDER HALAMAN TAB 0: DAFTAR PANTAU PETUGAS PCL
-                    ========================================================================= */}
+                {/* TAB 0: DAFTAR PANTAU PETUGAS PCL */}
                 {activeTab === 0 && (
                     <div className="animate-fadeIn space-y-3">
                         <div className="relative">
@@ -898,8 +1042,8 @@ export default function PmlMonitoringPage() {
                             <div className="flex justify-between items-center px-1 text-[10px] font-black uppercase text-slate-400 tracking-wider">
                                 <h3>Petugas ({filteredPcls.length})</h3>
                                 <div className="flex gap-3">
-                                    <span className="text-emerald-500">● {pcls.filter(p => p.statusHariIni === 'AKTIF').length} Aktif</span>
-                                    <span className="text-rose-500">● {pcls.filter(p => p.statusHariIni === 'ABSEN').length} Absen</span>
+                                    <span className="text-emerald-500">● {rekapStatusTim.aktif} Aktif</span>
+                                    <span className="text-rose-500">● {rekapStatusTim.absen} Absen</span>
                                 </div>
                             </div>
 
@@ -961,8 +1105,9 @@ export default function PmlMonitoringPage() {
                                             </div>
                                         </div>
 
+                                        {/* KOTAK HISTORI MINI KALENDER */}
                                         <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-tight">Jurnal Kerja:</span>
+                                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-tight">History Absensi Lapangan:</span>
                                             <div className="flex gap-1">
                                                 {last7Dates.map((tgl, idx) => {
                                                     const masukPadaTanggalIni = pcl.history7Hari.includes(tgl);
@@ -1000,217 +1145,132 @@ export default function PmlMonitoringPage() {
                     </div>
                 )}
 
-                {/* =========================================================================
-                    RENDER HALAMAN TAB 1: QUICK ENTRY REALISASI TARGET KRT PER SLS
-                    ========================================================================= */}
-{activeTab === 1 && (
-    <div className="space-y-3 animate-fadeIn">
-        
-        {/* 💡 BANNER PANDUAN UTAMA PML: Penjelas fungsi Akordion vs Tombol Kirim */}
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex gap-2.5 items-start text-amber-800 shadow-3xs">
-            <div className="bg-amber-100 p-1 rounded-xl text-amber-700 shrink-0 mt-0.5">
-                <HelpCircle size={14} className="font-bold" />
-            </div>
-<div className="text-[10px] leading-relaxed">
-    <span className="font-black uppercase block mb-0.5">📋 Panduan Menginput Realisasi:</span>
-    <p className="font-medium text-amber-700/90">
-        1. Klik <strong className="font-black text-slate-800">Nama Petugas</strong> di bawah untuk menginput realisasi dan menekan tombol <strong className="font-black text-slate-800">SIMPAN</strong> untuk menyimpan realisasi lapangan tiap SLS (bisa dilakukan secara rutin).<br />
-        2. Tombol <strong className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">Kirim Rekap Untuk Evaluasi</strong> <span className="underline font-black">HANYA</span> digunakan ketika jadwal evaluasi. (2-1-2-1 dan pertemuan wajib)<br />
-        3. Klik tombol <strong className="font-black text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded">Tandai Selesai</strong> pada masing-masing SLS jika semua muatan di SLS tersebut sudah selesai didata semua.
-    </p>
-</div>
-        </div>
-
-        {/* BAR FILTER DESA & TOMBOL SUBMIT SIKLUS BATCH */}
-        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-stretch">
-            <div className="flex-1 bg-white border border-slate-200 p-2.5 rounded-2xl shadow-xs flex items-center gap-2 w-full">
-                <div className="bg-indigo-50 p-1.5 rounded-xl text-indigo-600 shrink-0">
-                    <Filter size={14} className="font-bold" />
-                </div>
-                <select
-                    className="flex-1 bg-transparent p-1 text-xs font-black text-slate-700 outline-none appearance-none cursor-pointer"
-                    value={selectedDesa}
-                    onChange={(e) => {
-                        setSelectedDesa(e.target.value);
-                        setExpandedPetugasSls(null); 
-                    }}
-                >
-                    <option value="SEMUA">Semua Desa / Kelurahan</option>
-                    {desaList.map(d => <option key={d} value={d}>Desa {d}</option>)}
-                </select>
-                <ChevronDown size={14} className="text-slate-400 mr-1 shrink-0 pointer-events-none" />
-            </div>
-
-            {/* TOMBOL BATCH SUBMIT REALISASI DENGAN TEKS KETERANGAN JADWAL */}
-            <div className="flex flex-col gap-1 w-full sm:w-auto shrink-0">
-                <button
-                    disabled={submitSiklusLoading || filteredSlsInputs.length === 0}
-                    onClick={handleSubmitRealisasiSiklus}
-                    className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider transition-all shadow-xs flex items-center justify-center gap-2 uppercase w-full"
-                >
-                    {submitSiklusLoading ? (
-                        <RefreshCw className="animate-spin" size={14} />
-                    ) : (
-                        <Send size={14} />
-                    )}
-                    <span>{submitSiklusLoading ? "Mengirim..." : "Kirim Rekap Untuk Evaluasi"}</span>
-                </button>
-            </div>
-        </div>
-
-        <div className="space-y-3">
-            <div className="px-1 flex justify-between items-center text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                <span>Beban Kerja SLS</span>
-                <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-mono">{filteredSlsInputs.length} SLS</span>
-            </div>
-
-            {Object.keys(groupedSlsByPetugas).map((namaPetugas) => {
-                const isExpanded = expandedPetugasSls === namaPetugas;
-                const listSlsPetugas = groupedSlsByPetugas[namaPetugas];
-                
-                const totalMuatanPcl = listSlsPetugas.reduce((acc, curr) => acc + (curr.jml_muatan || 0), 0);
-                const totalRealisasiPcl = listSlsPetugas.reduce((acc, curr) => acc + (curr.realisasi_pencacahan || 0), 0);
-                const persenPcl = totalMuatanPcl > 0 ? Math.min(Math.round((totalRealisasiPcl / totalMuatanPcl) * 100), 100) : 0;
-
-                return (
-                    <div key={namaPetugas} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs transition-all">
-                        {/* HEADER AKORDION */}
-                        <div 
-                            onClick={() => setExpandedPetugasSls(isExpanded ? null : namaPetugas)}
-                            className={`p-3 flex items-center justify-between gap-2 cursor-pointer transition-colors active:bg-slate-100 ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
-                        >
-                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0 uppercase shadow-xs">
-                                    {namaPetugas.charAt(0)}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <h4 className="text-xs font-black text-slate-800 uppercase truncate tracking-tight">{namaPetugas}</h4>
-                                    <div className="flex items-center gap-2 mt-0.5">
-                                        <span className="text-[9px] font-bold text-slate-400 uppercase font-mono">
-                                            {listSlsPetugas.length} SLS
-                                        </span>
-                                        <span className="text-[9px] font-black text-slate-400">•</span>
-                                        {/* 🎯 Pengingat Klik di Level List Petugas */}
-                                        <span className="text-[9px] font-mono font-black text-indigo-600">
-                                            {totalRealisasiPcl}/{totalMuatanPcl} Assignment ({persenPcl}%)
-                                        </span>
-                                    </div>
-                                </div>
+                {/* TAB 1: INPUT CAPAIAN PER SLS */}
+                {activeTab === 1 && (
+                    <div className="space-y-3 animate-fadeIn">
+                        
+                        {/* BANNER PANDUAN UTAMA */}
+                        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl flex gap-2.5 items-start shadow-3xs">
+                            <div className="bg-amber-100 p-1 rounded-xl text-amber-700 shrink-0 mt-0.5">
+                                <HelpCircle size={14} className="font-bold" />
                             </div>
-                            
-                            <div className="shrink-0 text-slate-400 p-1">
-                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            <div className="text-[10px] leading-relaxed">
+                                <span className="font-black uppercase block mb-0.5">📋 Panduan Menginput Realisasi:</span>
+                                <p className="font-medium text-amber-700/90">
+                                    1. Klik <strong className="font-black text-slate-800">Nama Petugas</strong> di bawah untuk menginput realisasi dan menekan tombol <strong className="font-black text-slate-800">SIMPAN</strong> untuk menyimpan realisasi lapangan tiap SLS (bisa dilakukan secara rutin).<br />
+                                    2. Tombol <strong className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">Kirim Rekap Untuk Evaluasi</strong> <span className="underline font-black">HANYA</span> digunakan ketika jadwal evaluasi. (2-1-2-1 dan pertemuan wajib)<br />
+                                    3. Klik tombol <strong className="font-black text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded">Tandai Selesai</strong> pada masing-masing SLS jika semua muatan di SLS tersebut sudah selesai didata semua.
+                                </p>
                             </div>
                         </div>
 
-                        {/* ISI ACCORDION (KARTU SLS) */}
-                        {isExpanded && (
-                            <div className="p-2.5 bg-slate-50/50 space-y-2 animate-fadeIn border-t border-slate-100">
-                                {listSlsPetugas.map((sls) => {
-                                    const realisasi = sls.realisasi_pencacahan || 0;
-                                    const muatan = sls.jml_muatan || 0;
-                                    const persen = muatan > 0 ? Math.min(Math.round((realisasi / muatan) * 100), 100) : 0;
-                                    
-                                    const isSelesaiMutlak = sls.is_selesai === true;
-                                    const isClean = realisasi >= muatan && muatan > 0;
-                                    const isTouched = realisasi > 0;
-                                    
-                                    const borderWarna = isSelesaiMutlak ? 'border-l-emerald-500' : isTouched ? 'border-l-amber-500' : 'border-l-rose-500';
+                        {/* FILTER DESA & TOMBOL BATCH SUBMIT */}
+                        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-stretch">
+                            <div className="flex-1 bg-white border border-slate-200 p-2.5 rounded-2xl shadow-xs flex items-center gap-2 w-full">
+                                <div className="bg-indigo-50 p-1.5 rounded-xl text-indigo-600 shrink-0">
+                                    <Filter size={14} className="font-bold" />
+                                </div>
+                                <select
+                                    className="flex-1 bg-transparent p-1 text-xs font-black text-slate-700 outline-none appearance-none cursor-pointer"
+                                    value={selectedDesa}
+                                    onChange={(e) => {
+                                        setSelectedDesa(e.target.value);
+                                        setExpandedPetugasSls(null); 
+                                    }}
+                                >
+                                    <option value="SEMUA">Semua Desa / Kelurahan</option>
+                                    {desaList.map(d => <option key={d} value={d}>Desa {d}</option>)}
+                                </select>
+                                <ChevronDown size={14} className="text-slate-400 mr-1 shrink-0 pointer-events-none" />
+                            </div>
 
-                                    return (
-                                        <div key={sls.idsubsls} className={`bg-white border border-slate-200 border-l-4 ${borderWarna} rounded-xl p-3 shadow-2xs flex flex-col gap-2 relative ${isSelesaiMutlak ? 'bg-emerald-50/10' : ''}`}>
-                                            <div className="flex justify-between items-start gap-2">
+                            <div className="flex flex-col gap-1 w-full sm:w-auto shrink-0">
+                                <button
+                                    disabled={submitSiklusLoading || filteredSlsInputs.length === 0}
+                                    onClick={handleSubmitRealisasiSiklus}
+                                    className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider transition-all shadow-xs flex items-center justify-center gap-2 uppercase w-full"
+                                >
+                                    {submitSiklusLoading ? <RefreshCw className="animate-spin" size={14} /> : <Send size={14} />}
+                                    <span>{submitSiklusLoading ? "Mengirim..." : "Kirim Rekap Untuk Evaluasi"}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <div className="px-1 flex justify-between items-center text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                                <span>Beban Kerja SLS</span>
+                                <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-mono">{filteredSlsInputs.length} SLS</span>
+                            </div>
+
+                            {Object.keys(groupedSlsByPetugas).map((namaPetugas) => {
+                                const isExpanded = expandedPetugasSls === namaPetugas;
+                                const listSlsPetugas = groupedSlsByPetugas[namaPetugas];
+                                
+                                const totalMuatanPcl = listSlsPetugas.reduce((acc, curr) => acc + (curr.jml_muatan || 0), 0);
+                                const totalRealisasiPcl = listSlsPetugas.reduce((acc, curr) => acc + (curr.realisasi_pencacahan || 0), 0);
+                                const persenPcl = totalMuatanPcl > 0 ? Math.min(Math.round((totalRealisasiPcl / totalMuatanPcl) * 100), 100) : 0;
+
+                                return (
+                                    <div key={namaPetugas} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs transition-all">
+                                        
+                                        {/* HEADER AKORDION */}
+                                        <div 
+                                            onClick={() => setExpandedPetugasSls(isExpanded ? null : namaPetugas)}
+                                            className={`p-3 flex items-center justify-between gap-2 cursor-pointer transition-colors active:bg-slate-100 ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
+                                        >
+                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0 uppercase shadow-xs">
+                                                    {namaPetugas.charAt(0)}
+                                                </div>
                                                 <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className={`w-2 h-2 rounded-full shrink-0 ${isSelesaiMutlak ? 'bg-emerald-500 animate-pulse' : isClean ? 'bg-emerald-500' : isTouched ? 'bg-amber-400' : 'bg-rose-500'}`}></span>
-                                                        <h5 className="font-black text-slate-800 text-xs uppercase truncate">
-                                                            ({sls.kdsls}) {sls.nmsls}
-                                                        </h5>
+                                                    <h4 className="text-xs font-black text-slate-800 uppercase truncate tracking-tight">{namaPetugas}</h4>
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                        <span className="text-[9px] font-bold text-slate-400 uppercase font-mono">
+                                                            {listSlsPetugas.length} SLS
+                                                        </span>
+                                                        <span className="text-[9px] font-black text-slate-400">•</span>
+                                                        <span className="text-[9px] font-mono font-black text-indigo-600">
+                                                            {totalRealisasiPcl}/{totalMuatanPcl} Assignment ({persenPcl}%)
+                                                        </span>
                                                     </div>
-                                                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">
-                                                        Desa: <span className="text-slate-600 font-black">{sls.nmdesa}</span>
-                                                    </p>
                                                 </div>
-                                                
-                                                <button
-                                                    disabled={actionLoading === `status-${sls.idsubsls}`}
-                                                    onClick={() => handleToggleSlsSelesai(sls.idsubsls, isSelesaiMutlak)}
-                                                    className={`px-2 py-1 rounded-lg font-black text-[9px] uppercase tracking-wider active:scale-95 transition-all flex items-center justify-center border shrink-0 ${
-                                                        isSelesaiMutlak 
-                                                            ? 'bg-rose-500 border-rose-600 text-white shadow-xs' 
-                                                            : 'bg-emerald-600 border-emerald-700 text-white shadow-xs'
-                                                    }`}
-                                                >
-                                                    {actionLoading === `status-${sls.idsubsls}` ? (
-                                                        <RefreshCw className="animate-spin" size={10} />
-                                                    ) : isSelesaiMutlak ? (
-                                                        <span>Batal Selesai</span>
-                                                    ) : (
-                                                        <span>Tandai Selesai</span>
-                                                    )}
-                                                </button>
                                             </div>
-
-                                            <div className="w-full bg-slate-100 rounded-full h-1 overflow-hidden">
-                                                <div 
-                                                    className={`h-full rounded-full transition-all duration-300 ${isSelesaiMutlak || isClean ? 'bg-emerald-500' : isTouched ? 'bg-amber-500' : 'bg-rose-500'}`}
-                                                    style={{ width: `${isSelesaiMutlak ? 100 : persen}%` }}
-                                                ></div>
-                                            </div>
-
-                                            <div className="flex items-center justify-between gap-2 mt-1 pt-1.5 border-t border-slate-100">
-                                                <div className="flex flex-col">
-                                                    <span className="text-[9px] font-bold text-slate-400 font-mono">
-                                                        Realisasi: <span className="font-black text-slate-700">{realisasi}</span> / {muatan} Muatan
-                                                    </span>
-                                                    <span className="text-[9px] font-mono font-black text-indigo-600">
-                                                        Progres: {isSelesaiMutlak ? '100' : persen}%
-                                                    </span>
-                                                </div>
-                                                
-                                                <div className="flex items-center gap-1.5 shrink-0">
-                                                    <input
-                                                        type="number"
-                                                        disabled={isSelesaiMutlak}
-                                                        placeholder="Hasil"
-                                                        className="w-12 bg-slate-50 border border-slate-200 rounded-lg py-1 text-center font-black text-xs text-slate-800 outline-none focus:bg-white focus:border-indigo-500 transition-all disabled:opacity-40"
-                                                        value={slsInputs[sls.idsubsls] !== undefined ? slsInputs[sls.idsubsls] : ""}
-                                                        onChange={(e) => {
-                                                            const val = e.target.value;
-                                                            setSlsInputs({ ...slsInputs, [sls.idsubsls]: val === "" ? "" : parseInt(val) || 0 });
-                                                        }}
-                                                    />
-
-                                                    <button
-                                                        disabled={isSelesaiMutlak || actionLoading === sls.idsubsls}
-                                                        onClick={() => handleSaveSlsProgressDirect(sls.idsubsls)}
-                                                        className="bg-slate-800 active:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black active:scale-95 transition-all disabled:bg-slate-100 disabled:text-slate-300 flex items-center gap-1 shadow-xs"
-                                                    >
-                                                        {actionLoading === sls.idsubsls ? <RefreshCw className="animate-spin" size={10} /> : <Save size={10} />}
-                                                        <span>SIMPAN</span>
-                                                    </button>
-                                                </div>
+                                            
+                                            <div className="shrink-0 text-slate-400 p-1">
+                                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                             </div>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
 
-            {filteredSlsInputs.length === 0 && (
-                <div className="text-center text-[10px] text-slate-400 font-bold py-8 bg-white rounded-2xl border border-dashed border-slate-200">
-                    Belum ada alokasi muatan SLS untuk wilayah ini.
-                </div>
-            )}
-        </div>
-    </div>
-)}
+                                        {/* ISI ACCORDION DENGAN ROW INPUT MEMOIZED */}
+                                        {isExpanded && (
+                                            <div className="p-2.5 bg-slate-50/50 space-y-2 animate-fadeIn border-t border-slate-100">
+                                                {listSlsPetugas.map((sls) => (
+                                                    <SlsCardRow 
+                                                        key={sls.idsubsls}
+                                                        sls={sls}
+                                                        initialValue={slsInputs[sls.idsubsls] !== undefined ? slsInputs[sls.idsubsls] : ""}
+                                                        onSave={handleSaveSlsProgressDirect}
+                                                        onToggleSelesai={handleToggleSlsSelesai}
+                                                        actionLoading={actionLoading}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+
+                            {filteredSlsInputs.length === 0 && (
+                                <div className="text-center text-[10px] text-slate-400 font-bold py-8 bg-white rounded-2xl border border-dashed border-slate-200">
+                                    Belum ada alokasi muatan SLS untuk wilayah ini.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {/* INTERAKTIF DIALOG POPUP WARNING WILAYAH KERJA PML */}
+            {/* DIALOG POPUP WARNING WILAYAH */}
             {showPmlValidationDialog && (
                 <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-5 z-50 animate-fadeIn">
                     <div className="bg-white rounded-3xl p-6 w-full max-w-sm border border-slate-100 shadow-2xl text-center space-y-4">
@@ -1234,15 +1294,14 @@ export default function PmlMonitoringPage() {
                                     setShowPmlValidationDialog(false);
                                     setIsPmlOutsideBorder(false);
                                     setShowPmlCameraCard(false); 
+                                    setPmlPhotoBase64(null);
                                 }}
                                 className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
                             >
                                 Batalkan
                             </button>
                             <button
-                                onClick={() => {
-                                    setShowPmlValidationDialog(false);
-                                }}
+                                onClick={() => setShowPmlValidationDialog(false)}
                                 className="flex-1 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-500/10"
                             >
                                 Tetap Lanjutkan
@@ -1252,7 +1311,7 @@ export default function PmlMonitoringPage() {
                 </div>
             )}
 
-            {/* FIXED BOTTOM NAVIGATION BAR BARIS AKHIR */}
+            {/* BOTTOM NAV BAR */}
             <div className="absolute bottom-0 left-0 right-0 w-full bg-slate-900 border-t border-slate-800 px-6 py-3 flex justify-around items-center rounded-t-[1.8rem] shadow-2xl z-50">
                 <button
                     onClick={() => setActiveTab(0)}
