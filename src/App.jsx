@@ -31,7 +31,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
   // 3. Jika sudah login tetapi role tidak diizinkan mengakses halaman ini
   if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
-    // Jika PML tersasar ke rute terlarang (seperti rute prioritas), alihkan otomatis ke dasbor monitoring lapangan milik mereka
+    // Jika PML tersasar ke rute terlarang, alihkan otomatis ke dasbor monitoring lapangan milik mereka
     if (profile.role === 'pml') {
       return <Navigate to="/PML-Monitoring" replace />;
     }
@@ -54,7 +54,7 @@ const HomeRouter = () => {
     return <Navigate to="/PCL-Assignment" replace />;
   }
   if (profile?.role === 'pml') {
-    return <Navigate to="/alokasi" replace />;
+    return <Navigate to="/PML-Monitoring" replace />;
   }
   
   // Jika Admin atau Pegawai Organik, arahkan ke halaman Dashboard internal
@@ -79,7 +79,31 @@ function AppContent() {
           } 
         />
 
-        {/* RUTE TERPROTEKSI UTAMA (Masuk ke dalam Layout) */}
+        {/* =========================================================================
+            👇 RUTE KHUSUS PETUGAS LAPANGAN (PENGADAAN TANPA SIDEBAR / TANPA LAYOUT)
+            ========================================================================= */}
+        <Route 
+          path="/PML-Monitoring" 
+          element={
+            <ProtectedRoute allowedRoles={['pml']}>
+              <PmlMonitoringPage />
+            </ProtectedRoute>
+          } 
+        />
+
+        <Route 
+          path="/PCL-Assignment" 
+          element={
+            <ProtectedRoute allowedRoles={['pcl']}>
+              <PclAssignmentPage />
+            </ProtectedRoute>
+          } 
+        />
+
+
+        {/* =========================================================================
+            RUTE TERPROTEKSI UTAMA (Masuk ke dalam Layout + Sidebar Internal)
+            ========================================================================= */}
         <Route 
           path="/" 
           element={
@@ -108,7 +132,7 @@ function AppContent() {
             } 
           />
 
-          {/* 👇 RUTE BARU: Monitoring SLS Prioritas hanya untuk Pegawai dan Admin */}
+          {/* Monitoring SLS Prioritas hanya untuk Pegawai dan Admin */}
           <Route 
             path="prioritas" 
             element={
@@ -124,26 +148,6 @@ function AppContent() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <SettingsPage />
-              </ProtectedRoute>
-            } 
-          />
-
-          {/* Rute Khusus untuk PCL Assignment */}
-          <Route 
-            path="PCL-Assignment" 
-            element={
-              <ProtectedRoute allowedRoles={['pcl']}>
-                <PclAssignmentPage />
-              </ProtectedRoute>
-            } 
-          />
-
-          {/* Rute Khusus untuk PML Monitoring Lapangan Harian */}
-          <Route 
-            path="PML-Monitoring" 
-            element={
-              <ProtectedRoute allowedRoles={['pml']}>
-                <PmlMonitoringPage />
               </ProtectedRoute>
             } 
           />
