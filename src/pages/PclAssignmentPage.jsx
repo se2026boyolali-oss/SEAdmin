@@ -927,7 +927,7 @@ export default function PclAssignmentPage() {
 
                     <div className="mt-4 p-3 bg-white border border-slate-200 rounded-2xl flex items-center gap-3 text-xs">
                         <div className="h-5 w-5 bg-green-500 rounded-lg shadow-sm"></div>
-                        <span className="font-bold text-slate-600">Hari Masuk Lapangan (Ada Log Absensi)</span>
+                        <span className="font-bold text-slate-600">Hari Jalan Lapangan (Ada Log Absensi Lapangan)</span>
                     </div>
                 </div>
 
