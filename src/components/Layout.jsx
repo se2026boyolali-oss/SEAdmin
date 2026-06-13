@@ -133,7 +133,7 @@ export default function Layout() {
               </button>
             )}
             <h1 className="font-black text-slate-700 text-xs md:text-sm uppercase tracking-wider">
-              {isPcl ? 'Sensus Ekonomi 2026' : 'Monitoring Sensus Ekonomi 2026'}
+              {isPcl ? 'Sensus Ekonomi 2026' : 'MANAJEMEN SE2026 BPS KABUPATEN BOYOLALI'}
             </h1>
           </div>
           
