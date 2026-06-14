@@ -444,8 +444,8 @@ export default function PmlMonitoringPage() {
                     const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
                     
                     const labelSensus = `PENGAWASAN SENSUS EKONOMI 2026`;
-                    const labelPml = `PML      : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`;
-                    const labelWilayah = `WILAYAH  : ${String(wilayahTeks).toUpperCase()}`;
+                    const labelPml = `NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`;
+                    const labelWilayah = `LOKASI  : ${String(wilayahTeks).toUpperCase()}`;
 
                     const panelHeight = 135;
                     ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
