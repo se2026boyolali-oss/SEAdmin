@@ -27,7 +27,7 @@ const initOfflineDB = () => {
 export default function PclAssignmentPage() {
     const { user, profile, loading: authLoading, logout } = useAuth();
 
-    // Reference untuk memicu jepret kamera instan tanpa dobel klik
+    // Reference untuk memicu jepret kamera / galeri instan
     const fileInputRef = useRef(null);
 
     // State Navigasi Slider
@@ -43,11 +43,15 @@ export default function PclAssignmentPage() {
     const [todayCheckIns, setTodayCheckIns] = useState([]);
     const [historyDates, setHistoryDates] = useState([]);
 
-    // State Hasil Deteksi Posisi GPS
+    // State Hasil Deteksi Posisi GPS & Konfigurasi Fitur Admin
     const [detectedSls, setDetectedSls] = useState(null);
     const [currentCoords, setCurrentCoords] = useState(null);
     const [manualMode, setManualMode] = useState(false);
     const [selectedManualSls, setSelectedManualSls] = useState("");
+    
+    // State Baru: Kontrol Hak Akses Upload Manual dari Halaman Setting Admin
+    const [allowManualMode, setAllowManualMode] = useState(false);
+    const [selectedManualDate, setSelectedManualDate] = useState("");
 
     // BLOCKER JIKA PETUGAS DI LUAR WILAYAH KECAMATAN TUGAS
     const [isOutsideBorderBlock, setIsOutsideBorderBlock] = useState(false);
@@ -72,6 +76,11 @@ export default function PclAssignmentPage() {
     const getTodayDateString = () => {
         return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
     };
+
+    // Set default tanggal manual ke hari ini saat inisialisasi awal komponen
+    useEffect(() => {
+        setSelectedManualDate(getTodayDateString());
+    }, []);
 
     const getKecamatanCode = () => {
         if (!profile?.kecamatan_tugas) return null;
@@ -172,15 +181,16 @@ export default function PclAssignmentPage() {
         setPhotoBase64(null);
         setRawPhotoFile(null); // Reset simpanan gambar mentah
         setIsOutsideBorderBlock(false);
+        setSelectedManualDate(getTodayDateString());
     }, []);
 
     // 🚀 ENGINE INJEKSI KIRIM DATA (ONLINE & OFFLINE) DENGAN PROTEKSI DOUBLE-TAP
     const eksekusiKirimBypass = useCallback(async (safeIdSubSls) => {
-        // Blocker darurat jika fungsi dipanggil paksa saat upload sedang berlangsung
         if (actionLoading) return;
 
         const pclEmail = user?.email || profile?.email;
-        const tglHariIni = getTodayDateString();
+        // Gunakan tanggal pilihan manual jika dalam mode manual, jika tidak gunakan waktu hari ini
+        const tglHariIni = manualMode ? selectedManualDate : getTodayDateString();
         const cleanEmail = pclEmail.toLowerCase().trim();
 
         setActionLoading(true);
@@ -204,7 +214,7 @@ export default function PclAssignmentPage() {
 
         let objekHistoriBaru = {
             idsubsls: safeIdSubSls,
-            nmsls: detectedSls?.nmsls || matchSlsLokal?.nmsls || "Memuat Name SLS...",
+            nmsls: detectedSls?.nmsls || matchSlsLokal?.nmsls || "Memuat Nama SLS...",
             nmdesa: detectedSls?.nmdesa || matchSlsLokal?.nmdesa || "-",
             kdsls: detectedSls?.kdsls || matchSlsLokal?.kdsls || "0000",
             isLuarWilayah: statusLuarWilayah
@@ -301,7 +311,7 @@ export default function PclAssignmentPage() {
             setShowValidationDialog(false); 
             setPendingTargetId(null);
         }
-    }, [user, profile, currentCoords, manualMode, photoBase64, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading]);
+    }, [user, profile, currentCoords, manualMode, selectedManualDate, photoBase64, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading]);
 
     const initPclPage = async () => {
         const pclEmail = user?.email || profile?.email;
@@ -311,6 +321,28 @@ export default function PclAssignmentPage() {
         const tglHariIni = getTodayDateString();
         const cleanEmail = pclEmail.toLowerCase().trim();
         await checkOfflineQueueCount();
+
+        // Ambil setingan control admin dari server Supabase
+        if (navigator.onLine) {
+            try {
+                const { data: remoteConfig } = await supabase
+                    .from('app_settings')
+                    .select('value_boolean')
+                    .eq('key', 'allow_manual_upload')
+                    .single();
+                if (remoteConfig) {
+            // Karena tipenya sudah boolean (bool) di database, langsung ambil nilainya
+            const isAllowed = remoteConfig.value_boolean === true; 
+            setAllowManualMode(isAllowed);
+            localStorage.setItem('cache_allow_manual_upload', isAllowed ? 'true' : 'false');
+        }
+            } catch (cfgErr) {
+                console.warn("Gagal lookup remote admin config settings:", cfgErr.message);
+            }
+        } else {
+            const cachedConfig = localStorage.getItem('cache_allow_manual_upload');
+            setAllowManualMode(cachedConfig === 'true');
+        }
 
         const kodeKec = getKecamatanCode();
         if (kodeKec) downloadAndCacheGeoJson(kodeKec);
@@ -451,7 +483,6 @@ export default function PclAssignmentPage() {
 
     // ⚡ AUTOMATIC WATERMARK ENGINE UNTUK PCL (TERKUNCI SATELIT GPS & ANTI-RACE CONDITION)
     useEffect(() => {
-        // Jangan cetak watermark jika file tidak ada atau proses GPS sedang berjalan
         if (!rawPhotoFile || gpsLoading) return;
 
         const generateLiveWatermark = () => {
@@ -506,7 +537,11 @@ export default function PclAssignmentPage() {
                         if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
                     }
 
-                    const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+                    // Watermark tanggal dinamis menyesuaikan pilihan form manual
+                    const tglTeks = manualMode 
+                        ? `${selectedManualDate} (UPLOAD MANUAL)` 
+                        : new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+                        
                     const latTeks = currentCoords ? currentCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
                     const lonTeks = currentCoords ? currentCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
                     
@@ -552,7 +587,7 @@ export default function PclAssignmentPage() {
         };
 
         generateLiveWatermark();
-    }, [rawPhotoFile, gpsLoading, currentCoords, detectedSls, manualMode, selectedManualSls, profile, allMySls, isOutsideBorderBlock]);
+    }, [rawPhotoFile, gpsLoading, currentCoords, detectedSls, manualMode, selectedManualSls, selectedManualDate, profile, allMySls, isOutsideBorderBlock]);
 
     // ⚡ PROSES UTAMA DOUBLE-ENGINE (GPS + KAMERA SIMULTAN)
     const handleDetectLocation = () => {
@@ -561,7 +596,6 @@ export default function PclAssignmentPage() {
             return;
         }
 
-        // Jalankan background process pelacakan satelit GPS
         setGpsLoading(true);
         setDetectedSls(null);
         setManualMode(false);
@@ -596,7 +630,7 @@ export default function PclAssignmentPage() {
     };
 
     const submitCheckInData = async (targetIdSubSls) => {
-        if (actionLoading) return; // Blocker double klik instan di UI induk
+        if (actionLoading) return;
 
         if (isOutsideBorderBlock) {
             alert("Sistem mengunci absensi! Anda berada di luar area tugas.");
@@ -752,12 +786,12 @@ export default function PclAssignmentPage() {
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
         >
-            {/* INPUT KAMERA UTAMA */}
+            {/* INPUT KAMERA/GALERI DINAMIS BERDASARKAN SETTING ADMIN */}
             <input 
                 type="file" 
                 ref={fileInputRef} 
                 accept="image/*" 
-                capture="user" 
+                capture={allowManualMode ? undefined : "user"} 
                 className="hidden" 
                 onChange={handleCapturePhoto} 
             />
@@ -828,25 +862,57 @@ export default function PclAssignmentPage() {
                     <div className="space-y-4">
 
                         <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm text-center space-y-5">
-                            <div>
+                            <div className="flex flex-col items-center justify-center">
                                 <h3 className="text-base font-black text-slate-800">Absensi Lapangan</h3>
                                 <p className="text-xs text-slate-400 mt-1">Tekan tombol di bawah untuk melakukan absensi lapangan.</p>
+                                
+                                {/* UI SWITCH MODE MANUAL (HANYA AKTIF JIKA DI-ALLOW ADMIN DI BACKEND) */}
+{allowManualMode && (
+    <div 
+        onClick={() => {
+            const nextState = !manualMode;
+            resetForm();
+            setManualMode(nextState);
+        }}
+        className="mt-3 bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 text-left shadow-xs flex items-center justify-between gap-3 cursor-pointer hover:bg-amber-100/50 active:scale-99 transition-all animate-fadeIn"
+    >
+        {/* Teks Kiri */}
+        <div className="flex gap-2.5 items-center min-w-0">
+            <ShieldAlert size={18} className="text-amber-600 shrink-0" />
+            <div className="min-w-0">
+                <p className="text-xs font-black text-amber-900 uppercase tracking-tight">Pindah Mode Upload Manual</p>
+                <p className="text-[10px] text-amber-700/80 truncate font-medium">Klik untuk mengaktifkan galeri & tanggal manual</p>
+            </div>
+        </div>
+
+        {/* Indikator Switch Kanan */}
+        <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${
+            manualMode ? 'bg-amber-600' : 'bg-slate-300'
+        }`}>
+            <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out ${
+                manualMode ? 'translate-x-4' : 'translate-x-0'
+            }`} />
+        </div>
+    </div>
+)}
                             </div>
 
-                            <div className="flex justify-center items-center py-2">
-                                <button
-                                    disabled={gpsLoading || actionLoading}
-                                    onClick={handleDetectLocation}
-                                    className={`w-32 h-32 rounded-full flex flex-col justify-center items-center gap-2 font-black text-sm uppercase tracking-wider border-8 shadow-xl transition-all duration-300 active:scale-95 ${
-                                        gpsLoading || actionLoading
-                                            ? 'bg-slate-100 border-slate-200 text-slate-400'
-                                            : 'bg-orange-500 hover:bg-orange-600 border-orange-100 text-white shadow-orange-500/20'
-                                    }`}
-                                >
-                                    {gpsLoading || actionLoading ? <RefreshCw className="animate-spin" size={28} /> : <Navigation className="fill-white" size={28} />}
-                                    <span className="text-[11px]">{gpsLoading ? "Mengunci Satelit..." : "Ambil Absen"}</span>
-                                </button>
-                            </div>
+                            {!manualMode && (
+                                <div className="flex justify-center items-center py-2 animate-fadeIn">
+                                    <button
+                                        disabled={gpsLoading || actionLoading}
+                                        onClick={handleDetectLocation}
+                                        className={`w-32 h-32 rounded-full flex flex-col justify-center items-center gap-2 font-black text-sm uppercase tracking-wider border-8 shadow-xl transition-all duration-300 active:scale-95 ${
+                                            gpsLoading || actionLoading
+                                                ? 'bg-slate-100 border-slate-200 text-slate-400'
+                                                : 'bg-orange-500 hover:bg-orange-600 border-orange-100 text-white shadow-orange-500/20'
+                                        }`}
+                                    >
+                                        {gpsLoading || actionLoading ? <RefreshCw className="animate-spin" size={28} /> : <Navigation className="fill-white" size={28} />}
+                                        <span className="text-[11px]">{gpsLoading ? "Mengunci Satelit..." : "Ambil Absen"}</span>
+                                    </button>
+                                </div>
+                            )}
 
                             {/* WARNING BLOCKER OUTSIDE POLYGON */}
                             {isOutsideBorderBlock && (
@@ -867,7 +933,7 @@ export default function PclAssignmentPage() {
                                 </div>
                             )}
 
-                            {/* SLOT INTERAKSI: MENAMPILKAN HASIL FOTO BESERTA DETEKSI SATELIT BACKGROUND */}
+                            {/* SLOT INTERAKSI: PREVIEW FOTO JIKA DIGUNAKAN */}
                             {(rawPhotoFile || gpsLoading || detectedSls || manualMode) && !isOutsideBorderBlock && (
                                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-3 animate-fadeIn">
                                     <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded block text-center">
@@ -880,9 +946,9 @@ export default function PclAssignmentPage() {
                                             <img src={photoBase64} alt="Preview Bukti" className="w-full h-36 object-cover" />
                                             <button 
                                                 onClick={() => fileInputRef.current?.click()}
-                                                className="absolute bottom-2 right-2 bg-slate-900/80 text-white p-2 rounded-xl text-[10px] font-black cursor-pointer uppercase tracking-wider"
+                                                className="absolute bottom-2 right-2 bg-slate-900/80 text-white px-2.5 py-1.5 rounded-xl text-[10px] font-black cursor-pointer uppercase tracking-wider"
                                             >
-                                                Ulangi Foto
+                                                Ulangi Foto / Berkas
                                             </button>
                                         </div>
                                     ) : rawPhotoFile ? (
@@ -892,7 +958,7 @@ export default function PclAssignmentPage() {
                                         </div>
                                     ) : null}
 
-                                    {/* Loader jika jepretan foto selesai lebih dulu dibanding tangkapan satelit GPS */}
+                                    {/* Info Deteksi Khusus non-manual mode */}
                                     {gpsLoading ? (
                                         <div className="flex items-center justify-center gap-2 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">
                                             <RefreshCw className="animate-spin text-orange-500" size={14} />
@@ -915,28 +981,58 @@ export default function PclAssignmentPage() {
                                 </div>
                             )}
 
-                            {/* FALLBACK FIELD MANUAL (OTOMATIS JIKA GPS DOWN) */}
+                            {/* FALLBACK FIELD MANUAL (OTOMATIS / AKIBAT CONTROL TOGGLE ADMIN) */}
                             {(manualMode && !isOutsideBorderBlock) && (
-                                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left animate-fadeIn">
-                                    <div className="flex gap-2 items-center text-amber-800 font-bold text-xs uppercase mb-3">
+                                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left animate-fadeIn space-y-3">
+                                    <div className="flex gap-2 items-center text-amber-800 font-bold text-xs uppercase mb-1">
                                         <ShieldAlert size={16} />
-                                        <span>Pilih SLS Kerja Manual</span>
+                                        <span>Form Entri Absensi Manual</span>
                                     </div>
-                                    <select
-                                        className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 outline-none"
-                                        value={selectedManualSls}
-                                        onChange={(e) => setSelectedManualSls(e.target.value)}
-                                    >
-                                        <option value="">-- Pilih Wilayah SLS Tugas Anda --</option>
-                                        {allMySls.map(s => (
-                                            <option key={s.idsubsls} value={s.idsubsls}>
-                                                ({s.kdsls}) {s.nmsls} - Desa {s.nmdesa}
-                                            </option>
-                                        ))}
-                                    </select>
+
+                                    {/* Form Input Tanggal Manual */}
+                                    <div>
+                                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Tanggal Kegiatan</label>
+                                        <input 
+                                            type="date"
+                                            max={getTodayDateString()}
+                                            className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 outline-none"
+                                            value={selectedManualDate}
+                                            onChange={(e) => setSelectedManualDate(e.target.value)}
+                                        />
+                                    </div>
+
+                                    {/* Form Pilihan SLS Manual */}
+                                    <div>
+                                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Wilayah SLS Kerja</label>
+                                        <select
+                                            className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 outline-none"
+                                            value={selectedManualSls}
+                                            onChange={(e) => setSelectedManualSls(e.target.value)}
+                                        >
+                                            <option value="">-- Pilih Wilayah SLS Tugas Anda --</option>
+                                            {allMySls.map(s => (
+                                                <option key={s.idsubsls} value={s.idsubsls}>
+                                                    ({s.kdsls}) {s.nmsls} - Desa {s.nmdesa}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {/* Tombol Ambil File dari Galeri / Kamera */}
+                                    <div>
+                                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Dokumen Bukti</label>
+                                        <button
+                                            type="button"
+                                            onClick={() => fileInputRef.current?.click()}
+                                            className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 rounded-xl text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <Camera size={12} />
+                                            {photoBase64 ? "Ubah File Pilihan" : "Buka Galeri / Kamera HP"}
+                                        </button>
+                                    </div>
 
                                     {selectedManualSls && (
-                                        <div className="mt-3 space-y-2">
+                                        <div className="mt-3 pt-1">
                                             <button
                                                 disabled={!photoBase64 || actionLoading}
                                                 onClick={() => submitCheckInData(selectedManualSls)}
@@ -1077,7 +1173,7 @@ export default function PclAssignmentPage() {
                             <button
                                 disabled={actionLoading}
                                 onClick={async () => {
-                                    if (actionLoading) return; // Proteksi ganda pada aksi klik modal
+                                    if (actionLoading) return;
                                     if (pendingTargetId) {
                                         await eksekusiKirimBypass(pendingTargetId);
                                     }

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Trash2, Search, UserMinus, RotateCcw, Lock, Unlock } from 'lucide-react';
+import { Trash2, Search, UserMinus, RotateCcw, Lock, Unlock, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
 // Daftar 22 Kecamatan di Boyolali untuk opsi sakelar
 const DAFTAR_KECAMATAN = [
@@ -29,9 +29,13 @@ export default function SettingsPage() {
   const [loadingUser, setLoadingUser] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
-  // NEW STATE: Menyimpan list kecamatan yang DIKUNCI
+  // STATE KUNCI/BUKA WILAYAH KECAMATAN
   const [lockedKecamatan, setLockedKecamatan] = useState([]);
   const [loadingToggleKec, setLoadingToggleKec] = useState(null); // Menyimpan nama kecamatan yang sedang di-loading
+
+  // NEW STATE: Menyimpan status hak akses upload manual global untuk PCL lapangan
+  const [allowManualUpload, setAllowManualUpload] = useState(false);
+  const [loadingGlobalToggle, setLoadingGlobalToggle] = useState(false);
 
   // Ref untuk tracking mount awal (mencegah double fetch petugas)
   const isFirstMount = useRef(true);
@@ -77,33 +81,44 @@ export default function SettingsPage() {
     }
   };
 
-  // 3. Ambil status pengaturan kecamatan yang dikunci dari DB
-  const fetchLockedSettings = async () => {
+  // 3. MODIFIKASI: Ambil status konfigurasi aplikasi (Kecamatan Kunci & Jalur Manual PCL) sekaligus
+  const fetchAppSettings = async () => {
     try {
-      const { data, error } = await supabase
+      // Pemuatan data kecamatan terblokir
+      const { data: kecData, error: kecError } = await supabase
         .from('app_settings')
         .select('value_json')
         .eq('key', 'locked_kecamatan_list')
         .single();
 
-      if (error) {
-        // Jika belum ada row-nya di DB, biarkan array kosong
-        if (error.code === 'PGRST116') return; 
-        throw error;
+      if (!kecError && kecData && kecData.value_json) {
+        setLockedKecamatan(kecData.value_json);
+      } else if (kecError && kecError.code !== 'PGRST116') {
+        throw kecError;
       }
-      
-      if (data && data.value_json) {
-        setLockedKecamatan(data.value_json);
+
+      // Pemuatan data status bypass upload galeri manual PCL
+      const { data: manualData, error: manualError } = await supabase
+        .from('app_settings')
+        .select('value_boolean')
+        .eq('key', 'allow_manual_upload')
+        .single();
+
+      if (!manualError && manualData) {
+        setAllowManualUpload(manualData.value_boolean === true);
+      } else if (manualError && manualError.code !== 'PGRST116') {
+        throw manualError;
       }
+
     } catch (err) {
-      console.error("Gagal memuat status kunci kecamatan:", err.message);
+      console.error("Gagal memuat konfigurasi pusat pengaturan:", err.message);
     }
   };
 
   useEffect(() => {
     fetchUsers();
     fetchPetugas();
-    fetchLockedSettings();
+    fetchAppSettings();
   }, [profile]);
 
   // Debounce untuk pencarian petugas lapangan (server-side)
@@ -216,19 +231,17 @@ export default function SettingsPage() {
     }
   };
 
-  // NEW FUNCTION: Mengubah status Kunci/Buka Per Kecamatan
+  // Mengubah status Kunci/Buka Per Kecamatan
   const handleToggleKecamatanLock = async (namaKecamatan) => {
     setLoadingToggleKec(namaKecamatan);
     setMessage({ text: '', type: '' });
     
-    // Tentukan list barunya (jika sudah ada maka hapus [buka kunci], jika belum ada maka tambah [kunci])
     const isCurrentlyLocked = lockedKecamatan.includes(namaKecamatan);
     const updatedList = isCurrentlyLocked 
       ? lockedKecamatan.filter(k => k !== namaKecamatan)
       : [...lockedKecamatan, namaKecamatan];
 
     try {
-      // Menggunakan upsert agar jika key belum ada, baris otomatis dibuat
       const { error } = await supabase
         .from('app_settings')
         .upsert({ 
@@ -248,6 +261,37 @@ export default function SettingsPage() {
       setMessage({ text: `Gagal memperbarui status wilayah: ${error.message}`, type: 'error' });
     } finally {
       setLoadingToggleKec(null);
+    }
+  };
+
+  // NEW FUNCTION: Aksi Merubah Status Sakelar Sakti Jalur Upload Manual PCL
+  const handleToggleGlobalManualUpload = async () => {
+    if (loadingGlobalToggle) return;
+    setLoadingGlobalToggle(true);
+    setMessage({ text: '', type: '' });
+
+    const nextState = !allowManualUpload;
+
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({
+          key: 'allow_manual_upload',
+          value_boolean: nextState,
+          updated_at: new Date()
+        }, { onConflict: 'key' });
+
+      if (error) throw error;
+
+      setAllowManualUpload(nextState);
+      setMessage({
+        text: `Kebijakan Darurat: Opsi Upload Manual untuk Petugas Lapangan (PCL) berhasil ${nextState ? 'DIAKTIFKAN (ON)' : 'DINONAKTIFKAN (OFF)'}!`,
+        type: 'success'
+      });
+    } catch (error) {
+      setMessage({ text: `Gagal merubah kebijakan manual global: ${error.message}`, type: 'error' });
+    } finally {
+      setLoadingGlobalToggle(false);
     }
   };
 
@@ -275,17 +319,58 @@ export default function SettingsPage() {
       </div>
 
       {message.text && (
-        <div className={`p-4 rounded-xl border-l-4 font-semibold text-xs md:text-sm ${
+        <div className={`p-4 rounded-xl border-l-4 font-semibold text-xs md:text-sm animate-fadeIn ${
           message.type === 'success' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-rose-50 border-rose-500 text-rose-700'
         }`}>
           {message.text}
         </div>
       )}
 
-      {/* REVISI PANEL 1: SAKELAR KUNCI/BUKA ALOKASI PER KECAMATAN */}
+      {/* NEW PANEL: PUSAT KENDALI KEBIJAKAN DARURAT (UPLOAD MANUAL TOGGLE) */}
+      <section className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 md:p-6 rounded-3xl shadow-xl border border-slate-700/50">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
+                Kebijakan Awal Pelaksanaan Sensus
+              </span>
+              {allowManualUpload && (
+                <span className="text-[9px] bg-emerald-500 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider animate-pulse">
+                  Aktif (ON)
+                </span>
+              )}
+            </div>
+            <h2 className="text-base md:text-lg font-black text-white flex items-center gap-2 tracking-tight">
+              <ShieldAlert className="text-amber-400 shrink-0" size={20} />
+              Bypass Jalur Alternatif: Upload Manual PCL
+            </h2>
+            <p className="text-slate-400 text-xs md:text-sm max-w-2xl leading-relaxed">
+              Aktifkan ini jika banyak petugas terkendala satelit GPS / kamera HP. Petugas akan diberikan opsi memilih SLS, merubah tanggal secara mandiri, dan mengunggah foto langsung dari <strong>Galeri HP</strong>.
+            </p>
+          </div>
+
+          {/* iOS Style Custom Interactive Switch Toggle Box */}
+          <div 
+            onClick={handleToggleGlobalManualUpload}
+            className={`w-14 h-8 shrink-0 rounded-full p-1 transition-colors duration-300 ease-in-out flex items-center shadow-inner ${
+              loadingGlobalToggle ? 'bg-slate-700 opacity-60 cursor-not-allowed' : 'cursor-pointer'
+            } ${allowManualUpload ? 'bg-emerald-500' : 'bg-slate-600'}`}
+          >
+            <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ease-in-out flex items-center justify-center ${
+              allowManualUpload ? 'translate-x-6' : 'translate-x-0'
+            }`}>
+              {loadingGlobalToggle ? (
+                <span className="w-2 h-2 rounded-full bg-slate-400 animate-ping"></span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* PANEL 1: SAKELAR KUNCI/BUKA ALOKASI PER KECAMATAN */}
       <section className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">
         <h2 className="text-base md:text-lg font-bold text-slate-800 mb-1">Kontrol Alokasi Wilayah per Kecamatan</h2>
-        <p className="text-slate-500 text-xs md:text-sm mb-6">Kunci (*OFF*) atau Izinkan (*ON*) petugas di masing-masing kecamatan untuk memperbarui data pemetaan alokasi.</p>
+        <p className="text-slate-500 text-xs md:text-sm mb-6">Kunci (*OFF*) or Izinkan (*ON*) petugas di masing-masing kecamatan untuk memperbarui data pemetaan alokasi.</p>
         
         {/* Grid Opsi Sakelar Kecamatan */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
