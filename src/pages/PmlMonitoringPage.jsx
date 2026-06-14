@@ -479,7 +479,7 @@ export default function PmlMonitoringPage() {
                 const panelHeight = 135;
                 ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
                 ctx.fillRect(0, height - panelHeight, width, panelHeight);
-                ctx.fillStyle = "#6366f1"; 
+                ctx.fillStyle = "#f97316"; 
                 ctx.fillRect(0, height - panelHeight, width, 4);
 
                 // Teks
