@@ -15,7 +15,7 @@ const initPmlOfflineDB = () => {
         const request = indexedDB.open("BpsPmlOfflineDB", 1);
         request.onupgradeneeded = (e) => {
             const db = e.target.result;
-            if (!db.objectStoreNames.contains("pending_realisasi")) {
+            if (!db.objectStoreNames.contains("pending_realuangan")) {
                 db.createObjectStore("pending_realisasi", { keyPath: "id", autoIncrement: true });
             }
         };
@@ -139,11 +139,9 @@ export default function PmlMonitoringPage() {
 
     // CONTROL FOTO MANDIRI PML & KOORDINAT GPS PML
     const [pmlPhotoBase64, setPmlPhotoBase64] = useState(null);
+    const [rawPmlPhotoFile, setRawPmlPhotoFile] = useState(null); // State penampung berkas mentah pml
     const [pmlCoords, setPmlCoords] = useState(null);
     const [showPmlCameraCard, setShowPmlCameraCard] = useState(false);
-    
-    // State Baru: Memisahkan penampung berkas mentah sebelum dibakar watermark canvas
-    const [rawPhotoFile, setRawPhotoFile] = useState(null);
 
     // STATE KONTROL INPUT DAN ANTRIAN OFFLINE
     const [offlineInputCount, setOfflineInputCount] = useState(0);
@@ -171,8 +169,8 @@ export default function PmlMonitoringPage() {
         return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
     };
 
-    // GENERATOR LIST 7 HARI TERAKHIR UNTUK HEADER & LOGIKA FILTER
-    const generateLast7Days = () => {
+    // FIX INFINITE LOOP LOGIC: Ubah generator menjadi fungsi biasa tanpa mengubah state internal di dalamnya secara radikal
+    const generateLast7Days = useCallback(() => {
         const dates = [];
         for (let i = 6; i >= 0; i--) {
             const d = new Date();
@@ -180,9 +178,8 @@ export default function PmlMonitoringPage() {
             const dString = d.toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
             dates.push(dString);
         }
-        setLast7Dates(dates);
         return dates;
-    };
+    }, []);
 
     const getKecamatanCode = () => {
         if (!profile?.kecamatan_tugas) return null;
@@ -193,7 +190,7 @@ export default function PmlMonitoringPage() {
     const checkOfflineInputQueueCount = async () => {
         try {
             const db = await initPmlOfflineDB();
-            const tx = db.transaction("pending_realizations", "readonly");
+            const tx = db.transaction("pending_realisasi", "readonly");
             const store = tx.objectStore("pending_realisasi");
             const countRequest = store.count();
             countRequest.onsuccess = () => setOfflineInputCount(countRequest.result);
@@ -214,6 +211,7 @@ export default function PmlMonitoringPage() {
         const cleanPmlEmail = pmlEmail.toLowerCase().trim();
 
         const rentangTanggal = generateLast7Days();
+        setLast7Dates(rentangTanggal); // Set dilakukan di sini sesudah kalkulasi aman
         const tglHMinus6 = rentangTanggal[0];
 
         await checkOfflineInputQueueCount();
@@ -357,7 +355,7 @@ export default function PmlMonitoringPage() {
                     isLuarWilayahLast: isLuarWilayahLast, 
                     totalAbsenHariIni: totalCheckInHariIni,
                     absenDays: hariTanpaKabar,
-                    history7Hari: tanggalMasukList,
+                    history7Hari: tanggalMasukList, 
                     fotoBuktiHariIni: checkInHariIni?.foto_bukti || null
                 };
             });
@@ -379,24 +377,38 @@ export default function PmlMonitoringPage() {
         }
     };
 
-    // =========================================================================
-    // GEOLOCATION & CAMERA: PROSES SWAFOTO WATERMARK MITRA PML (UPDATED INTERCEPTOR)
-    // =========================================================================
+    useEffect(() => {
+        if (!authLoading) {
+            fetchPmlData();
+        }
+    }, [authLoading]); // Dipangkas dari profile untuk menghancurkan infinite trigger loop
+
+    useEffect(() => {
+        const handlePmlSignalToggle = () => checkOfflineInputQueueCount();
+        window.addEventListener('online', handlePmlSignalToggle);
+        window.addEventListener('offline', handlePmlSignalToggle);
+        return () => {
+            window.removeEventListener('online', handlePmlSignalToggle);
+            window.removeEventListener('offline', handlePmlSignalToggle);
+        };
+    }, []);
+
+    // Penampung File mentah pengawasan
     const handlePmlCapturePhoto = (e) => {
         const file = e.target.files[0];
         if (!file) return;
-
-        // Cukup amankan file mentah ke dalam state, biarkan useEffect yang mengeksekusi canvas setelah GPS beres
-        setRawPhotoFile(file);
+        setRawPmlPhotoFile(file);
     };
 
-    // ⚡ AUTOMATIC WATERMARK COMPILER ENGINE (ANTI-RACE CONDITION)
+    // =========================================================================
+    // AUTOMATIC WATERMARK ENGINE UNTUK PML (GARANSI GPS KOORDINAT PATEN)
+    // =========================================================================
     useEffect(() => {
-        if (!rawPhotoFile || pmlCheckingIn) return;
+        if (!rawPmlPhotoFile || pmlCheckingIn) return;
 
-        const generateLiveWatermark = () => {
+        const generateLivePmlWatermark = () => {
             const reader = new FileReader();
-            reader.readAsDataURL(rawPhotoFile);
+            reader.readAsDataURL(rawPmlPhotoFile);
             reader.onload = (event) => {
                 const img = new Image();
                 img.src = event.target.result;
@@ -416,6 +428,7 @@ export default function PmlMonitoringPage() {
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
 
+                    // 1. Ekstrak Informasi Wilayah Terlacak secara Komprehensif
                     let nmsls = pmlCoords?.nmsls || "";
                     let nmdesa = pmlCoords?.nmdesa || "";
                     let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
@@ -428,7 +441,8 @@ export default function PmlMonitoringPage() {
                         }
                     }
 
-                    let wilayahTeks = "WILAYAH LUAR TARGET";
+                    // 2. Satukan String Gabungan Lokasi Makro & Mikro
+                    let wilayahTeks = "MEMINDAI WILAYAH...";
                     if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
                         wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
                         if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
@@ -444,41 +458,48 @@ export default function PmlMonitoringPage() {
                     const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
                     
                     const labelSensus = `PENGAWASAN SENSUS EKONOMI 2026`;
-                    const labelPml = `NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`;
-                    const labelWilayah = `LOKASI  : ${String(wilayahTeks).toUpperCase()}`;
+                    const labelPml = `PML      : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`;
+                    const labelWilayah = `WILAYAH  : ${String(wilayahTeks).toUpperCase()}`;
 
+                    // 3. Render Panel Background Watermark (Elegant Slate Navy)
                     const panelHeight = 135;
                     ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
                     ctx.fillRect(0, height - panelHeight, width, panelHeight);
 
+                    // 4. Render Garis Aksen Atas (Indigo Border Theme PML)
                     ctx.fillStyle = "#6366f1"; 
                     ctx.fillRect(0, height - panelHeight, width, 4);
 
+                    // 5. Render Teks Baris 1: Judul Kegiatan
                     ctx.fillStyle = "#ffffff";
                     ctx.font = "bold 15px sans-serif";
                     ctx.fillText(labelSensus, 20, height - 105);
 
+                    // 6. Render Teks Baris 2: Nama Pengawas (Sky Blue)
                     ctx.fillStyle = "#38bdf8"; 
                     ctx.font = "bold 12px sans-serif";
                     ctx.fillText(labelPml, 20, height - 82);
 
+                    // 7. Render Teks Baris 3: Kombinasi SLS - Desa - Kecamatan (Amber Gold)
                     ctx.fillStyle = "#fbbf24"; 
                     ctx.font = "bold 12px sans-serif";
                     ctx.fillText(labelWilayah, 20, height - 60);
 
+                    // 8. Render Teks Baris 4 & 5: Waktu & Titik Koordinat (Monospace Font)
                     ctx.fillStyle = "#cbd5e1"; 
                     ctx.font = "11px monospace";
                     ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
                     ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
 
+                    // 9. Kompresi Gambar Hasil Akhir Watermark
                     const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
                     setPmlPhotoBase64(compressedBase64);
                 };
             };
         };
 
-        generateLiveWatermark();
-    }, [rawPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder]);
+        generateLivePmlWatermark();
+    }, [rawPmlPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder]);
 
     const isPointInPolygon = (point, vs) => {
         const x = point[0], y = point[1];
@@ -542,7 +563,9 @@ export default function PmlMonitoringPage() {
         setPmlCheckingIn(true);
         setIsPmlOutsideBorder(false);
         setShowPmlValidationDialog(false);
-        setShowPmlCameraCard(true);
+        setPmlPhotoBase64(null);
+        setRawPmlPhotoFile(null);
+        setShowPmlCameraCard(true); 
 
         navigator.geolocation.getCurrentPosition(
             async (position) => {
@@ -556,7 +579,7 @@ export default function PmlMonitoringPage() {
                         longitude,
                         idsubsls: hasilSlsMandiri.idsubsls,
                         nmsls: hasilSlsMandiri.nmsls,
-                        nmdesa: hasilSlsMandiri.nmdesa
+                        nmdesa: hasilSlsMandiri.nmdesa 
                     });
 
                     const kecTerdeteksi = String(hasilSlsMandiri.idsubsls).substring(0, 6);
@@ -591,15 +614,17 @@ export default function PmlMonitoringPage() {
     };
 
     const submitPmlCheckIn = async () => {
+        if (submitSiklusLoading) return; // Anti dobel klik di modal kirim pml
+
         const pmlEmail = user?.email || profile?.email;
         const tglHariIni = getTodayDateString();
 
         if (!pmlPhotoBase64) {
-            alert("Wajib mengambil foto bukti pengawasan lapangan!");
+            alert("Wajib mengambil foto bukti pengawasan lapangan atau tunggu hingga watermark selesai dibakar!");
             return;
         }
 
-        setPmlCheckingIn(true);
+        setSubmitSiklusLoading(true);
 
         const idSlsClean = pmlCoords?.idsubsls ? String(pmlCoords.idsubsls).trim() : 'WILAYAH-PML';
         const namaClean = profile?.nama_pengguna ? profile.nama_pengguna.replace(/\s+/g, '_').toUpperCase() : 'PENGAWAS';
@@ -616,8 +641,7 @@ export default function PmlMonitoringPage() {
             alert("💾 Absen Pendampingan PML disimpan offline di memori HP!");
             setShowPmlCameraCard(false);
             setShowPmlValidationDialog(false); 
-            setPmlCheckingIn(false);
-            setRawPhotoFile(null);
+            setSubmitSiklusLoading(false);
             return;
         }
 
@@ -651,7 +675,6 @@ export default function PmlMonitoringPage() {
             alert("Absen Pengawasan Lapangan Berhasil Tersimpan!");
             setShowPmlCameraCard(false);
             setShowPmlValidationDialog(false); 
-            setRawPhotoFile(null);
         } catch (err) {
             alert("Gagal mengirim data online, absen disimpan lokal di HP: " + err.message);
             localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
@@ -659,9 +682,8 @@ export default function PmlMonitoringPage() {
             setPmlCheckedInToday(true);
             setShowPmlCameraCard(false);
             setShowPmlValidationDialog(false);
-            setRawPhotoFile(null);
         } finally {
-            setPmlCheckingIn(false);
+            setSubmitSiklusLoading(false);
         }
     };
 
@@ -708,6 +730,8 @@ export default function PmlMonitoringPage() {
     }, [user, profile]);
 
     const handleSubmitRealisasiSiklus = async () => {
+        if (submitSiklusLoading) return; // Anti double submission rekap
+
         const pmlEmail = user?.email || profile?.email;
         const now = new Date();
         const tglHariIni = now.toISOString().split('T')[0];
@@ -931,12 +955,12 @@ export default function PmlMonitoringPage() {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
         >
-            {/* HIDDEN INPUT KAMERA UNTUK PML (MENGGUNAKAN KAMERA BELAKANG OTOMATIS) */}
+            {/* HIDDEN INPUT KAMERA UNTUK PML (MENGGUNAKAN KAMERA LINGKUNGAN/BELAKANG) */}
             <input 
                 type="file" 
                 ref={pmlFileInputRef} 
                 accept="image/*" 
-                capture="user" 
+                capture="environment" 
                 className="hidden" 
                 onChange={handlePmlCapturePhoto} 
             />
@@ -1012,9 +1036,9 @@ export default function PmlMonitoringPage() {
                                                 </button>
                                             </div>
                                         ) : (
-                                            <div className="flex items-center justify-center gap-2 py-3 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
+                                            <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
                                                 <RefreshCw className="animate-spin text-orange-500" size={14} />
-                                                <span>Mengunci Posisi Satelit...</span>
+                                                <span>{pmlCheckingIn ? "Mengunci Satelit..." : "Membakar Watermark Spasial..."}</span>
                                             </div>
                                         )}
 
@@ -1026,17 +1050,19 @@ export default function PmlMonitoringPage() {
 
                                         <div className="flex gap-2">
                                             <button 
-                                                onClick={() => { setShowPmlCameraCard(false); setPmlPhotoBase64(null); setRawPhotoFile(null); }} 
-                                                className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase"
+                                                disabled={submitSiklusLoading}
+                                                onClick={() => { setShowPmlCameraCard(false); setPmlPhotoBase64(null); setRawPmlPhotoFile(null); }} 
+                                                className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase disabled:opacity-40"
                                             >
                                                 Batal
                                             </button>
                                             <button
-                                                disabled={!pmlPhotoBase64 || pmlCheckingIn}
+                                                disabled={!pmlPhotoBase64 || pmlCheckingIn || submitSiklusLoading}
                                                 onClick={submitPmlCheckIn}
-                                                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-xl text-xs uppercase disabled:bg-slate-700 disabled:text-slate-500"
+                                                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-xl text-xs uppercase disabled:bg-slate-700 disabled:text-slate-500 flex items-center justify-center gap-1"
                                             >
-                                                Kirim Absen Pendampingan
+                                                {submitSiklusLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
+                                                <span>Kirim Absen Pendampingan</span>
                                             </button>
                                         </div>
                                     </div>
@@ -1330,20 +1356,22 @@ export default function PmlMonitoringPage() {
 
                         <div className="flex gap-2 pt-2">
                             <button
+                                disabled={submitSiklusLoading}
                                 onClick={() => {
                                     setShowPmlValidationDialog(false);
                                     setIsPmlOutsideBorder(false);
                                     setShowPmlCameraCard(false); 
                                     setPmlPhotoBase64(null);
-                                    setRawPhotoFile(null);
+                                    setRawPmlPhotoFile(null);
                                 }}
-                                className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-40"
                             >
                                 Batalkan
                             </button>
                             <button
+                                disabled={submitSiklusLoading}
                                 onClick={() => setShowPmlValidationDialog(false)}
-                                className="flex-1 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-500/10"
+                                className="flex-1 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-500/10 disabled:bg-slate-400"
                             >
                                 Tetap Lanjutkan
                             </button>
