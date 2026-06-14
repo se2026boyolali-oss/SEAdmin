@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
     Users, MapPin, AlertTriangle, CheckCircle2,
     Save, RefreshCw, Search, ChevronDown, ChevronUp, 
-    Navigation, Camera, WifiOff, CloudLightning, Filter, LogOut, Send, HelpCircle, ShieldAlert
+    Navigation, Camera, WifiOff, CloudLightning, Filter, LogOut, Send, HelpCircle, ShieldAlert, Image
 } from 'lucide-react';
 
 // =========================================================================
@@ -121,8 +121,9 @@ SlsCardRow.displayName = 'SlsCardRow';
 export default function PmlMonitoringPage() {
     const { user, profile, loading: authLoading, logout } = useAuth();
 
-    // Ref khusus pemicu instant camera trigger
-    const pmlFileInputRef = useRef(null);
+    // DUAL INTENT REF: Memisahkan jalur Hardware Kamera dan Media Galeri secara absolut
+    const pmlCameraInputRef = useRef(null);
+    const pmlGalleryInputRef = useRef(null);
 
     // MANAGEMENT STATE NAVIGASI HALAMAN (0: TIM PCL, 1: CAPAIAN PER SLS)
     const [activeTab, setActiveTab] = useState(0);
@@ -208,7 +209,7 @@ export default function PmlMonitoringPage() {
         }
     };
 
-    // FIX BUG: Bersihkan nilai fisik DOM input agar re-upload file di luar wilayah tidak macet
+    // CLEAN RESET ENGINE: Membersihkan seluruh state dan kedua object input fisik DOM sekaligus
     const resetPmlForm = useCallback(() => {
         setPmlCoords(null);
         setSelectedManualSls("");
@@ -219,9 +220,10 @@ export default function PmlMonitoringPage() {
         setShowPmlCameraCard(false);
         setShowPmlValidationDialog(false); 
         setPmlCheckingIn(false);
-        if (pmlFileInputRef.current) {
-            pmlFileInputRef.current.value = "";
-        }
+        
+        if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+        if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+        
         setSelectedManualDate(getTodayDateString());
     }, []);
 
@@ -612,17 +614,15 @@ export default function PmlMonitoringPage() {
         return null;
     };
 
-    // ⚡ BYPASS SIKLUS INSTAN KAMERA + BACKGROUND GPS TRACKING
+    // ⚡ ABSEN UTAMA: MEMAKSA HARDWARE KAMERA HP SECARA INSTAN
     const handleTriggerPmlLocation = () => {
         if (!navigator.geolocation) {
             alert("HP Anda memblokir fitur lokasi.");
             return;
         }
 
-        // FIX BUG: Reset nilai fisik input file DOM agar penekanan absen ulang tidak macet luring
-        if (pmlFileInputRef.current) {
-            pmlFileInputRef.current.value = "";
-        }
+        if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+        if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
 
         setPmlCheckingIn(true);
         setIsPmlOutsideBorder(false);
@@ -676,7 +676,7 @@ export default function PmlMonitoringPage() {
             { enableHighAccuracy: true, timeout: 25000 }
         );
 
-        pmlFileInputRef.current?.click();
+        pmlCameraInputRef.current?.click();
     };
 
     const submitPmlCheckIn = async () => {
@@ -1018,12 +1018,21 @@ export default function PmlMonitoringPage() {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
         >
-            {/* HIDDEN INPUT KAMERA UNTUK PML (LEPAS CAPTURE USER JIKA ADMIN PERBOLEHKAN BYPASS MANUAL) */}
+            {/* HIDDEN INPUT UTAMA: Selalu dipaksa membuka hardware kamera secara mutlak */}
             <input 
                 type="file" 
-                ref={pmlFileInputRef} 
+                ref={pmlCameraInputRef} 
                 accept="image/*" 
-                capture={allowManualMode ? undefined : "user"} 
+                capture="user" 
+                className="hidden" 
+                onChange={handlePmlCapturePhoto} 
+            />
+
+            {/* HIDDEN INPUT GALERI: Polosan tanpa capture untuk memberikan akses ke album media galeri */}
+            <input 
+                type="file" 
+                ref={pmlGalleryInputRef} 
+                accept="image/*" 
                 className="hidden" 
                 onChange={handlePmlCapturePhoto} 
             />
@@ -1091,15 +1100,26 @@ export default function PmlMonitoringPage() {
                                         {pmlPhotoBase64 ? (
                                             <div className="relative rounded-xl overflow-hidden border border-slate-600">
                                                 <img src={pmlPhotoBase64} alt="PML Bukti" className="w-full h-32 object-cover" />
-                                                <button 
-                                                    onClick={() => {
-                                                        if(pmlFileInputRef.current) pmlFileInputRef.current.value = "";
-                                                        pmlFileInputRef.current?.click();
-                                                    }} 
-                                                    className="absolute bottom-2 right-2 bg-slate-900/90 text-white px-2.5 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase"
-                                                >
-                                                    Ulangi Foto / File
-                                                </button>
+                                                <div className="absolute bottom-2 right-2 flex gap-1.5">
+                                                    <button 
+                                                        onClick={() => {
+                                                            if(pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+                                                            pmlCameraInputRef.current?.click();
+                                                        }} 
+                                                        className="bg-orange-500/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
+                                                    >
+                                                        <Camera size={10} /> Kamera
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => {
+                                                            if(pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+                                                            pmlGalleryInputRef.current?.click();
+                                                        }} 
+                                                        className="bg-indigo-600/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
+                                                    >
+                                                        <Image size={10} /> Galeri
+                                                    </button>
+                                                </div>
                                             </div>
                                         ) : rawPmlPhotoFile ? (
                                             <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
@@ -1107,19 +1127,32 @@ export default function PmlMonitoringPage() {
                                                 <span>Membuat Watermark Spasial...</span>
                                             </div>
                                         ) : manualMode ? (
-                                            <div className="p-4 bg-slate-900 border border-slate-700 rounded-xl text-center space-y-2 animate-fadeIn">
+                                            <div className="p-4 bg-slate-900 border border-slate-700 rounded-xl text-center space-y-2.5 animate-fadeIn">
                                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Dokumen Bukti Diperlukan</p>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if(pmlFileInputRef.current) pmlFileInputRef.current.value = "";
-                                                        pmlFileInputRef.current?.click();
-                                                    }}
-                                                    className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 shadow-sm"
-                                                >
-                                                    <Camera size={14} />
-                                                    <span>Ambil Kamera / Galeri</span>
-                                                </button>
+                                                <div className="flex gap-2 justify-center">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if(pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+                                                            pmlCameraInputRef.current?.click();
+                                                        }}
+                                                        className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
+                                                    >
+                                                        <Camera size={14} />
+                                                        <span>Kamera</span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if(pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+                                                            pmlGalleryInputRef.current?.click();
+                                                        }}
+                                                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
+                                                    >
+                                                        <Image size={14} />
+                                                        <span>Galeri</span>
+                                                    </button>
+                                                </div>
                                             </div>
                                         ) : (
                                             <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
@@ -1179,7 +1212,7 @@ export default function PmlMonitoringPage() {
                                                 className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-xl text-xs uppercase disabled:bg-slate-700 disabled:text-slate-500 flex items-center justify-center gap-1"
                                             >
                                                 {submitSiklusLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
-                                                <span>Kirim Absen Pendampingan</span>
+                                                <span>Kirim Absen</span>
                                             </button>
                                         </div>
                                     </div>
@@ -1199,7 +1232,8 @@ export default function PmlMonitoringPage() {
                             setRawPmlPhotoFile(null);
                             setIsPmlOutsideBorder(false);
                             setSelectedManualSls("");
-                            if (pmlFileInputRef.current) pmlFileInputRef.current.value = "";
+                            if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+                            if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
                             setSelectedManualDate(getTodayDateString());
                             setManualMode(nextState);
                             if (nextState) {
@@ -1213,8 +1247,8 @@ export default function PmlMonitoringPage() {
                         <div className="flex gap-2.5 items-center min-w-0">
                             <ShieldAlert size={18} className="text-indigo-600 shrink-0" />
                             <div className="min-w-0">
-                                <p className="text-xs font-black text-indigo-900 uppercase tracking-tight">Pindah Mode Upload Manual</p>
-                                <p className="text-[10px] text-indigo-700/80 truncate font-medium">Klik untuk mengaktifkan galeri & tanggal manual</p>
+                                <p className="text-xs font-black text-indigo-900 uppercase tracking-tight">Mode Pendampingan Manual</p>
+                                <p className="text-[10px] text-indigo-700/80 truncate font-medium">Klik untuk menggunakan Galeri Foto & Pilihan Tanggal/SLS manual</p>
                             </div>
                         </div>
                         <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${
@@ -1522,7 +1556,7 @@ export default function PmlMonitoringPage() {
                                 type="button"
                                 disabled={submitSiklusLoading}
                                 onClick={() => setShowPmlValidationDialog(false)}
-                                className="flex-1 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-500/10 disabled:bg-slate-400 cursor-pointer"
+                                className="flex-1 bg-rose-50 hover:bg-rose-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-500/10 disabled:bg-slate-400 cursor-pointer"
                             >
                                 Tetap Lanjutkan
                             </button>
@@ -1537,7 +1571,7 @@ export default function PmlMonitoringPage() {
                     onClick={() => setActiveTab(0)}
                     className={`flex flex-col items-center gap-1.5 transition-all outline-none ${activeTab === 0 ? 'text-indigo-400 scale-105' : 'text-slate-500'}`}
                 >
-                    <Navigation size={18} className={activeTab === 0 ? "text-indigo-400" : "text-slate-500"} />
+                    <Users size={18} className={activeTab === 0 ? "text-indigo-400" : "text-slate-500"} />
                     <span className="text-[9px] font-black uppercase tracking-wider">Absen Petugas</span>
                 </button>
 

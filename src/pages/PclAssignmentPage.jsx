@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
     MapPin, Navigation, RefreshCw, CheckCircle2, ShieldAlert,
     Calendar, ChevronLeft, ChevronRight, Camera, WifiOff,
-    CloudLightning, AlertOctagon, LogOut, HelpCircle
+    CloudLightning, AlertOctagon, LogOut, HelpCircle, Image
 } from 'lucide-react';
 
 // =========================================================================
@@ -27,8 +27,9 @@ const initOfflineDB = () => {
 export default function PclAssignmentPage() {
     const { user, profile, loading: authLoading, logout } = useAuth();
 
-    // Reference untuk memicu jepret kamera / galeri instan
-    const fileInputRef = useRef(null);
+    // DUAL INTENT REF: Memisahkan jalur Hardware Kamera dan Media Galeri secara absolut
+    const cameraInputRef = useRef(null);
+    const galleryInputRef = useRef(null);
 
     // State Navigasi Slider
     const [activeTab, setActiveTab] = useState(0);
@@ -174,13 +175,19 @@ export default function PclAssignmentPage() {
         return null;
     };
 
+    // FIX BUG: Bersihkan nilai fisik kedua input berkas DOM agar penekanan absen ulang bebas hambatan
     const resetForm = useCallback(() => {
         setDetectedSls(null);
         setSelectedManualSls("");
         setManualMode(false);
         setPhotoBase64(null);
-        setRawPhotoFile(null); // Reset simpanan gambar mentah
+        setRawPhotoFile(null); 
         setIsOutsideBorderBlock(false);
+        setGpsLoading(false);
+        
+        if (cameraInputRef.current) cameraInputRef.current.value = "";
+        if (galleryInputRef.current) galleryInputRef.current.value = "";
+        
         setSelectedManualDate(getTodayDateString());
     }, []);
 
@@ -331,11 +338,11 @@ export default function PclAssignmentPage() {
                     .eq('key', 'allow_manual_upload')
                     .single();
                 if (remoteConfig) {
-            // Karena tipenya sudah boolean (bool) di database, langsung ambil nilainya
-            const isAllowed = remoteConfig.value_boolean === true; 
-            setAllowManualMode(isAllowed);
-            localStorage.setItem('cache_allow_manual_upload', isAllowed ? 'true' : 'false');
-        }
+                    // Karena tipenya sudah boolean (bool) di database, langsung ambil nilainya
+                    const isAllowed = remoteConfig.value_boolean === true; 
+                    setAllowManualMode(isAllowed);
+                    localStorage.setItem('cache_allow_manual_upload', isAllowed ? 'true' : 'false');
+                }
             } catch (cfgErr) {
                 console.warn("Gagal lookup remote admin config settings:", cfgErr.message);
             }
@@ -481,7 +488,9 @@ export default function PclAssignmentPage() {
         setRawPhotoFile(file);
     };
 
-    // ⚡ AUTOMATIC WATERMARK ENGINE UNTUK PCL (TERKUNCI SATELIT GPS & ANTI-RACE CONDITION)
+    // =========================================================================
+    // AUTOMATIC WATERMARK ENGINE UNTUK PCL (TERKUNCI SATELIT GPS & ANTI-RACE CONDITION)
+    // =========================================================================
     useEffect(() => {
         if (!rawPhotoFile || gpsLoading) return;
 
@@ -596,6 +605,9 @@ export default function PclAssignmentPage() {
             return;
         }
 
+        if (cameraInputRef.current) cameraInputRef.current.value = "";
+        if (galleryInputRef.current) galleryInputRef.current.value = "";
+
         setGpsLoading(true);
         setDetectedSls(null);
         setManualMode(false);
@@ -626,7 +638,7 @@ export default function PclAssignmentPage() {
         );
 
         // Secara sinkronus langsung memicu kamera HP terbuka tanpa jeda
-        fileInputRef.current?.click();
+        cameraInputRef.current?.click();
     };
 
     const submitCheckInData = async (targetIdSubSls) => {
@@ -786,12 +798,21 @@ export default function PclAssignmentPage() {
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
         >
-            {/* INPUT KAMERA/GALERI DINAMIS BERDASARKAN SETTING ADMIN */}
+            {/* HIDDEN INPUT UTAMA: Selalu dipaksa membuka hardware kamera secara mutlak */}
             <input 
                 type="file" 
-                ref={fileInputRef} 
+                ref={cameraInputRef} 
                 accept="image/*" 
-                capture={allowManualMode ? undefined : "user"} 
+                capture="user" 
+                className="hidden" 
+                onChange={handleCapturePhoto} 
+            />
+
+            {/* HIDDEN INPUT GALERI: Polosan tanpa capture untuk memberikan akses ke album media galeri */}
+            <input 
+                type="file" 
+                ref={galleryInputRef} 
+                accept="image/*" 
                 className="hidden" 
                 onChange={handleCapturePhoto} 
             />
@@ -867,34 +888,34 @@ export default function PclAssignmentPage() {
                                 <p className="text-xs text-slate-400 mt-1">Tekan tombol di bawah untuk melakukan absensi lapangan.</p>
                                 
                                 {/* UI SWITCH MODE MANUAL (HANYA AKTIF JIKA DI-ALLOW ADMIN DI BACKEND) */}
-{allowManualMode && (
-    <div 
-        onClick={() => {
-            const nextState = !manualMode;
-            resetForm();
-            setManualMode(nextState);
-        }}
-        className="mt-3 bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 text-left shadow-xs flex items-center justify-between gap-3 cursor-pointer hover:bg-amber-100/50 active:scale-99 transition-all animate-fadeIn"
-    >
-        {/* Teks Kiri */}
-        <div className="flex gap-2.5 items-center min-w-0">
-            <ShieldAlert size={18} className="text-amber-600 shrink-0" />
-            <div className="min-w-0">
-                <p className="text-xs font-black text-amber-900 uppercase tracking-tight">Pindah Mode Upload Manual</p>
-                <p className="text-[10px] text-amber-700/80 truncate font-medium">Klik untuk mengaktifkan galeri & tanggal manual</p>
-            </div>
-        </div>
+                                {allowManualMode && (
+                                    <div 
+                                        onClick={() => {
+                                            const nextState = !manualMode;
+                                            resetForm();
+                                            setManualMode(nextState);
+                                        }}
+                                        className="mt-3 bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 text-left shadow-xs flex items-center justify-between gap-3 cursor-pointer hover:bg-amber-100/50 active:scale-99 transition-all animate-fadeIn"
+                                    >
+                                        {/* Teks Kiri */}
+                                        <div className="flex gap-2.5 items-center min-w-0">
+                                            <ShieldAlert size={18} className="text-amber-600 shrink-0" />
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-black text-amber-900 uppercase tracking-tight">Pindah Mode Upload Manual</p>
+                                                <p className="text-[10px] text-amber-700/80 truncate font-medium">Klik untuk mengaktifkan galeri & tanggal manual</p>
+                                            </div>
+                                        </div>
 
-        {/* Indikator Switch Kanan */}
-        <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${
-            manualMode ? 'bg-amber-600' : 'bg-slate-300'
-        }`}>
-            <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out ${
-                manualMode ? 'translate-x-4' : 'translate-x-0'
-            }`} />
-        </div>
-    </div>
-)}
+                                        {/* Indikator Switch Kanan */}
+                                        <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${
+                                            manualMode ? 'bg-amber-600' : 'bg-slate-300'
+                                        }`}>
+                                            <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out ${
+                                                manualMode ? 'translate-x-4' : 'translate-x-0'
+                                            }`} />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             {!manualMode && (
@@ -922,7 +943,7 @@ export default function PclAssignmentPage() {
                                         <span>Di Luar Wilayah Tugas</span>
                                     </div>
                                     <p className="text-[11px] text-rose-600 font-bold leading-relaxed">
-                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah ke area lokasi tugas asli Anda.
+                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah to area lokasi tugas asli Anda.
                                     </p>
                                     <button
                                         onClick={resetForm}
@@ -944,12 +965,26 @@ export default function PclAssignmentPage() {
                                     {photoBase64 ? (
                                         <div className="relative rounded-xl overflow-hidden border border-slate-300 shadow-inner">
                                             <img src={photoBase64} alt="Preview Bukti" className="w-full h-36 object-cover" />
-                                            <button 
-                                                onClick={() => fileInputRef.current?.click()}
-                                                className="absolute bottom-2 right-2 bg-slate-900/80 text-white px-2.5 py-1.5 rounded-xl text-[10px] font-black cursor-pointer uppercase tracking-wider"
-                                            >
-                                                Ulangi Foto / Berkas
-                                            </button>
+                                            <div className="absolute bottom-2 right-2 flex gap-1.5">
+                                                <button 
+                                                    onClick={() => {
+                                                        if(cameraInputRef.current) cameraInputRef.current.value = "";
+                                                        cameraInputRef.current?.click();
+                                                    }} 
+                                                    className="bg-orange-500/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1 shadow-sm"
+                                                >
+                                                    <Camera size={10} /> Kamera
+                                                </button>
+                                                <button 
+                                                    onClick={() => {
+                                                        if(galleryInputRef.current) galleryInputRef.current.value = "";
+                                                        galleryInputRef.current?.click();
+                                                    }} 
+                                                    className="bg-indigo-600/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1 shadow-sm"
+                                                >
+                                                    <Image size={10} /> Galeri
+                                                </button>
+                                            </div>
                                         </div>
                                     ) : rawPhotoFile ? (
                                         <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest bg-white border rounded-xl">
@@ -966,7 +1001,7 @@ export default function PclAssignmentPage() {
                                         </div>
                                     ) : detectedSls ? (
                                         <div className="pt-1 animate-fadeIn">
-                                            <h4 className="text-xs font-black text-slate-800 uppercase truncate">Target: {detectedSls.nmsls}</h4>
+                                            <h4 className="text-xs font-black text-slate-700 uppercase truncate">Target: {detectedSls.nmsls}</h4>
                                             <p className="text-[10px] text-slate-400 font-medium">Desa: {detectedSls.nmdesa}</p>
                                             <button
                                                 disabled={!photoBase64 || actionLoading}
@@ -1021,14 +1056,30 @@ export default function PclAssignmentPage() {
                                     {/* Tombol Ambil File dari Galeri / Kamera */}
                                     <div>
                                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Dokumen Bukti</label>
-                                        <button
-                                            type="button"
-                                            onClick={() => fileInputRef.current?.click()}
-                                            className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 rounded-xl text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-2"
-                                        >
-                                            <Camera size={12} />
-                                            {photoBase64 ? "Ubah File Pilihan" : "Buka Galeri / Kamera HP"}
-                                        </button>
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if(cameraInputRef.current) cameraInputRef.current.value = "";
+                                                    cameraInputRef.current?.click();
+                                                }}
+                                                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 rounded-xl text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                                            >
+                                                <Camera size={12} />
+                                                <span>Kamera</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if(galleryInputRef.current) galleryInputRef.current.value = "";
+                                                    galleryInputRef.current?.click();
+                                                }}
+                                                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                                            >
+                                                <Image size={12} />
+                                                <span>Galeri</span>
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {selectedManualSls && (
@@ -1165,8 +1216,9 @@ export default function PclAssignmentPage() {
                                 onClick={() => {
                                     setShowValidationDialog(false);
                                     setPendingTargetId(null);
+                                    resetForm();
                                 }}
-                                className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-40"
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-40 border border-slate-200 cursor-pointer"
                             >
                                 Batalkan
                             </button>
@@ -1178,7 +1230,7 @@ export default function PclAssignmentPage() {
                                         await eksekusiKirimBypass(pendingTargetId);
                                     }
                                 }}
-                                className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-orange-500/10 flex items-center justify-center gap-1 disabled:bg-slate-400"
+                                className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-orange-500/10 flex items-center justify-center gap-1 disabled:bg-slate-400 cursor-pointer"
                             >
                                 {actionLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
                                 <span>{actionLoading ? "Mengirim..." : "Tetap Lanjutkan"}</span>
