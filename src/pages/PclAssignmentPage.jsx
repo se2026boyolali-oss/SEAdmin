@@ -57,6 +57,9 @@ export default function PclAssignmentPage() {
     const [offlineCount, setOfflineCount] = useState(0);
     const [isSyncing, setIsSyncing] = useState(false);
     
+    // State Baru: Memisahkan penampung berkas mentah sebelum dibakar watermark canvas
+    const [rawPhotoFile, setRawPhotoFile] = useState(null);
+    
     // State untuk kontrol modal peringatan luar wilayah tugas
     const [showValidationDialog, setShowValidationDialog] = useState(false);
     const [pendingTargetId, setPendingTargetId] = useState(null);
@@ -142,7 +145,7 @@ export default function PclAssignmentPage() {
                             kdsls: feature.properties.kdsls || feature.properties.KDSLS || "0000"
                         };
                     }
-                }
+                } 
                 else if (geometri.type === "MultiPolygon") {
                     for (let polygon of geometri.coordinates) {
                         if (isPointInPolygon([longitude, latitude], polygon[0])) {
@@ -167,11 +170,15 @@ export default function PclAssignmentPage() {
         setSelectedManualSls("");
         setManualMode(false);
         setPhotoBase64(null);
+        setRawPhotoFile(null); // Reset simpanan gambar mentah
         setIsOutsideBorderBlock(false);
     }, []);
 
-    // 🚀 ENGINE INJEKSI KIRIM DATA (ONLINE & OFFLINE)
+    // 🚀 ENGINE INJEKSI KIRIM DATA (ONLINE & OFFLINE) DENGAN PROTEKSI DOUBLE-TAP
     const eksekusiKirimBypass = useCallback(async (safeIdSubSls) => {
+        // Blocker darurat jika fungsi dipanggil paksa saat upload sedang berlangsung
+        if (actionLoading) return;
+
         const pclEmail = user?.email || profile?.email;
         const tglHariIni = getTodayDateString();
         const cleanEmail = pclEmail.toLowerCase().trim();
@@ -197,7 +204,7 @@ export default function PclAssignmentPage() {
 
         let objekHistoriBaru = {
             idsubsls: safeIdSubSls,
-            nmsls: detectedSls?.nmsls || matchSlsLokal?.nmsls || "Memuat Nama SLS...",
+            nmsls: detectedSls?.nmsls || matchSlsLokal?.nmsls || "Memuat Name SLS...",
             nmdesa: detectedSls?.nmdesa || matchSlsLokal?.nmdesa || "-",
             kdsls: detectedSls?.kdsls || matchSlsLokal?.kdsls || "0000",
             isLuarWilayah: statusLuarWilayah
@@ -238,9 +245,10 @@ export default function PclAssignmentPage() {
                 resetForm();
             } catch (e) {
                 alert("Gagal mengamankan data lokal internal: " + e.message);
+            } finally {
+                setActionLoading(false);
+                setShowValidationDialog(false);
             }
-            setActionLoading(false);
-            setShowValidationDialog(false);
             return;
         }
 
@@ -293,7 +301,7 @@ export default function PclAssignmentPage() {
             setShowValidationDialog(false); 
             setPendingTargetId(null);
         }
-    }, [user, profile, currentCoords, manualMode, photoBase64, allMySls, detectedSls, todayCheckIns, resetForm]);
+    }, [user, profile, currentCoords, manualMode, photoBase64, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading]);
 
     const initPclPage = async () => {
         const pclEmail = user?.email || profile?.email;
@@ -434,110 +442,117 @@ export default function PclAssignmentPage() {
         }
     };
 
-    // 🔥 WATERMARK UPDATE ENGINE (DENGAN IDENTITAS PETUGAS & DILENGKAPI INFO SLS KONTEKSTUAL)
-// 🔥 WATERMARK UPDATE ENGINE (SLS + DESA + KECAMATAN COMBINED)
+    // ⚡ PROSES REKAM BERKAS FOTO MENTAH
     const handleCapturePhoto = (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        setRawPhotoFile(file);
+    };
 
-        setActionLoading(true);
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target.result;
-            img.onload = () => {
-                const MAX_WIDTH = 800;
-                let width = img.width;
-                let height = img.height;
+    // ⚡ AUTOMATIC WATERMARK ENGINE UNTUK PCL (TERKUNCI SATELIT GPS & ANTI-RACE CONDITION)
+    useEffect(() => {
+        // Jangan cetak watermark jika file tidak ada atau proses GPS sedang berjalan
+        if (!rawPhotoFile || gpsLoading) return;
 
-                if (width > MAX_WIDTH) {
-                    height = Math.round((height * MAX_WIDTH) / width);
-                    width = MAX_WIDTH;
-                }
+        const generateLiveWatermark = () => {
+            const reader = new FileReader();
+            reader.readAsDataURL(rawPhotoFile);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const MAX_WIDTH = 800;
+                    let width = img.width;
+                    let height = img.height;
 
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-
-                // 1. Inisialisasi Variabel Spasial Kontekstual
-                let nmsls = "";
-                let nmdesa = "";
-                // Ekstrak nama kecamatan dari profile (membuang angka kode di depannya jika ada)
-                let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
-
-                // 2. Ambil data berdasarkan engine tracker yang aktif
-                if (detectedSls) {
-                    nmsls = detectedSls.nmsls;
-                    nmdesa = detectedSls.nmdesa;
-                } else if (manualMode && selectedManualSls) {
-                    const match = allMySls.find(s => String(s.idsubsls).trim() === String(selectedManualSls).trim());
-                    if (match) {
-                        nmsls = match.nmsls;
-                        nmdesa = match.nmdesa;
-                        if (match.nmkec) nmkec = match.nmkec; // Gunakan nmkec dari database jika tersedia
-                    } else {
-                        nmsls = "PILIHAN MANUAL";
+                    if (width > MAX_WIDTH) {
+                        height = Math.round((height * MAX_WIDTH) / width);
+                        width = MAX_WIDTH;
                     }
-                }
 
-                // 3. Gabungkan Info Wilayah Menjadi 1 Baris Solid
-                let wilayahTeks = "MEMINDAI AREA...";
-                if (isOutsideBorderBlock) {
-                    wilayahTeks = "DI LUAR WILAYAH TUGAS";
-                } else if (nmsls) {
-                    wilayahTeks = nmsls;
-                    if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
-                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
 
-                const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-                const latTeks = currentCoords ? currentCoords.latitude.toFixed(6) : "MEMINDAI...";
-                const lonTeks = currentCoords ? currentCoords.longitude.toFixed(6) : "MEMINDAI...";
-                
-                const labelSensus = `SENSUS EKONOMI 2026`;
-                const labelPcl = `NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PETUGAS LAPANGAN').toUpperCase()}`;
-                const labelSls = `LOKASI   : ${String(wilayahTeks).toUpperCase()}`;
+                    // 1. Inisialisasi Variabel Spasial Kontekstual
+                    let nmsls = "";
+                    let nmdesa = "";
+                    let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
 
-                // 4. Render Background Panel Watermark (Slate Dark Elegant)
-                const panelHeight = 135;
-                ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
-                ctx.fillRect(0, height - panelHeight, width, panelHeight);
+                    // 2. Ambil data berdasarkan engine tracker yang aktif
+                    if (detectedSls) {
+                        nmsls = detectedSls.nmsls;
+                        nmdesa = detectedSls.nmdesa;
+                    } else if (manualMode && selectedManualSls) {
+                        const match = allMySls.find(s => String(s.idsubsls).trim() === String(selectedManualSls).trim());
+                        if (match) {
+                            nmsls = match.nmsls;
+                            nmdesa = match.nmdesa;
+                            if (match.nmkec) nmkec = match.nmkec; 
+                        } else {
+                            nmsls = "PILIHAN MANUAL";
+                        }
+                    }
 
-                // 5. Render Garis Aksen Atas Berwarna Oranye Jingga Khas BPS
-                ctx.fillStyle = "#f97316"; 
-                ctx.fillRect(0, height - panelHeight, width, 4);
+                    // 3. Gabungkan Info Wilayah Menjadi 1 Baris Solid
+                    let wilayahTeks = "MEMINDAI AREA...";
+                    if (isOutsideBorderBlock) {
+                        wilayahTeks = "DI LUAR WILAYAH TUGAS";
+                    } else if (nmsls) {
+                        wilayahTeks = nmsls;
+                        if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                        if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                    }
 
-                // 6. Cetak Teks Utama: Sensus Ekonomi
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "bold 15px sans-serif";
-                ctx.fillText(labelSensus, 20, height - 105);
+                    const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+                    const latTeks = currentCoords ? currentCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
+                    const lonTeks = currentCoords ? currentCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
+                    
+                    const labelSensus = `SENSUS EKONOMI 2026`;
+                    const labelPcl = `NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PETUGAS LAPANGAN').toUpperCase()}`;
+                    const labelSls = `LOKASI   : ${String(wilayahTeks).toUpperCase()}`;
 
-                // 7. Cetak Teks Kedua: Nama PCL Akurat (Sky Blue Accent)
-                ctx.fillStyle = "#38bdf8"; 
-                ctx.font = "bold 12px sans-serif";
-                ctx.fillText(labelPcl, 20, height - 82);
+                    // 4. Render Background Panel Watermark (Slate Dark Elegant)
+                    const panelHeight = 135;
+                    ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
+                    ctx.fillRect(0, height - panelHeight, width, panelHeight);
 
-                // 8. Cetak Teks Ketiga: Kombinasi SLS - DESA - KECAMATAN (Amber/Gold Accent)
-                ctx.fillStyle = "#fbbf24"; 
-                ctx.font = "bold 12px sans-serif";
-                ctx.fillText(labelSls, 20, height - 60);
+                    // 5. Render Garis Aksen Atas Berwarna Oranye Jingga Khas BPS
+                    ctx.fillStyle = "#f97316"; 
+                    ctx.fillRect(0, height - panelHeight, width, 4);
 
-                // 9. Cetak Metadata Logistik Sistem (Monospace Typography)
-                ctx.fillStyle = "#cbd5e1"; 
-                ctx.font = "11px monospace";
-                ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
-                ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+                    // 6. Cetak Teks Utama: Sensus Ekonomi
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "bold 15px sans-serif";
+                    ctx.fillText(labelSensus, 20, height - 105);
 
-                // 10. Enkapsulasi Hasil Gambar
-                const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
-                setPhotoBase64(compressedBase64);
-                setActionLoading(false);
+                    // 7. Cetak Teks Kedua: Nama PCL Akurat (Sky Blue Accent)
+                    ctx.fillStyle = "#38bdf8"; 
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.fillText(labelPcl, 20, height - 82);
+
+                    // 8. Cetak Teks Ketiga: Kombinasi SLS - DESA - KECAMATAN (Amber/Gold Accent)
+                    ctx.fillStyle = "#fbbf24"; 
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.fillText(labelSls, 20, height - 60);
+
+                    // 9. Cetak Metadata Logistik Sistem (Monospace Typography)
+                    ctx.fillStyle = "#cbd5e1"; 
+                    ctx.font = "11px monospace";
+                    ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
+                    ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+
+                    // 10. Enkapsulasi Hasil Gambar
+                    const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
+                    setPhotoBase64(compressedBase64);
+                };
             };
         };
-    };
+
+        generateLiveWatermark();
+    }, [rawPhotoFile, gpsLoading, currentCoords, detectedSls, manualMode, selectedManualSls, profile, allMySls, isOutsideBorderBlock]);
 
     // ⚡ PROSES UTAMA DOUBLE-ENGINE (GPS + KAMERA SIMULTAN)
     const handleDetectLocation = () => {
@@ -551,6 +566,7 @@ export default function PclAssignmentPage() {
         setDetectedSls(null);
         setManualMode(false);
         setPhotoBase64(null);
+        setRawPhotoFile(null);
         setIsOutsideBorderBlock(false);
 
         navigator.geolocation.getCurrentPosition(
@@ -580,6 +596,8 @@ export default function PclAssignmentPage() {
     };
 
     const submitCheckInData = async (targetIdSubSls) => {
+        if (actionLoading) return; // Blocker double klik instan di UI induk
+
         if (isOutsideBorderBlock) {
             alert("Sistem mengunci absensi! Anda berada di luar area tugas.");
             return;
@@ -588,7 +606,7 @@ export default function PclAssignmentPage() {
         const safeIdSubSls = String(targetIdSubSls).trim();
 
         if (!photoBase64) {
-            alert("Wajib mengambil foto lokasi terlebih dahulu!");
+            alert("Wajib mengambil foto lokasi terlebih dahulu atau tunggu hingga watermark selesai dibuat!");
             return;
         }
 
@@ -734,15 +752,16 @@ export default function PclAssignmentPage() {
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
         >
-            {/* 🟢 PASANG KEMBALI INPUT KAMERA INI DI SINI */}
+            {/* INPUT KAMERA UTAMA */}
             <input 
                 type="file" 
                 ref={fileInputRef} 
                 accept="image/*" 
-                capture="user" // Ubah ke "environment" jika ingin kamera belakang otomatis terbuka
+                capture="environment" 
                 className="hidden" 
                 onChange={handleCapturePhoto} 
             />
+
             {/* AREA MAIN PROFILE CARD */}
             <div className="p-4 bg-slate-50 shrink-0">
                 <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-3xl p-5 shadow-xl border border-slate-700/50">
@@ -825,7 +844,7 @@ export default function PclAssignmentPage() {
                                     }`}
                                 >
                                     {gpsLoading || actionLoading ? <RefreshCw className="animate-spin" size={28} /> : <Navigation className="fill-white" size={28} />}
-                                    <span className="text-[11px]">{gpsLoading ? "Membuka Kamera..." : "Ambil Absen"}</span>
+                                    <span className="text-[11px]">{gpsLoading ? "Mengunci Satelit..." : "Ambil Absen"}</span>
                                 </button>
                             </div>
 
@@ -849,14 +868,14 @@ export default function PclAssignmentPage() {
                             )}
 
                             {/* SLOT INTERAKSI: MENAMPILKAN HASIL FOTO BESERTA DETEKSI SATELIT BACKGROUND */}
-                            {(photoBase64 || gpsLoading || detectedSls || manualMode) && !isOutsideBorderBlock && (
+                            {(rawPhotoFile || gpsLoading || detectedSls || manualMode) && !isOutsideBorderBlock && (
                                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-3 animate-fadeIn">
                                     <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded block text-center">
                                         Rangkuman Foto & Deteksi Lokasi
                                     </span>
 
                                     {/* Preview Foto */}
-                                    {photoBase64 && (
+                                    {photoBase64 ? (
                                         <div className="relative rounded-xl overflow-hidden border border-slate-300 shadow-inner">
                                             <img src={photoBase64} alt="Preview Bukti" className="w-full h-36 object-cover" />
                                             <button 
@@ -866,7 +885,12 @@ export default function PclAssignmentPage() {
                                                 Ulangi Foto
                                             </button>
                                         </div>
-                                    )}
+                                    ) : rawPhotoFile ? (
+                                        <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest bg-white border rounded-xl">
+                                            <RefreshCw className="animate-spin text-orange-500" size={14} />
+                                            <span>Membakar Watermark Spasial...</span>
+                                        </div>
+                                    ) : null}
 
                                     {/* Loader jika jepretan foto selesai lebih dulu dibanding tangkapan satelit GPS */}
                                     {gpsLoading ? (
@@ -883,8 +907,8 @@ export default function PclAssignmentPage() {
                                                 onClick={() => submitCheckInData(detectedSls.idsubsls)}
                                                 className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300 flex items-center justify-center gap-2"
                                             >
-                                                {actionLoading && <RefreshCw className="animate-spin" size={12} />}
-                                                <span>Kirim Absen & Foto Bukti</span>
+                                                {actionLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
+                                                <span>{actionLoading ? "Mengunggah..." : "Kirim Absen & Foto Bukti"}</span>
                                             </button>
                                         </div>
                                     ) : null}
@@ -918,8 +942,8 @@ export default function PclAssignmentPage() {
                                                 onClick={() => submitCheckInData(selectedManualSls)}
                                                 className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300 flex items-center justify-center gap-2"
                                             >
-                                                {actionLoading && <RefreshCw className="animate-spin" size={12} />}
-                                                <span>Kunci Wilayah & Simpan</span>
+                                                {actionLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
+                                                <span>{actionLoading ? "Mengunci..." : "Kunci Wilayah & Simpan"}</span>
                                             </button>
                                         </div>
                                     )}
@@ -1024,7 +1048,7 @@ export default function PclAssignmentPage() {
                 </div>
             </div>
 
-            {/* INTERAKTIF DIALOG DI LUAR WILAYAH KERJA */}
+            {/* INTERAKTIF DIALOG DI LUAR WILAYAH KERJA DENGAN ABSOLUTE LOCK TOMBOL */}
             {showValidationDialog && (
                 <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-5 z-50 animate-fadeIn">
                     <div className="bg-white rounded-3xl p-6 w-full max-w-sm border border-slate-100 shadow-2xl text-center space-y-4">
@@ -1041,23 +1065,27 @@ export default function PclAssignmentPage() {
 
                         <div className="flex gap-2 pt-2">
                             <button
+                                disabled={actionLoading}
                                 onClick={() => {
                                     setShowValidationDialog(false);
                                     setPendingTargetId(null);
                                 }}
-                                className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-40"
                             >
                                 Batalkan
                             </button>
                             <button
+                                disabled={actionLoading}
                                 onClick={async () => {
+                                    if (actionLoading) return; // Proteksi ganda pada aksi klik modal
                                     if (pendingTargetId) {
                                         await eksekusiKirimBypass(pendingTargetId);
                                     }
                                 }}
-                                className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-orange-500/10"
+                                className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-orange-500/10 flex items-center justify-center gap-1 disabled:bg-slate-400"
                             >
-                                Tetap Lanjutkan
+                                {actionLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
+                                <span>{actionLoading ? "Mengirim..." : "Tetap Lanjutkan"}</span>
                             </button>
                         </div>
                     </div>

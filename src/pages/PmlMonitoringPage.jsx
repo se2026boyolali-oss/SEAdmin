@@ -141,6 +141,9 @@ export default function PmlMonitoringPage() {
     const [pmlPhotoBase64, setPmlPhotoBase64] = useState(null);
     const [pmlCoords, setPmlCoords] = useState(null);
     const [showPmlCameraCard, setShowPmlCameraCard] = useState(false);
+    
+    // State Baru: Memisahkan penampung berkas mentah sebelum dibakar watermark canvas
+    const [rawPhotoFile, setRawPhotoFile] = useState(null);
 
     // STATE KONTROL INPUT DAN ANTRIAN OFFLINE
     const [offlineInputCount, setOfflineInputCount] = useState(0);
@@ -190,7 +193,7 @@ export default function PmlMonitoringPage() {
     const checkOfflineInputQueueCount = async () => {
         try {
             const db = await initPmlOfflineDB();
-            const tx = db.transaction("pending_realisasi", "readonly");
+            const tx = db.transaction("pending_realizations", "readonly");
             const store = tx.objectStore("pending_realisasi");
             const countRequest = store.count();
             countRequest.onsuccess = () => setOfflineInputCount(countRequest.result);
@@ -308,7 +311,6 @@ export default function PmlMonitoringPage() {
                 const cleanPclEmail = pcl.email.toLowerCase().trim();
                 const logsPcl = logsPclMap.get(cleanPclEmail) || [];
                 
-                // 🛠 FIX OPTIMIZATION: Ambil 10 Karakter Utama YYYY-MM-DD dari string log Supabase
                 const semuaAbsenHariIni = logsPcl.filter(l => {
                     const stringTanggalLog = l.tanggal ? l.tanggal.substring(0, 10) : "";
                     return stringTanggalLog === tglHariIni;
@@ -317,7 +319,6 @@ export default function PmlMonitoringPage() {
                 const checkInHariIni = semuaAbsenHariIni.length > 0 ? semuaAbsenHariIni[0] : null; 
                 const totalCheckInHariIni = semuaAbsenHariIni.length;
                 
-                // 🛠 CORE FIX KALENDER MINI: Normalisasi string agar seragam YYYY-MM-DD
                 const tanggalMasukList = logsPcl.map(l => l.tanggal ? l.tanggal.substring(0, 10) : "");
 
                 if (checkInHariIni) countAktif++;
@@ -356,7 +357,7 @@ export default function PmlMonitoringPage() {
                     isLuarWilayahLast: isLuarWilayahLast, 
                     totalAbsenHariIni: totalCheckInHariIni,
                     absenDays: hariTanpaKabar,
-                    history7Hari: tanggalMasukList, // Mengandung list murni YYYY-MM-DD
+                    history7Hari: tanggalMasukList,
                     fotoBuktiHariIni: checkInHariIni?.foto_bukti || null
                 };
             });
@@ -378,120 +379,106 @@ export default function PmlMonitoringPage() {
         }
     };
 
-    useEffect(() => {
-        if (!authLoading) fetchPmlData();
-    }, [profile, authLoading]);
-
-    useEffect(() => {
-        const handlePmlSignalToggle = () => checkOfflineInputQueueCount();
-        window.addEventListener('online', handlePmlSignalToggle);
-        window.addEventListener('offline', handlePmlSignalToggle);
-        return () => {
-            window.removeEventListener('online', handlePmlSignalToggle);
-            window.removeEventListener('offline', handlePmlSignalToggle);
-        };
-    }, []);
-
     // =========================================================================
-    // GEOLOCATION & CAMERA: PROSES SWAFOTO WATERMARK MITRA PML (UPDATED ENGINE)
+    // GEOLOCATION & CAMERA: PROSES SWAFOTO WATERMARK MITRA PML (UPDATED INTERCEPTOR)
     // =========================================================================
     const handlePmlCapturePhoto = (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        setPmlCheckingIn(true);
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target.result;
-            img.onload = () => {
-                const MAX_WIDTH = 800;
-                let width = img.width;
-                let height = img.height;
+        // Cukup amankan file mentah ke dalam state, biarkan useEffect yang mengeksekusi canvas setelah GPS beres
+        setRawPhotoFile(file);
+    };
 
-                if (width > MAX_WIDTH) {
-                    height = Math.round((height * MAX_WIDTH) / width);
-                    width = MAX_WIDTH;
-                }
+    // ⚡ AUTOMATIC WATERMARK COMPILER ENGINE (ANTI-RACE CONDITION)
+    useEffect(() => {
+        if (!rawPhotoFile || pmlCheckingIn) return;
 
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
+        const generateLiveWatermark = () => {
+            const reader = new FileReader();
+            reader.readAsDataURL(rawPhotoFile);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const MAX_WIDTH = 800;
+                    let width = img.width;
+                    let height = img.height;
 
-                // 1. Ekstrak Informasi Wilayah Terlacak secara Komprehensif
-                let nmsls = pmlCoords?.nmsls || "";
-                let nmdesa = pmlCoords?.nmdesa || "";
-                let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
-
-                // Fallback validasi silang ke dataset flat jika berada di poligon terdaftar
-                if (pmlCoords?.idsubsls && pmlCoords.idsubsls !== 'WILAYAH-PML') {
-                    const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(pmlCoords.idsubsls).trim());
-                    if (match) {
-                        if (!nmsls) nmsls = match.nmsls;
-                        if (!nmdesa) nmdesa = match.nmdesa;
+                    if (width > MAX_WIDTH) {
+                        height = Math.round((height * MAX_WIDTH) / width);
+                        width = MAX_WIDTH;
                     }
-                }
 
-                // 2. Satukan String Gabungan Lokasi Makro & Mikro
-                let wilayahTeks = "MEMINDAI WILAYAH...";
-                if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
-                    wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
-                    if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
-                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                } else if (nmsls) {
-                    wilayahTeks = nmsls;
-                    if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
-                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
 
-                const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-                const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "MEMINDAI...";
-                const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "MEMINDAI...";
-                
-                const labelSensus = `PENGAWASAN SENSUS EKONOMI 2026`;
-                const labelPml = `PML      : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`;
-                const labelWilayah = `WILAYAH  : ${String(wilayahTeks).toUpperCase()}`;
+                    let nmsls = pmlCoords?.nmsls || "";
+                    let nmdesa = pmlCoords?.nmdesa || "";
+                    let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
 
-                // 3. Render Panel Background Watermark (Elegant Slate Navy)
-                const panelHeight = 135;
-                ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
-                ctx.fillRect(0, height - panelHeight, width, panelHeight);
+                    if (pmlCoords?.idsubsls && pmlCoords.idsubsls !== 'WILAYAH-PML') {
+                        const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(pmlCoords.idsubsls).trim());
+                        if (match) {
+                            if (!nmsls) nmsls = match.nmsls;
+                            if (!nmdesa) nmdesa = match.nmdesa;
+                        }
+                    }
 
-                // 4. Render Garis Aksen Atas (Indigo Border Theme PML)
-                ctx.fillStyle = "#6366f1"; 
-                ctx.fillRect(0, height - panelHeight, width, 4);
+                    let wilayahTeks = "WILAYAH LUAR TARGET";
+                    if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
+                        wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
+                        if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
+                        if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                    } else if (nmsls) {
+                        wilayahTeks = nmsls;
+                        if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                        if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                    }
 
-                // 5. Render Teks Baris 1: Judul Kegiatan
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "bold 15px sans-serif";
-                ctx.fillText(labelSensus, 20, height - 105);
+                    const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+                    const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
+                    const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
+                    
+                    const labelSensus = `PENGAWASAN SENSUS EKONOMI 2026`;
+                    const labelPml = `PML      : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`;
+                    const labelWilayah = `WILAYAH  : ${String(wilayahTeks).toUpperCase()}`;
 
-                // 6. Render Teks Baris 2: Nama Pengawas (Sky Blue)
-                ctx.fillStyle = "#38bdf8"; 
-                ctx.font = "bold 12px sans-serif";
-                ctx.fillText(labelPml, 20, height - 82);
+                    const panelHeight = 135;
+                    ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
+                    ctx.fillRect(0, height - panelHeight, width, panelHeight);
 
-                // 7. Render Teks Baris 3: Kombinasi SLS - Desa - Kecamatan (Amber Gold)
-                ctx.fillStyle = "#fbbf24"; 
-                ctx.font = "bold 12px sans-serif";
-                ctx.fillText(labelWilayah, 20, height - 60);
+                    ctx.fillStyle = "#6366f1"; 
+                    ctx.fillRect(0, height - panelHeight, width, 4);
 
-                // 8. Render Teks Baris 4 & 5: Waktu & Titik Koordinat (Monospace Font)
-                ctx.fillStyle = "#cbd5e1"; 
-                ctx.font = "11px monospace";
-                ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
-                ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "bold 15px sans-serif";
+                    ctx.fillText(labelSensus, 20, height - 105);
 
-                // 9. Kompresi Gambar Hasil Akhir Watermark
-                const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
-                setPmlPhotoBase64(compressedBase64);
-                setPmlCheckingIn(false);
+                    ctx.fillStyle = "#38bdf8"; 
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.fillText(labelPml, 20, height - 82);
+
+                    ctx.fillStyle = "#fbbf24"; 
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.fillText(labelWilayah, 20, height - 60);
+
+                    ctx.fillStyle = "#cbd5e1"; 
+                    ctx.font = "11px monospace";
+                    ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
+                    ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+
+                    const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
+                    setPmlPhotoBase64(compressedBase64);
+                };
             };
         };
-    };
+
+        generateLiveWatermark();
+    }, [rawPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder]);
 
     const isPointInPolygon = (point, vs) => {
         const x = point[0], y = point[1];
@@ -555,7 +542,7 @@ export default function PmlMonitoringPage() {
         setPmlCheckingIn(true);
         setIsPmlOutsideBorder(false);
         setShowPmlValidationDialog(false);
-        setShowPmlCameraCard(true); // Langsung munculkan kotak rangkuman tanpa nunggu delay satelit
+        setShowPmlCameraCard(true);
 
         navigator.geolocation.getCurrentPosition(
             async (position) => {
@@ -569,7 +556,7 @@ export default function PmlMonitoringPage() {
                         longitude,
                         idsubsls: hasilSlsMandiri.idsubsls,
                         nmsls: hasilSlsMandiri.nmsls,
-                        nmdesa: hasilSlsMandiri.nmdesa // Menyimpan info nama desa ke dalam state koordinat
+                        nmdesa: hasilSlsMandiri.nmdesa
                     });
 
                     const kecTerdeteksi = String(hasilSlsMandiri.idsubsls).substring(0, 6);
@@ -600,7 +587,6 @@ export default function PmlMonitoringPage() {
             { enableHighAccuracy: true, timeout: 25000 }
         );
 
-        // Langsung tembak buka kamera HP secara sinkronus agar tidak terblokir browser
         pmlFileInputRef.current?.click();
     };
 
@@ -631,6 +617,7 @@ export default function PmlMonitoringPage() {
             setShowPmlCameraCard(false);
             setShowPmlValidationDialog(false); 
             setPmlCheckingIn(false);
+            setRawPhotoFile(null);
             return;
         }
 
@@ -664,6 +651,7 @@ export default function PmlMonitoringPage() {
             alert("Absen Pengawasan Lapangan Berhasil Tersimpan!");
             setShowPmlCameraCard(false);
             setShowPmlValidationDialog(false); 
+            setRawPhotoFile(null);
         } catch (err) {
             alert("Gagal mengirim data online, absen disimpan lokal di HP: " + err.message);
             localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
@@ -671,6 +659,7 @@ export default function PmlMonitoringPage() {
             setPmlCheckedInToday(true);
             setShowPmlCameraCard(false);
             setShowPmlValidationDialog(false);
+            setRawPhotoFile(null);
         } finally {
             setPmlCheckingIn(false);
         }
@@ -947,7 +936,7 @@ export default function PmlMonitoringPage() {
                 type="file" 
                 ref={pmlFileInputRef} 
                 accept="image/*" 
-                capture="user" 
+                capture="environment" 
                 className="hidden" 
                 onChange={handlePmlCapturePhoto} 
             />
@@ -1037,7 +1026,7 @@ export default function PmlMonitoringPage() {
 
                                         <div className="flex gap-2">
                                             <button 
-                                                onClick={() => { setShowPmlCameraCard(false); setPmlPhotoBase64(null); }} 
+                                                onClick={() => { setShowPmlCameraCard(false); setPmlPhotoBase64(null); setRawPhotoFile(null); }} 
                                                 className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase"
                                             >
                                                 Batal
@@ -1346,6 +1335,7 @@ export default function PmlMonitoringPage() {
                                     setIsPmlOutsideBorder(false);
                                     setShowPmlCameraCard(false); 
                                     setPmlPhotoBase64(null);
+                                    setRawPhotoFile(null);
                                 }}
                                 className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
                             >
