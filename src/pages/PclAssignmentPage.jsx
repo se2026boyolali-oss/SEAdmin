@@ -888,7 +888,7 @@ export default function PclAssignmentPage() {
                                     ) : rawPhotoFile ? (
                                         <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest bg-white border rounded-xl">
                                             <RefreshCw className="animate-spin text-orange-500" size={14} />
-                                            <span>Membakar Watermark Spasial...</span>
+                                            <span>Membuat Watermark Spasial...</span>
                                         </div>
                                     ) : null}
 
