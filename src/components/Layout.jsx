@@ -49,7 +49,7 @@ export default function Layout() {
       <div className="p-5 border-b border-slate-800 flex justify-between items-center">
         <div>
           <h2 className="font-black text-emerald-400 text-lg">SE2026 Admin</h2>
-          <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Kab. Boyolali</p>
+          <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">MANAJEMEN SENSUS EKONOMI 2026</p>
         </div>
         {isMobile && (
           <button onClick={() => setIsMobileMenuOpen(false)} className="p-1 text-slate-400 hover:text-white md:hidden">
