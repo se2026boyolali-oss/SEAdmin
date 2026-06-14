@@ -393,7 +393,7 @@ export default function PmlMonitoringPage() {
     }, []);
 
     // =========================================================================
-    // GEOLOCATION & CAMERA: PROSES SWAFOTO WATERMARK MITRA PML
+    // GEOLOCATION & CAMERA: PROSES SWAFOTO WATERMARK MITRA PML (UPDATED ENGINE)
     // =========================================================================
     const handlePmlCapturePhoto = (e) => {
         const file = e.target.files[0];
@@ -421,22 +421,71 @@ export default function PmlMonitoringPage() {
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
 
+                // 1. Ekstrak Informasi Wilayah Terlacak secara Komprehensif
+                let nmsls = pmlCoords?.nmsls || "";
+                let nmdesa = pmlCoords?.nmdesa || "";
+                let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
+
+                // Fallback validasi silang ke dataset flat jika berada di poligon terdaftar
+                if (pmlCoords?.idsubsls && pmlCoords.idsubsls !== 'WILAYAH-PML') {
+                    const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(pmlCoords.idsubsls).trim());
+                    if (match) {
+                        if (!nmsls) nmsls = match.nmsls;
+                        if (!nmdesa) nmdesa = match.nmdesa;
+                    }
+                }
+
+                // 2. Satukan String Gabungan Lokasi Makro & Mikro
+                let wilayahTeks = "MEMINDAI WILAYAH...";
+                if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
+                    wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
+                    if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
+                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                } else if (nmsls) {
+                    wilayahTeks = nmsls;
+                    if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                }
+
                 const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-                const latTeks = pmlCoords ? `LAT: ${pmlCoords.latitude.toFixed(6)}` : "LAT: MEMINDAI...";
-                const lonTeks = pmlCoords ? `LON: ${pmlCoords.longitude.toFixed(6)}` : "LON: MEMINDAI...";
-                const labelSensus = `PENGAWASAN SE2026 BOYOLALI - PML`;
+                const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "MEMINDAI...";
+                const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "MEMINDAI...";
+                
+                const labelSensus = `PENGAWASAN SENSUS EKONOMI 2026`;
+                const labelPml = `PML      : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`;
+                const labelWilayah = `WILAYAH  : ${String(wilayahTeks).toUpperCase()}`;
 
-                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-                ctx.fillRect(0, height - 100, width, 100);
+                // 3. Render Panel Background Watermark (Elegant Slate Navy)
+                const panelHeight = 135;
+                ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
+                ctx.fillRect(0, height - panelHeight, width, panelHeight);
 
+                // 4. Render Garis Aksen Atas (Indigo Border Theme PML)
+                ctx.fillStyle = "#6366f1"; 
+                ctx.fillRect(0, height - panelHeight, width, 4);
+
+                // 5. Render Teks Baris 1: Judul Kegiatan
                 ctx.fillStyle = "#ffffff";
-                ctx.font = "bold 16px sans-serif";
-                ctx.fillText(labelSensus, 20, height - 70);
+                ctx.font = "bold 15px sans-serif";
+                ctx.fillText(labelSensus, 20, height - 105);
 
-                ctx.font = "14px monospace";
-                ctx.fillText(tglTeks, 20, height - 45);
-                ctx.fillText(`${latTeks} | ${lonTeks}`, 20, height - 20);
+                // 6. Render Teks Baris 2: Nama Pengawas (Sky Blue)
+                ctx.fillStyle = "#38bdf8"; 
+                ctx.font = "bold 12px sans-serif";
+                ctx.fillText(labelPml, 20, height - 82);
 
+                // 7. Render Teks Baris 3: Kombinasi SLS - Desa - Kecamatan (Amber Gold)
+                ctx.fillStyle = "#fbbf24"; 
+                ctx.font = "bold 12px sans-serif";
+                ctx.fillText(labelWilayah, 20, height - 60);
+
+                // 8. Render Teks Baris 4 & 5: Waktu & Titik Koordinat (Monospace Font)
+                ctx.fillStyle = "#cbd5e1"; 
+                ctx.font = "11px monospace";
+                ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
+                ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+
+                // 9. Kompresi Gambar Hasil Akhir Watermark
                 const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
                 setPmlPhotoBase64(compressedBase64);
                 setPmlCheckingIn(false);
@@ -519,7 +568,8 @@ export default function PmlMonitoringPage() {
                         latitude,
                         longitude,
                         idsubsls: hasilSlsMandiri.idsubsls,
-                        nmsls: hasilSlsMandiri.nmsls
+                        nmsls: hasilSlsMandiri.nmsls,
+                        nmdesa: hasilSlsMandiri.nmdesa // Menyimpan info nama desa ke dalam state koordinat
                     });
 
                     const kecTerdeteksi = String(hasilSlsMandiri.idsubsls).substring(0, 6);
@@ -533,7 +583,8 @@ export default function PmlMonitoringPage() {
                         latitude,
                         longitude,
                         idsubsls: 'WILAYAH-PML',
-                        nmsls: 'Di Luar Poligon SLS'
+                        nmsls: 'Di Luar Poligon SLS',
+                        nmdesa: 'Desa Terdeteksi'
                     });
                     setIsPmlOutsideBorder(true);
                     setShowPmlValidationDialog(true); 
@@ -541,7 +592,7 @@ export default function PmlMonitoringPage() {
                 setPmlCheckingIn(false);
             },
             () => {
-                setPmlCoords({ latitude: null, longitude: null, idsubsls: 'WILAYAH-PML', nmsls: 'Sinyal GPS Lemah' });
+                setPmlCoords({ latitude: null, longitude: null, idsubsls: 'WILAYAH-PML', nmsls: 'Sinyal GPS Lemah', nmdesa: 'Desa Terdeteksi' });
                 setIsPmlOutsideBorder(true); 
                 setShowPmlValidationDialog(true);
                 setPmlCheckingIn(false);
@@ -891,7 +942,7 @@ export default function PmlMonitoringPage() {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
         >
-            {/* HIDDEN INPUT KAMERA UNTUK PML (ANTI-GESTURE BLOCKER BROWSER MOBILE) */}
+            {/* HIDDEN INPUT KAMERA UNTUK PML (MENGGUNAKAN KAMERA BELAKANG OTOMATIS) */}
             <input 
                 type="file" 
                 ref={pmlFileInputRef} 
@@ -943,7 +994,7 @@ export default function PmlMonitoringPage() {
                         {pmlCheckedInToday ? (
                             <div className="w-full bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-2xl py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wide">
                                 <CheckCircle2 size={14} className="text-emerald-400" />
-                                Anda Sudah Melakukan Pengawasan Lapangan Hari Ini
+                                Anda Sudah Melakukan Pengawasan Hari Ini
                             </div>
                         ) : (
                             <>

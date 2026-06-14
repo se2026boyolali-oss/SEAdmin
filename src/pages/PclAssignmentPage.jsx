@@ -434,6 +434,8 @@ export default function PclAssignmentPage() {
         }
     };
 
+    // 🔥 WATERMARK UPDATE ENGINE (DENGAN IDENTITAS PETUGAS & DILENGKAPI INFO SLS KONTEKSTUAL)
+// 🔥 WATERMARK UPDATE ENGINE (SLS + DESA + KECAMATAN COMBINED)
     const handleCapturePhoto = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -460,22 +462,76 @@ export default function PclAssignmentPage() {
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
 
+                // 1. Inisialisasi Variabel Spasial Kontekstual
+                let nmsls = "";
+                let nmdesa = "";
+                // Ekstrak nama kecamatan dari profile (membuang angka kode di depannya jika ada)
+                let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
+
+                // 2. Ambil data berdasarkan engine tracker yang aktif
+                if (detectedSls) {
+                    nmsls = detectedSls.nmsls;
+                    nmdesa = detectedSls.nmdesa;
+                } else if (manualMode && selectedManualSls) {
+                    const match = allMySls.find(s => String(s.idsubsls).trim() === String(selectedManualSls).trim());
+                    if (match) {
+                        nmsls = match.nmsls;
+                        nmdesa = match.nmdesa;
+                        if (match.nmkec) nmkec = match.nmkec; // Gunakan nmkec dari database jika tersedia
+                    } else {
+                        nmsls = "PILIHAN MANUAL";
+                    }
+                }
+
+                // 3. Gabungkan Info Wilayah Menjadi 1 Baris Solid
+                let wilayahTeks = "MEMINDAI AREA...";
+                if (isOutsideBorderBlock) {
+                    wilayahTeks = "DI LUAR WILAYAH TUGAS";
+                } else if (nmsls) {
+                    wilayahTeks = nmsls;
+                    if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                }
+
                 const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-                const latTeks = currentCoords ? `LAT: ${currentCoords.latitude.toFixed(6)}` : "LAT: MEMINDAI...";
-                const lonTeks = currentCoords ? `LON: ${currentCoords.longitude.toFixed(6)}` : "LON: MEMINDAI...";
-                const labelSensus = `SENSUS EKONOMI 2026 - PCL`;
+                const latTeks = currentCoords ? currentCoords.latitude.toFixed(6) : "MEMINDAI...";
+                const lonTeks = currentCoords ? currentCoords.longitude.toFixed(6) : "MEMINDAI...";
+                
+                const labelSensus = `SENSUS EKONOMI 2026`;
+                const labelPcl = `NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PETUGAS LAPANGAN').toUpperCase()}`;
+                const labelSls = `LOKASI   : ${String(wilayahTeks).toUpperCase()}`;
 
-                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-                ctx.fillRect(0, height - 100, width, 100);
+                // 4. Render Background Panel Watermark (Slate Dark Elegant)
+                const panelHeight = 135;
+                ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
+                ctx.fillRect(0, height - panelHeight, width, panelHeight);
 
+                // 5. Render Garis Aksen Atas Berwarna Oranye Jingga Khas BPS
+                ctx.fillStyle = "#f97316"; 
+                ctx.fillRect(0, height - panelHeight, width, 4);
+
+                // 6. Cetak Teks Utama: Sensus Ekonomi
                 ctx.fillStyle = "#ffffff";
-                ctx.font = "bold 16px sans-serif";
-                ctx.fillText(labelSensus, 20, height - 70);
+                ctx.font = "bold 15px sans-serif";
+                ctx.fillText(labelSensus, 20, height - 105);
 
-                ctx.font = "14px monospace";
-                ctx.fillText(tglTeks, 20, height - 45);
-                ctx.fillText(`${latTeks} | ${lonTeks}`, 20, height - 20);
+                // 7. Cetak Teks Kedua: Nama PCL Akurat (Sky Blue Accent)
+                ctx.fillStyle = "#38bdf8"; 
+                ctx.font = "bold 12px sans-serif";
+                ctx.fillText(labelPcl, 20, height - 82);
 
+                // 8. Cetak Teks Ketiga: Kombinasi SLS - DESA - KECAMATAN (Amber/Gold Accent)
+                ctx.fillStyle = "#fbbf24"; 
+                ctx.font = "bold 12px sans-serif";
+                ctx.fillText(labelSls, 20, height - 60);
+
+                // 9. Cetak Metadata Logistik Sistem (Monospace Typography)
+                ctx.fillStyle = "#cbd5e1"; 
+                ctx.font = "11px monospace";
+                ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
+                ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+
+                // 10. Enkapsulasi Hasil Gambar
                 const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
                 setPhotoBase64(compressedBase64);
                 setActionLoading(false);
@@ -672,22 +728,21 @@ export default function PclAssignmentPage() {
     }
 
     return (
-        <div
+       <div
             className="h-[100dvh] w-screen bg-slate-50 font-sans flex flex-col relative overflow-hidden text-slate-800"
             onTouchStart={onTouchStart}
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
         >
-            {/* INPUT KAMERA TERSEMBUNYI SECARA UNCONDITIONAL DI DOM (ANTI-BLOCKER USER GESTURE) */}
+            {/* 🟢 PASANG KEMBALI INPUT KAMERA INI DI SINI */}
             <input 
                 type="file" 
                 ref={fileInputRef} 
                 accept="image/*" 
-                capture="user" 
+                capture="user" // Ubah ke "environment" jika ingin kamera belakang otomatis terbuka
                 className="hidden" 
                 onChange={handleCapturePhoto} 
             />
-
             {/* AREA MAIN PROFILE CARD */}
             <div className="p-4 bg-slate-50 shrink-0">
                 <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-3xl p-5 shadow-xl border border-slate-700/50">

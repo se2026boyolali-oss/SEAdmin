@@ -25,77 +25,77 @@ export default function LoginPage() {
       });
 
       // Langkah B: Jika akun auth belum ada atau password default dicoba pertama kali
-      if (loginError) {
-        
-        // 1. Cek apakah email ini sudah didaftarkan terlebih dahulu oleh Admin di tabel app_users
-        const { data: registeredUser } = await supabase
-          .from('app_users')
-          .select('*')
-          .eq('email', inputEmail)
-          .maybeSingle();
+if (loginError) {
+        // 1. Ambil data pengecekan secara paralel (menghemat waktu & mengurangi beban traffic)
+        const [checkUser, checkPetugas] = await Promise.all([
+          supabase.from('app_users').select('*').eq('email', inputEmail).maybeSingle(),
+          supabase.from('petugas').select('*').eq('email', inputEmail).eq('status', 'Diterima')
+        ]);
 
-        // 2. Cek apakah termasuk kategori PML (Jika tidak ada di app_users)
-        let registeredPml = null;
-        if (!registeredUser) {
-          const { data: pmlCheck } = await supabase
-            .from('petugas')
-            .select('*')
-            .eq('email', inputEmail)
-            .eq('posisi_tugas', 'PML')
-            .eq('status', 'Diterima')
-            .maybeSingle();
-          registeredPml = pmlCheck;
-        }
+        const registeredUser = checkUser.data;
+        const allPetugasData = checkPetugas.data || [];
 
-        // 3. TAMBAHAN: Cek apakah termasuk kategori PCL (Jika tidak ada di app_users dan bukan PML)
-        let registeredPcl = null;
-        if (!registeredUser && !registeredPml) {
-          const { data: pclCheck } = await supabase
-            .from('petugas')
-            .select('*')
-            .eq('email', inputEmail)
-            .eq('posisi_tugas', 'PCL')
-            .eq('status', 'Diterima')
-            .maybeSingle();
-          registeredPcl = pclCheck;
-        }
+        // Filter data petugas berdasarkan posisi tugas masing-masing
+        const registeredPml = allPetugasData.find(p => p.posisi_tugas === 'PML') || null;
+        const registeredPcl = allPetugasData.find(p => p.posisi_tugas === 'PCL') || null;
 
         // KUNCI KEAMANAN MUTLAK: Jika email tidak terdata di kategori manapun, TOLAK langsung!
         if (!registeredUser && !registeredPml && !registeredPcl) {
           throw new Error('Email Anda belum didaftarkan di dalam sistem. Silakan hubungi Admin BPS Kabupaten Boyolali.');
         }
 
-        // KUNCI KEAMANAN KEDUA: Jika terdaftar tetapi password masukan bukan password default aktivasi '123456'
-        if (password !== '123456') {
-          throw new Error('Email terdaftar di basis data, namun password awal yang Anda masukkan salah.');
+        // 🛠️ ANALISIS PENYEBAB 429:
+        // Jika akun SUDAH ada di 'app_users', artinya petugas ini SUDAH PERNAH AKTIVASI.
+        // Jika loginError tetap muncul, berarti dia murni SALAH MEMASUKKAN PASSWORD barunya, BUKAN ingin aktivasi!
+        if (registeredUser) {
+          throw new Error('Email terdaftar, namun password yang Anda masukkan salah. Silakan coba lagi atau hubungi Admin untuk reset password.');
         }
 
-        // --- PROSES AKTIVASI AKUN LEGAL VIA SDK (Lolos Validasi Keamanan) ---
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: inputEmail,
-          password: '123456',
-        });
+        // KUNCI KEAMANAN KEDUA: Jika belum punya akun app_users (murni aktivasi baru) tapi password bukan '123456'
+        if (password !== '123456') {
+          throw new Error('Email terdaftar di basis data, namun password awal untuk aktivasi pertama kali salah (Gunakan: 123456).');
+        }
 
-        if (signUpError) throw signUpError;
+        // --- PROSES AKTIVASI AKUN LEGAL VIA SDK (Hanya dieksekusi jika akun murni belum aktivasi) ---
+        let signUpData = null;
+        let signUpError = null;
+
+        try {
+          const res = await supabase.auth.signUp({
+            email: inputEmail,
+            password: '123456',
+          });
+          signUpData = res.data;
+          signUpError = res.error;
+        } catch (signUpCatchErr) {
+          signUpError = signUpCatchErr;
+        }
+
+        // 🛠️ ANTISIPASI ERROR 429 & USER ALREADY REGISTERED KARENA CACHE RUSAK
+        if (signUpError) {
+          if (signUpError.message?.toLowerCase().includes("already registered") || signUpError.status === 429) {
+            // Skenario penyelamatan: Coba langsung paksa masuk menggunakan kredensial default '123456'
+            const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
+              email: inputEmail,
+              password: '123456'
+            });
+            if (retryError) throw new Error('Gagal melakukan aktivasi otomatis atau server sedang sibuk. Silakan bersihkan histori browser Anda atau tunggu 1 menit.');
+            signUpData = retryData;
+          } else {
+            throw signUpError;
+          }
+        }
 
         const sessionUser = signUpData?.user || signUpData?.data?.user;
 
         if (sessionUser) {
           const newUid = sessionUser.id;
 
-          if (registeredUser) {
-            // JIKA DIA ADMIN / PEGAWAI: Perbarui baris data admin dengan UUID Auth resmi
-            const { error: updateError } = await supabase
-              .from('app_users')
-              .update({ id: newUid, is_first_login: true })
-              .eq('email', inputEmail);
+          // Hapus sisa data duplikat jika ada untuk mencegah error Primary Key (id) berkali-kali
+          await supabase.from('app_users').delete().eq('email', inputEmail);
 
-            if (updateError) throw updateError;
-
-          } else if (registeredPml) {
+          if (registeredPml) {
             // JIKA DIA PML: Buat profil baru di app_users sebagai role pml
-            await supabase.from('app_users').delete().eq('email', inputEmail);
-            
             const { error: insertError } = await supabase
               .from('app_users')
               .insert({
@@ -111,8 +111,6 @@ export default function LoginPage() {
 
           } else if (registeredPcl) {
             // JIKA DIA PCL: Buat profil baru di app_users sebagai role pcl
-            await supabase.from('app_users').delete().eq('email', inputEmail);
-            
             const { error: insertError } = await supabase
               .from('app_users')
               .insert({
