@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
     Users, MapPin, AlertTriangle, CheckCircle2,
     Save, RefreshCw, Search, ChevronDown, ChevronUp, 
-    Navigation, Camera, WifiOff, CloudLightning, Filter, LogOut, Send, HelpCircle
+    Navigation, Camera, WifiOff, CloudLightning, Filter, LogOut, Send, HelpCircle, ShieldAlert
 } from 'lucide-react';
 
 // =========================================================================
@@ -15,7 +15,6 @@ const initPmlOfflineDB = () => {
         const request = indexedDB.open("BpsPmlOfflineDB", 1);
         request.onupgradeneeded = (e) => {
             const db = e.target.result;
-            // Gunakan nama yang konsisten: "pending_realisasi"
             if (!db.objectStoreNames.contains("pending_realisasi")) {
                 db.createObjectStore("pending_realisasi", { keyPath: "id", autoIncrement: true });
             }
@@ -140,9 +139,15 @@ export default function PmlMonitoringPage() {
 
     // CONTROL FOTO MANDIRI PML & KOORDINAT GPS PML
     const [pmlPhotoBase64, setPmlPhotoBase64] = useState(null);
-    const [rawPmlPhotoFile, setRawPmlPhotoFile] = useState(null); // State penampung berkas mentah pml
+    const [rawPmlPhotoFile, setRawPmlPhotoFile] = useState(null); 
     const [pmlCoords, setPmlCoords] = useState(null);
     const [showPmlCameraCard, setShowPmlCameraCard] = useState(false);
+
+    // CONTROL MODE DARURAT UPLOAD MANUAL UNTUK PML
+    const [allowManualMode, setAllowManualMode] = useState(false);
+    const [manualMode, setManualMode] = useState(false);
+    const [selectedManualSls, setSelectedManualSls] = useState("");
+    const [selectedManualDate, setSelectedManualDate] = useState("");
 
     // STATE KONTROL INPUT DAN ANTRIAN OFFLINE
     const [offlineInputCount, setOfflineInputCount] = useState(0);
@@ -170,7 +175,10 @@ export default function PmlMonitoringPage() {
         return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
     };
 
-    // FIX INFINITE LOOP LOGIC: Ubah generator menjadi fungsi biasa tanpa mengubah state internal di dalamnya secara radikal
+    useEffect(() => {
+        setSelectedManualDate(getTodayDateString());
+    }, []);
+
     const generateLast7Days = useCallback(() => {
         const dates = [];
         for (let i = 6; i >= 0; i--) {
@@ -200,6 +208,23 @@ export default function PmlMonitoringPage() {
         }
     };
 
+    // FIX BUG: Bersihkan nilai fisik DOM input agar re-upload file di luar wilayah tidak macet
+    const resetPmlForm = useCallback(() => {
+        setPmlCoords(null);
+        setSelectedManualSls("");
+        setManualMode(false);
+        setPmlPhotoBase64(null);
+        setRawPmlPhotoFile(null);
+        setIsPmlOutsideBorder(false);
+        setShowPmlCameraCard(false);
+        setShowPmlValidationDialog(false); 
+        setPmlCheckingIn(false);
+        if (pmlFileInputRef.current) {
+            pmlFileInputRef.current.value = "";
+        }
+        setSelectedManualDate(getTodayDateString());
+    }, []);
+
     // =========================================================================
     // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL
     // =========================================================================
@@ -212,10 +237,30 @@ export default function PmlMonitoringPage() {
         const cleanPmlEmail = pmlEmail.toLowerCase().trim();
 
         const rentangTanggal = generateLast7Days();
-        setLast7Dates(rentangTanggal); // Set dilakukan di sini sesudah kalkulasi aman
+        setLast7Dates(rentangTanggal); 
         const tglHMinus6 = rentangTanggal[0];
 
         await checkOfflineInputQueueCount();
+
+        if (navigator.onLine) {
+            try {
+                const { data: remoteConfig } = await supabase
+                    .from('app_settings')
+                    .select('value_boolean')
+                    .eq('key', 'allow_manual_upload')
+                    .single();
+                if (remoteConfig) {
+                    const isAllowed = remoteConfig.value_boolean === true;
+                    setAllowManualMode(isAllowed);
+                    localStorage.setItem('cache_allow_manual_upload', isAllowed ? 'true' : 'false');
+                }
+            } catch (cfgErr) {
+                console.warn("Gagal lookup remote admin config settings:", cfgErr.message);
+            }
+        } else {
+            const cachedConfig = localStorage.getItem('cache_allow_manual_upload');
+            setAllowManualMode(cachedConfig === 'true');
+        }
 
         if (!navigator.onLine) {
             console.warn("⚠️ Mode Luring PML: Mengambil status pengawasan dari cache lokal HP.");
@@ -284,7 +329,6 @@ export default function PmlMonitoringPage() {
             const allMasterSlsArray = masterSls || [];
             const masterSlsMap = new Map(allMasterSlsArray.map(m => [String(m.idsubsls).trim(), m]));
 
-            // Optimasi Indexing Log Check-in PCL via HashMap O(1)
             const logsPclMap = new Map();
             (rentangLogs || []).forEach(log => {
                 const emailKey = log.petugas_email.toLowerCase().trim();
@@ -294,7 +338,6 @@ export default function PmlMonitoringPage() {
 
             const daftarEmailBinaan = (petugasData || []).map(pcl => pcl.email.toLowerCase().trim());
 
-            // Ambil daftar SLS khusus binaan untuk target input halaman ke-2
             const slsKhususBinaan = allMasterSlsArray.filter(sls => {
                 if (!sls.petugas_id) return false;
                 return daftarEmailBinaan.includes(sls.petugas_id.toLowerCase().trim());
@@ -382,7 +425,7 @@ export default function PmlMonitoringPage() {
         if (!authLoading) {
             fetchPmlData();
         }
-    }, [authLoading]); // Dipangkas dari profile untuk menghancurkan infinite trigger loop
+    }, [authLoading]); 
 
     useEffect(() => {
         const handlePmlSignalToggle = () => checkOfflineInputQueueCount();
@@ -394,7 +437,6 @@ export default function PmlMonitoringPage() {
         };
     }, []);
 
-    // Penampung File mentah pengawasan
     const handlePmlCapturePhoto = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -405,110 +447,118 @@ export default function PmlMonitoringPage() {
     // AUTOMATIC WATERMARK ENGINE UNTUK PML (GARANSI GPS KOORDINAT PATEN)
     // =========================================================================
     useEffect(() => {
-    // 1. Validasi awal: Jangan proses jika belum ada file atau sedang proses check-in
-    if (!rawPmlPhotoFile || pmlCheckingIn) return;
+        if (!rawPmlPhotoFile || pmlCheckingIn) return;
 
-    const generateLivePmlWatermark = () => {
-        const reader = new FileReader();
+        const generateLivePmlWatermark = () => {
+            const reader = new FileReader();
 
-        // Error Handling: Jika gagal membaca file (misal file korup)
-        reader.onerror = () => {
-            console.error("FileReader Error: Gagal membaca berkas foto.");
-            alert("Gagal memproses gambar. Silakan coba ambil foto ulang.");
-        };
-
-        reader.readAsDataURL(rawPmlPhotoFile);
-        
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target.result;
-
-            // Error Handling: Jika gambar tidak bisa dimuat
-            img.onerror = () => {
-                console.error("Image Load Error: Gambar tidak valid.");
+            reader.onerror = () => {
+                console.error("FileReader Error: Gagal membaca berkas foto.");
+                alert("Gagal memproses gambar. Silakan coba ambil foto ulang.");
             };
 
-            img.onload = () => {
-                const MAX_WIDTH = 800;
-                let width = img.width;
-                let height = img.height;
+            reader.readAsDataURL(rawPmlPhotoFile);
+            
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
 
-                if (width > MAX_WIDTH) {
-                    height = Math.round((height * MAX_WIDTH) / width);
-                    width = MAX_WIDTH;
-                }
+                img.onerror = () => {
+                    console.error("Image Load Error: Gambar tidak valid.");
+                };
 
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                
-                if (!ctx) return; // Keamanan jika canvas gagal diinisialisasi
-                
-                ctx.drawImage(img, 0, 0, width, height);
+                img.onload = () => {
+                    const MAX_WIDTH = 800;
+                    let width = img.width;
+                    let height = img.height;
 
-                // --- LOGIKA WATERMARK ---
-                let nmsls = pmlCoords?.nmsls || "";
-                let nmdesa = pmlCoords?.nmdesa || "";
-                let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
-
-                if (pmlCoords?.idsubsls && pmlCoords.idsubsls !== 'WILAYAH-PML') {
-                    const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(pmlCoords.idsubsls).trim());
-                    if (match) {
-                        if (!nmsls) nmsls = match.nmsls;
-                        if (!nmdesa) nmdesa = match.nmdesa;
+                    if (width > MAX_WIDTH) {
+                        height = Math.round((height * MAX_WIDTH) / width);
+                        width = MAX_WIDTH;
                     }
-                }
 
-                let wilayahTeks = "MEMINDAI WILAYAH...";
-                if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
-                    wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
-                    if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
-                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                } else if (nmsls) {
-                    wilayahTeks = nmsls;
-                    if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
-                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    
+                    if (!ctx) return; 
+                    
+                    ctx.drawImage(img, 0, 0, width, height);
 
-                const tglTeks = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-                const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
-                const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
-                
-                // Panel Watermark
-                const panelHeight = 135;
-                ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
-                ctx.fillRect(0, height - panelHeight, width, panelHeight);
-                ctx.fillStyle = "#f97316"; 
-                ctx.fillRect(0, height - panelHeight, width, 4);
+                    let nmsls = pmlCoords?.nmsls || "";
+                    let nmdesa = pmlCoords?.nmdesa || "";
+                    let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
 
-                // Teks
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "bold 15px sans-serif";
-                ctx.fillText(`PENGAWASAN SENSUS EKONOMI 2026`, 20, height - 105);
+                    if (manualMode && selectedManualSls) {
+                        const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(selectedManualSls).trim());
+                        if (match) {
+                            nmsls = match.nmsls;
+                            nmdesa = match.nmdesa;
+                        } else {
+                            nmsls = "PENGAWASAN MANUAL";
+                        }
+                    } else if (pmlCoords?.idsubsls && pmlCoords.idsubsls !== 'WILAYAH-PML') {
+                        const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(pmlCoords.idsubsls).trim());
+                        if (match) {
+                            if (!nmsls) nmsls = match.nmsls;
+                            if (!nmdesa) nmdesa = match.nmdesa;
+                        }
+                    }
 
-                ctx.fillStyle = "#38bdf8"; 
-                ctx.font = "bold 12px sans-serif";
-                ctx.fillText(`NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`, 20, height - 82);
+                    let wilayahTeks = "MEMINDAI WILAYAH...";
+                    if (manualMode) {
+                        wilayahTeks = nmsls;
+                        if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                        if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                    } else if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
+                        wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
+                        if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
+                        if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                    } else if (nmsls) {
+                        wilayahTeks = nmsls;
+                        if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                        if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                    }
 
-                ctx.fillStyle = "#fbbf24"; 
-                ctx.font = "bold 12px sans-serif";
-                ctx.fillText(`LOKASI  : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
+                    const tglTeks = manualMode 
+                        ? `${selectedManualDate} (UPLOAD MANUAL)` 
+                        : new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
-                ctx.fillStyle = "#cbd5e1"; 
-                ctx.font = "11px monospace";
-                ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
-                ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+                    const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
+                    const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
+                    
+                    const panelHeight = 135;
+                    ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
+                    ctx.fillRect(0, height - panelHeight, width, panelHeight);
+                    ctx.fillStyle = "#f97316"; 
+                    ctx.fillRect(0, height - panelHeight, width, 4);
 
-                // Finalisasi
-                const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
-                setPmlPhotoBase64(compressedBase64);
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "bold 15px sans-serif";
+                    ctx.fillText(`PENGAWASAN SENSUS EKONOMI 2026`, 20, height - 105);
+
+                    ctx.fillStyle = "#38bdf8"; 
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.fillText(`NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`, 20, height - 82);
+
+                    ctx.fillStyle = "#fbbf24"; 
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.fillText(`LOKASI   : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
+
+                    ctx.fillStyle = "#cbd5e1"; 
+                    ctx.font = "11px monospace";
+                    ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
+                    ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+
+                    const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
+                    setPmlPhotoBase64(compressedBase64);
+                };
             };
         };
-    };
 
-    generateLivePmlWatermark();
-}, [rawPmlPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder]);
+        generateLivePmlWatermark();
+    }, [rawPmlPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder, manualMode, selectedManualSls, selectedManualDate]);
 
     const isPointInPolygon = (point, vs) => {
         const x = point[0], y = point[1];
@@ -569,9 +619,16 @@ export default function PmlMonitoringPage() {
             return;
         }
 
+        // FIX BUG: Reset nilai fisik input file DOM agar penekanan absen ulang tidak macet luring
+        if (pmlFileInputRef.current) {
+            pmlFileInputRef.current.value = "";
+        }
+
         setPmlCheckingIn(true);
         setIsPmlOutsideBorder(false);
         setShowPmlValidationDialog(false);
+        setManualMode(false);
+        setSelectedManualSls("");
         setPmlPhotoBase64(null);
         setRawPmlPhotoFile(null);
         setShowPmlCameraCard(true); 
@@ -612,9 +669,9 @@ export default function PmlMonitoringPage() {
             },
             () => {
                 setPmlCoords({ latitude: null, longitude: null, idsubsls: 'WILAYAH-PML', nmsls: 'Sinyal GPS Lemah', nmdesa: 'Desa Terdeteksi' });
-                setIsPmlOutsideBorder(true); 
-                setShowPmlValidationDialog(true);
+                setManualMode(true);
                 setPmlCheckingIn(false);
+                alert("⚠️ Sinyal satelit GPS lemah. Aplikasi beralih otomatis ke mode pilihan manual.");
             },
             { enableHighAccuracy: true, timeout: 25000 }
         );
@@ -623,10 +680,10 @@ export default function PmlMonitoringPage() {
     };
 
     const submitPmlCheckIn = async () => {
-        if (submitSiklusLoading) return; // Anti dobel klik di modal kirim pml
+        if (submitSiklusLoading) return; 
 
         const pmlEmail = user?.email || profile?.email;
-        const tglHariIni = getTodayDateString();
+        const tglHariIni = manualMode ? selectedManualDate : getTodayDateString();
 
         if (!pmlPhotoBase64) {
             alert("Wajib mengambil foto bukti pengawasan lapangan atau tunggu hingga watermark selesai dibakar!");
@@ -635,7 +692,7 @@ export default function PmlMonitoringPage() {
 
         setSubmitSiklusLoading(true);
 
-        const idSlsClean = pmlCoords?.idsubsls ? String(pmlCoords.idsubsls).trim() : 'WILAYAH-PML';
+        const idSlsClean = manualMode ? String(selectedManualSls).trim() : (pmlCoords?.idsubsls ? String(pmlCoords.idsubsls).trim() : 'WILAYAH-PML');
         const namaClean = profile?.nama_pengguna ? profile.nama_pengguna.replace(/\s+/g, '_').toUpperCase() : 'PENGAWAS';
         const tglClean = tglHariIni.replace(/-/g, ''); 
         
@@ -648,8 +705,7 @@ export default function PmlMonitoringPage() {
             
             setPmlCheckedInToday(true);
             alert("💾 Absen Pendampingan PML disimpan offline di memori HP!");
-            setShowPmlCameraCard(false);
-            setShowPmlValidationDialog(false); 
+            resetPmlForm();
             setSubmitSiklusLoading(false);
             return;
         }
@@ -682,15 +738,13 @@ export default function PmlMonitoringPage() {
             setPmlCheckedInToday(true);
             localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
             alert("Absen Pengawasan Lapangan Berhasil Tersimpan!");
-            setShowPmlCameraCard(false);
-            setShowPmlValidationDialog(false); 
+            resetPmlForm();
         } catch (err) {
             alert("Gagal mengirim data online, absen disimpan lokal di HP: " + err.message);
             localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
             localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
             setPmlCheckedInToday(true);
-            setShowPmlCameraCard(false);
-            setShowPmlValidationDialog(false);
+            resetPmlForm();
         } finally {
             setSubmitSiklusLoading(false);
         }
@@ -739,7 +793,7 @@ export default function PmlMonitoringPage() {
     }, [user, profile]);
 
     const handleSubmitRealisasiSiklus = async () => {
-        if (submitSiklusLoading) return; // Anti double submission rekap
+        if (submitSiklusLoading) return; 
 
         const pmlEmail = user?.email || profile?.email;
         const now = new Date();
@@ -964,12 +1018,12 @@ export default function PmlMonitoringPage() {
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
         >
-            {/* HIDDEN INPUT KAMERA UNTUK PML (MENGGUNAKAN KAMERA LINGKUNGAN/BELAKANG) */}
+            {/* HIDDEN INPUT KAMERA UNTUK PML (LEPAS CAPTURE USER JIKA ADMIN PERBOLEHKAN BYPASS MANUAL) */}
             <input 
                 type="file" 
                 ref={pmlFileInputRef} 
                 accept="image/*" 
-                capture="user" 
+                capture={allowManualMode ? undefined : "user"} 
                 className="hidden" 
                 onChange={handlePmlCapturePhoto} 
             />
@@ -1031,17 +1085,40 @@ export default function PmlMonitoringPage() {
                                 ) : (
                                     <div className="bg-slate-800 border border-slate-700 p-3 rounded-2xl space-y-3 animate-fadeIn">
                                         <span className="text-[9px] font-black uppercase text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded block text-center">
-                                            Rangkuman Foto & Deteksi Lokasi
+                                            {manualMode ? "Form Input Pendampingan Manual" : "Rangkuman Foto & Deteksi Lokasi"}
                                         </span>
 
                                         {pmlPhotoBase64 ? (
                                             <div className="relative rounded-xl overflow-hidden border border-slate-600">
                                                 <img src={pmlPhotoBase64} alt="PML Bukti" className="w-full h-32 object-cover" />
                                                 <button 
-                                                    onClick={() => pmlFileInputRef.current?.click()} 
-                                                    className="absolute bottom-2 right-2 bg-slate-900/90 text-white p-2 rounded-xl text-[9px] font-black cursor-pointer uppercase"
+                                                    onClick={() => {
+                                                        if(pmlFileInputRef.current) pmlFileInputRef.current.value = "";
+                                                        pmlFileInputRef.current?.click();
+                                                    }} 
+                                                    className="absolute bottom-2 right-2 bg-slate-900/90 text-white px-2.5 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase"
                                                 >
-                                                    Ulangi Foto
+                                                    Ulangi Foto / File
+                                                </button>
+                                            </div>
+                                        ) : rawPmlPhotoFile ? (
+                                            <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
+                                                <RefreshCw className="animate-spin text-orange-500" size={14} />
+                                                <span>Membuat Watermark Spasial...</span>
+                                            </div>
+                                        ) : manualMode ? (
+                                            <div className="p-4 bg-slate-900 border border-slate-700 rounded-xl text-center space-y-2 animate-fadeIn">
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Dokumen Bukti Diperlukan</p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if(pmlFileInputRef.current) pmlFileInputRef.current.value = "";
+                                                        pmlFileInputRef.current?.click();
+                                                    }}
+                                                    className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 shadow-sm"
+                                                >
+                                                    <Camera size={14} />
+                                                    <span>Ambil Kamera / Galeri</span>
                                                 </button>
                                             </div>
                                         ) : (
@@ -1051,22 +1128,53 @@ export default function PmlMonitoringPage() {
                                             </div>
                                         )}
 
-                                        {!pmlCheckingIn && pmlCoords && (
+                                        {!pmlCheckingIn && pmlCoords && !manualMode && (
                                             <div className="text-[10px] text-slate-300 font-bold px-1 space-y-0.5 text-left">
                                                 <p>SLS Terkunci: <span className="text-orange-400 font-black uppercase">{pmlCoords.nmsls}</span></p>
+                                            </div>
+                                        )}
+
+                                        {/* FORM MANUAL KETIKA SATELIT DOWN ATAU ADMIN AKTIFKAN BYPASS */}
+                                        {manualMode && (
+                                            <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 text-left space-y-2.5 animate-fadeIn">
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Tanggal Pengawasan</label>
+                                                    <input 
+                                                        type="date"
+                                                        max={getTodayDateString()}
+                                                        className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
+                                                        value={selectedManualDate}
+                                                        onChange={(e) => setSelectedManualDate(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Target SLS Pendampingan</label>
+                                                    <select
+                                                        className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
+                                                        value={selectedManualSls}
+                                                        onChange={(e) => setSelectedManualSls(e.target.value)}
+                                                    >
+                                                        <option value="">-- Pilih SLS Binaan Anda --</option>
+                                                        {allSlsFlat.map(s => (
+                                                            <option key={s.idsubsls} value={s.idsubsls}>
+                                                                ({s.kdsls}) {s.nmsls} - {s.nmdesa}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
                                             </div>
                                         )}
 
                                         <div className="flex gap-2">
                                             <button 
                                                 disabled={submitSiklusLoading}
-                                                onClick={() => { setShowPmlCameraCard(false); setPmlPhotoBase64(null); setRawPmlPhotoFile(null); }} 
+                                                onClick={resetPmlForm} 
                                                 className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase disabled:opacity-40"
                                             >
                                                 Batal
                                             </button>
                                             <button
-                                                disabled={!pmlPhotoBase64 || pmlCheckingIn || submitSiklusLoading}
+                                                disabled={(manualMode ? !selectedManualSls : !pmlCoords) || !pmlPhotoBase64 || pmlCheckingIn || submitSiklusLoading}
                                                 onClick={submitPmlCheckIn}
                                                 className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-xl text-xs uppercase disabled:bg-slate-700 disabled:text-slate-500 flex items-center justify-center gap-1"
                                             >
@@ -1080,6 +1188,44 @@ export default function PmlMonitoringPage() {
                         )}
                     </div>
                 </div>
+
+                {/* SAKELAR INTERAKTIF TOGGLE MODE MANUAL (HANYA AKTIF JIKA DI-ALLOW DI HALAMAN SETTING ADMIN) */}
+                {allowManualMode && !pmlCheckedInToday && (
+                    <div 
+                        onClick={() => {
+                            const nextState = !manualMode;
+                            setPmlCoords(null);
+                            setPmlPhotoBase64(null);
+                            setRawPmlPhotoFile(null);
+                            setIsPmlOutsideBorder(false);
+                            setSelectedManualSls("");
+                            if (pmlFileInputRef.current) pmlFileInputRef.current.value = "";
+                            setSelectedManualDate(getTodayDateString());
+                            setManualMode(nextState);
+                            if (nextState) {
+                                setShowPmlCameraCard(true);
+                            } else {
+                                setShowPmlCameraCard(false);
+                            }
+                        }}
+                        className="mb-4 bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3.5 text-left shadow-2xs flex items-center justify-between gap-3 cursor-pointer hover:bg-indigo-100/50 active:scale-99 transition-all animate-fadeIn"
+                    >
+                        <div className="flex gap-2.5 items-center min-w-0">
+                            <ShieldAlert size={18} className="text-indigo-600 shrink-0" />
+                            <div className="min-w-0">
+                                <p className="text-xs font-black text-indigo-900 uppercase tracking-tight">Pindah Mode Upload Manual</p>
+                                <p className="text-[10px] text-indigo-700/80 truncate font-medium">Klik untuk mengaktifkan galeri & tanggal manual</p>
+                            </div>
+                        </div>
+                        <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${
+                            manualMode ? 'bg-indigo-600' : 'bg-slate-300'
+                        }`}>
+                            <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out ${
+                                manualMode ? 'translate-x-4' : 'translate-x-0'
+                            }`} />
+                        </div>
+                    </div>
+                )}
 
                 {/* NOTIFIKASI OFFLINE QUEUE */}
                 {offlineInputCount > 0 && (
@@ -1365,22 +1511,18 @@ export default function PmlMonitoringPage() {
 
                         <div className="flex gap-2 pt-2">
                             <button
+                                type="button"
                                 disabled={submitSiklusLoading}
-                                onClick={() => {
-                                    setShowPmlValidationDialog(false);
-                                    setIsPmlOutsideBorder(false);
-                                    setShowPmlCameraCard(false); 
-                                    setPmlPhotoBase64(null);
-                                    setRawPmlPhotoFile(null);
-                                }}
-                                className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-40"
+                                onClick={resetPmlForm}
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-40 cursor-pointer border border-slate-200"
                             >
                                 Batalkan
                             </button>
                             <button
+                                type="button"
                                 disabled={submitSiklusLoading}
                                 onClick={() => setShowPmlValidationDialog(false)}
-                                className="flex-1 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-500/10 disabled:bg-slate-400"
+                                className="flex-1 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-500/10 disabled:bg-slate-400 cursor-pointer"
                             >
                                 Tetap Lanjutkan
                             </button>
@@ -1395,7 +1537,7 @@ export default function PmlMonitoringPage() {
                     onClick={() => setActiveTab(0)}
                     className={`flex flex-col items-center gap-1.5 transition-all outline-none ${activeTab === 0 ? 'text-indigo-400 scale-105' : 'text-slate-500'}`}
                 >
-                    <Users size={18} className={activeTab === 0 ? "text-indigo-400" : "text-slate-500"} />
+                    <Navigation size={18} className={activeTab === 0 ? "text-indigo-400" : "text-slate-500"} />
                     <span className="text-[9px] font-black uppercase tracking-wider">Absen Petugas</span>
                 </button>
 
