@@ -489,11 +489,11 @@ export default function PmlMonitoringPage() {
 
                 ctx.fillStyle = "#38bdf8"; 
                 ctx.font = "bold 12px sans-serif";
-                ctx.fillText(`PML     : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`, 20, height - 82);
+                ctx.fillText(`NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`, 20, height - 82);
 
                 ctx.fillStyle = "#fbbf24"; 
                 ctx.font = "bold 12px sans-serif";
-                ctx.fillText(`WILAYAH  : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
+                ctx.fillText(`LOKASI  : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
 
                 ctx.fillStyle = "#cbd5e1"; 
                 ctx.font = "11px monospace";
