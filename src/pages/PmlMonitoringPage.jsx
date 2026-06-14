@@ -462,7 +462,7 @@ export default function PmlMonitoringPage() {
             reader.readAsDataURL(rawPmlPhotoFile);
             
             reader.onload = (event) => {
-                const img = new Image();
+                const img = new window.Image();
                 img.src = event.target.result;
 
                 img.onerror = () => {
