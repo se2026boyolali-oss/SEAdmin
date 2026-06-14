@@ -1556,7 +1556,7 @@ export default function PmlMonitoringPage() {
                                 type="button"
                                 disabled={submitSiklusLoading}
                                 onClick={() => setShowPmlValidationDialog(false)}
-                                className="flex-1 bg-rose-50 hover:bg-rose-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-500/10 disabled:bg-slate-400 cursor-pointer"
+                                className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all shadow-md shadow-rose-500/10 disabled:bg-slate-400 cursor-pointer"
                             >
                                 Tetap Lanjutkan
                             </button>
