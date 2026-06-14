@@ -772,7 +772,7 @@ export default function PmlMonitoringPage() {
                 }, { onConflict: 'tanggal,pml_email' });
 
             if (error) throw error;
-            alert("🚀 Progres Realisasi Siklus Berhasil Dikirim ke Dashboard Pusat!");
+            alert("🚀 Progres Realisasi Lapangan Berhasil Dikirim ke Dashboard Kabupaten!");
         } catch (err) {
             console.error("Gagal mengirim realisasi siklus:", err.message);
             alert("Gagal mengirim laporan: " + err.message);
