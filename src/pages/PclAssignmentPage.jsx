@@ -791,7 +791,7 @@ export default function PclAssignmentPage() {
                 type="file" 
                 ref={fileInputRef} 
                 accept="image/*" 
-                capture="user"
+                capture={allowManualMode ? undefined : "user"} 
                 className="hidden" 
                 onChange={handleCapturePhoto} 
             />

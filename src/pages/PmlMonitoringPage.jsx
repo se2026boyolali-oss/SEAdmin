@@ -1023,7 +1023,7 @@ export default function PmlMonitoringPage() {
                 type="file" 
                 ref={pmlFileInputRef} 
                 accept="image/*" 
-                capture="user"
+                capture={allowManualMode ? undefined : "user"} 
                 className="hidden" 
                 onChange={handlePmlCapturePhoto} 
             />
