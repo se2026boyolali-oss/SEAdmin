@@ -24,11 +24,13 @@ const PageLoader = () => (
   </div>
 );
 
+// Gerbang Pelindung Rute Privat (Hanya untuk yang sudah login)
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, profile, loading } = useAuth();
   
-  if (loading) return <div className="p-10 text-center font-bold text-slate-500">Memeriksa Sesi...</div>;
+  if (loading) return null; // Ditangani oleh loader global, tapi amankan dengan null
   if (!user) return <Navigate to="/login" replace />;
+  
   if (profile?.is_first_login && window.location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />;
   }
@@ -41,6 +43,15 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   return children;
 };
 
+// 🛠️ TAMBAHAN BARU: Gerbang Pelindung Rute Publik (Mencegah user yang sudah login masuk ke halaman login lagi)
+const PublicRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  
+  if (loading) return null;
+  if (user) return <Navigate to="/" replace />; // Jika sudah login, tendang ke halaman utama
+  return children;
+};
+
 const HomeRouter = () => {
   const { profile } = useAuth();
   if (profile?.role === 'pcl') return <Navigate to="/PCL-Assignment" replace />;
@@ -49,41 +60,57 @@ const HomeRouter = () => {
 };
 
 function AppContent() {
+  const { loading } = useAuth();
+
+  // 🛠️ PERBAIKAN UTAMA: Tahan aplikasi di sini sampai status authentikasi Supabase selesai dicek
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100">
+        <div className="text-sm font-black uppercase tracking-widest text-slate-500 animate-pulse">
+          Memeriksa Sesi Sistem...
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <BrowserRouter>
-      {/* Suspense akan menangkap transisi lazy loading halaman tanpa merusak UI */}
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
+    /* Suspense akan menangkap transisi lazy loading halaman tanpa merusak UI */
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        {/* Halaman login dilindungi oleh PublicRoute agar tidak konflik dengan sesi aktif */}
+        <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+        
+        <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
+        
+        {/* Rute Lapangan Mandiri */}
+        <Route path="/PML-Monitoring" element={<ProtectedRoute allowedRoles={['pml']}><PmlMonitoringPage /></ProtectedRoute>} />
+        <Route path="/PCL-Assignment" element={<ProtectedRoute allowedRoles={['pcl']}><PclAssignmentPage /></ProtectedRoute>} />
+
+        {/* Rute Internal & Manajemen Organisasi */}
+        <Route path="/" element={<ProtectedRoute allowedRoles={['admin', 'pegawai', 'pml', 'pcl']}><Layout /></ProtectedRoute>}>
+          <Route index element={<ProtectedRoute allowedRoles={['admin', 'pegawai', 'pml', 'pcl']}><HomeRouter /></ProtectedRoute>} />
           
-          {/* Rute Lapangan Mandiri (User PML & PCL sama sekali tidak akan men-download file internal Admin) */}
-          <Route path="/PML-Monitoring" element={<ProtectedRoute allowedRoles={['pml']}><PmlMonitoringPage /></ProtectedRoute>} />
-          <Route path="/PCL-Assignment" element={<ProtectedRoute allowedRoles={['pcl']}><PclAssignmentPage /></ProtectedRoute>} />
+          <Route path="dashboard-lapangan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><KabupatenDashboardPage /></ProtectedRoute>} />
+          <Route path="dashboard-alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><Dashboard /></ProtectedRoute>} />
+          <Route path="cek-selisih-muatan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AnomaliMonitoringPage /></ProtectedRoute>} />
+          <Route path="alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AlokasiPage /></ProtectedRoute>} />
+          <Route path="prioritas" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><PrioritasPage /></ProtectedRoute>} />
+          <Route path="pengaturan" element={<ProtectedRoute allowedRoles={['admin']}><SettingsPage /></ProtectedRoute>} />
+        </Route>
 
-          {/* Rute Internal & Manajemen Organisasi */}
-          <Route path="/" element={<ProtectedRoute allowedRoles={['admin', 'pegawai', 'pml', 'pcl']}><Layout /></ProtectedRoute>}>
-            <Route index element={<ProtectedRoute allowedRoles={['admin', 'pegawai', 'pml', 'pcl']}><HomeRouter /></ProtectedRoute>} />
-            
-            <Route path="dashboard-lapangan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><KabupatenDashboardPage /></ProtectedRoute>} />
-            <Route path="dashboard-alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><Dashboard /></ProtectedRoute>} />
-            <Route path="cek-selisih-muatan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AnomaliMonitoringPage /></ProtectedRoute>} />
-            <Route path="alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AlokasiPage /></ProtectedRoute>} />
-            <Route path="prioritas" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><PrioritasPage /></ProtectedRoute>} />
-            <Route path="pengaturan" element={<ProtectedRoute allowedRoles={['admin']}><SettingsPage /></ProtectedRoute>} />
-          </Route>
-
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
-    </BrowserRouter>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    /* 🛠️ PERBAIKAN POSISI: BrowserRouter diletakkan di level tertinggi membungkus semua komponen */
+    <BrowserRouter>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
