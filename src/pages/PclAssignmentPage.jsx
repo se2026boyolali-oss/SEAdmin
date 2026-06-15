@@ -7,8 +7,11 @@ import {
     CloudLightning, AlertOctagon, LogOut, HelpCircle, Image
 } from 'lucide-react';
 
+// Cache global memori untuk menampung file GeoJSON kecamatan agar tidak di-fetch berulang kali via jaringan
+const geojsonCache = {};
+
 // =========================================================================
-// ENGINE INITIALIZATION: INDEXEDDB UNTUK ANTREAN OFFLINE
+// ENGINE INITIALIZATION: INDEXEDDB UNTUK ANTREAN OFFLINE PCL
 // =========================================================================
 const initOfflineDB = () => {
     return new Promise((resolve, reject) => {
@@ -31,6 +34,12 @@ export default function PclAssignmentPage() {
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
 
+    // Objek Canvas tersembunyi yang persisten untuk merender watermark on-demand saat kirim absen (Hemat RAM)
+    const canvasRef = useRef(null);
+    if (!canvasRef.current) {
+        canvasRef.current = document.createElement('canvas');
+    }
+
     // State Navigasi Slider
     const [activeTab, setActiveTab] = useState(0);
     const [touchStart, setTouchStart] = useState(null);
@@ -38,8 +47,8 @@ export default function PclAssignmentPage() {
 
     // State Data & Loading
     const [loading, setLoading] = useState(true);
-    const [gpsLoading, setGpsLoading] = useState(false); // State khusus background GPS tracking
-    const [actionLoading, setActionLoading] = useState(false); // State untuk upload/sync jaringan
+    const [gpsLoading, setGpsLoading] = useState(false); 
+    const [actionLoading, setActionLoading] = useState(false); 
     const [allMySls, setAllMySls] = useState([]);
     const [todayCheckIns, setTodayCheckIns] = useState([]);
     const [historyDates, setHistoryDates] = useState([]);
@@ -50,20 +59,17 @@ export default function PclAssignmentPage() {
     const [manualMode, setManualMode] = useState(false);
     const [selectedManualSls, setSelectedManualSls] = useState("");
     
-    // State Baru: Kontrol Hak Akses Upload Manual dari Halaman Setting Admin
     const [allowManualMode, setAllowManualMode] = useState(false);
     const [selectedManualDate, setSelectedManualDate] = useState("");
 
     // BLOCKER JIKA PETUGAS DI LUAR WILAYAH KECAMATAN TUGAS
     const [isOutsideBorderBlock, setIsOutsideBorderBlock] = useState(false);
 
-    // STATE: FOTO, WATERMARK, DAN OFFLINE STATUS
-    const [photoBase64, setPhotoBase64] = useState(null);
+    // STATE OPTIMALISASI: Menggunakan Object URL Preview (Blob) menggantikan Base64 berat di State
+    const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
     const [offlineCount, setOfflineCount] = useState(0);
     const [isSyncing, setIsSyncing] = useState(false);
-    
-    // State Baru: Memisahkan penampung berkas mentah sebelum dibakar watermark canvas
-    const [rawPhotoFile, setRawPhotoFile] = useState(null);
+    const [rawPhotoFile, setRawPhotoFile] = useState(null); 
     
     // State untuk kontrol modal peringatan luar wilayah tugas
     const [showValidationDialog, setShowValidationDialog] = useState(false);
@@ -78,16 +84,15 @@ export default function PclAssignmentPage() {
         return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
     };
 
-    // Set default tanggal manual ke hari ini saat inisialisasi awal komponen
     useEffect(() => {
         setSelectedManualDate(getTodayDateString());
     }, []);
 
-    const getKecamatanCode = () => {
+    const getKecamatanCode = useCallback(() => {
         if (!profile?.kecamatan_tugas) return null;
         const match = profile.kecamatan_tugas.match(/^\d+/);
         return match ? match[0] : null;
-    };
+    }, [profile?.kecamatan_tugas]);
 
     const checkOfflineQueueCount = async () => {
         try {
@@ -103,16 +108,16 @@ export default function PclAssignmentPage() {
 
     const downloadAndCacheGeoJson = async (kodeKec) => {
         try {
-            if (!navigator.onLine) return;
+            if (!navigator.onLine || geojsonCache[kodeKec]) return;
             const res = await fetch(`/geojson/${kodeKec}.geojson`);
             const data = await res.json();
+            geojsonCache[kodeKec] = data;
             localStorage.setItem(`cache_geojson_kec_${kodeKec}`, JSON.stringify(data));
         } catch (e) {
             console.error("Gagal melakukan pra-load data spasial kecamatan:", e);
         }
     };
 
-    // Algoritma Ray-Casting untuk mencocokkan titik GPS ke dalam poligon SLS resmi luring
     const isPointInPolygon = (point, vs) => {
         const x = point[0], y = point[1];
         let inside = false;
@@ -132,14 +137,21 @@ export default function PclAssignmentPage() {
 
         try {
             let geojsonData = null;
-            const localMap = localStorage.getItem(`cache_geojson_kec_${kodeKec}`);
 
-            if (localMap) {
-                geojsonData = JSON.parse(localMap);
+            // Memeriksa cache memory global terlebih dahulu (sangat cepat dan hemat kuota data)
+            if (geojsonCache[kodeKec]) {
+                geojsonData = geojsonCache[kodeKec];
             } else {
-                if (!navigator.onLine) return null;
-                const response = await fetch(`/geojson/${kodeKec}.geojson`);
-                geojsonData = await response.json();
+                const localMap = localStorage.getItem(`cache_geojson_kec_${kodeKec}`);
+                if (localMap) {
+                    geojsonData = JSON.parse(localMap);
+                    geojsonCache[kodeKec] = geojsonData;
+                } else {
+                    if (!navigator.onLine) return null;
+                    const response = await fetch(`/geojson/${kodeKec}.geojson`);
+                    geojsonData = await response.json();
+                    geojsonCache[kodeKec] = geojsonData;
+                }
             }
 
             for (let feature of geojsonData.features) {
@@ -175,12 +187,16 @@ export default function PclAssignmentPage() {
         return null;
     };
 
-    // FIX BUG: Bersihkan nilai fisik kedua input berkas DOM agar penekanan absen ulang bebas hambatan
     const resetForm = useCallback(() => {
         setDetectedSls(null);
         setSelectedManualSls("");
         setManualMode(false);
-        setPhotoBase64(null);
+        
+        // Bersihkan memori Object URL preview lama agar terhindar dari Memory Leak internal browser
+        if (photoPreviewUrl) {
+            URL.revokeObjectURL(photoPreviewUrl);
+        }
+        setPhotoPreviewUrl(null);
         setRawPhotoFile(null); 
         setIsOutsideBorderBlock(false);
         setGpsLoading(false);
@@ -189,14 +205,15 @@ export default function PclAssignmentPage() {
         if (galleryInputRef.current) galleryInputRef.current.value = "";
         
         setSelectedManualDate(getTodayDateString());
-    }, []);
+    }, [photoPreviewUrl]);
 
-    // 🚀 ENGINE INJEKSI KIRIM DATA (ONLINE & OFFLINE) DENGAN PROTEKSI DOUBLE-TAP
+    // =========================================================================
+    // CORE HANDLER: INJEKSI SIMPAN ABSENSI PCL (PROFIL VALIDASI AMAN)
+    // =========================================================================
     const eksekusiKirimBypass = useCallback(async (safeIdSubSls) => {
         if (actionLoading) return;
 
         const pclEmail = user?.email || profile?.email;
-        // Gunakan tanggal pilihan manual jika dalam mode manual, jika tidak gunakan waktu hari ini
         const tglHariIni = manualMode ? selectedManualDate : getTodayDateString();
         const cleanEmail = pclEmail.toLowerCase().trim();
 
@@ -206,6 +223,10 @@ export default function PclAssignmentPage() {
         const tglClean = tglHariIni.replace(/-/g, ''); 
         const namaFileUnik = `SE26_PPL_${safeIdSubSls}_${namaClean}_${tglClean}.jpg`;
 
+        // Ambil screenshot data URL canvas secara on-demand sesaat sebelum post dikirim
+        const canvas = canvasRef.current;
+        const finalBase64Image = canvas ? canvas.toDataURL("image/jpeg", 0.6) : null;
+
         const payloadOfflinePack = {
             tanggal: tglHariIni,
             idsubsls: safeIdSubSls,
@@ -213,7 +234,7 @@ export default function PclAssignmentPage() {
             latitude: currentCoords?.latitude || null,
             longitude: currentCoords?.longitude || null,
             is_within_range: !manualMode,
-            fotoBase64Cadangan: photoBase64
+            fotoBase64Cadangan: finalBase64Image
         };
 
         const matchSlsLokal = allMySls.find(s => String(s.idsubsls).trim() === safeIdSubSls);
@@ -273,7 +294,7 @@ export default function PclAssignmentPage() {
             const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
             const responseGas = await fetch(gasUrl, {
                 method: "POST",
-                body: JSON.stringify({ fotoBase64: photoBase64, namaFile: namaFileUnik })
+                body: JSON.stringify({ fotoBase64: finalBase64Image, namaFile: namaFileUnik })
             });
 
             const hasilGas = await responseGas.json();
@@ -314,12 +335,12 @@ export default function PclAssignmentPage() {
                 alert("Gagal menyimpan luring darurat: " + e.message);
             }
         } finally {
-            setStatusLoading(false);
+            // FIX BUG GAIBA: Mengganti setStatusLoading ke fungsi state yang benar
             setActionLoading(false);
             setShowValidationDialog(false); 
             setPendingTargetId(null);
         }
-    }, [user, profile, currentCoords, manualMode, selectedManualDate, photoBase64, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading]);
+    }, [user, profile, currentCoords, manualMode, selectedManualDate, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading]);
 
     const initPclPage = async () => {
         const pclEmail = user?.email || profile?.email;
@@ -330,7 +351,6 @@ export default function PclAssignmentPage() {
         const cleanEmail = pclEmail.toLowerCase().trim();
         await checkOfflineQueueCount();
 
-        // Ambil setingan control admin dari server Supabase
         if (navigator.onLine) {
             try {
                 const { data: remoteConfig } = await supabase
@@ -355,7 +375,6 @@ export default function PclAssignmentPage() {
         if (kodeKec) downloadAndCacheGeoJson(kodeKec);
 
         if (!navigator.onLine) {
-            console.warn("🌐 [LURING] Memulihkan data penugasan dari memori cache HP.");
             const cachedSls = localStorage.getItem(`cache_sls_beban_${cleanEmail}`);
             if (cachedSls) setAllMySls(JSON.parse(cachedSls));
 
@@ -370,7 +389,6 @@ export default function PclAssignmentPage() {
         }
 
         try {
-            // 1. Ambil data master SLS beban kerja resmi PCL
             const { data: slsData } = await supabase
                 .from('muatan_sls')
                 .select('*')
@@ -380,7 +398,6 @@ export default function PclAssignmentPage() {
             setAllMySls(currentMySls);
             localStorage.setItem(`cache_sls_beban_${cleanEmail}`, JSON.stringify(currentMySls));
 
-            // 2. Ambil log check-in PCL harian
             const { data: allLogs } = await supabase
                 .from('log_checkin_pcl')
                 .select('tanggal, idsubsls')
@@ -459,29 +476,15 @@ export default function PclAssignmentPage() {
         };
     }, []);
 
-    const onTouchStart = (e) => {
-        setTouchEnd(null);
-        setTouchStart(e.targetTouches[0].clientX);
-    };
-
-    const onTouchMove = (e) => {
-        setTouchEnd(e.targetTouches[0].clientX);
-    };
-
+    const onTouchStart = (e) => { setTouchEnd(null); setTouchStart(e.targetTouches[0].clientX); };
+    const onTouchMove = (e) => { setTouchEnd(e.targetTouches[0].clientX); };
     const onTouchEnd = () => {
         if (!touchStart || !touchEnd) return;
         const distance = touchStart - touchEnd;
-        const isLeftSwipe = distance > minSwipeDistance;
-        const isRightSwipe = distance < -minSwipeDistance;
-
-        if (isLeftSwipe && activeTab === 0) {
-            setActiveTab(1);
-        } else if (isRightSwipe && activeTab === 1) {
-            setActiveTab(0);
-        }
+        if (distance > minSwipeDistance && activeTab === 0) setActiveTab(1);
+        if (distance < -minSwipeDistance && activeTab === 1) setActiveTab(0);
     };
 
-    // ⚡ PROSES REKAM BERKAS FOTO MENTAH
     const handleCapturePhoto = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -489,7 +492,7 @@ export default function PclAssignmentPage() {
     };
 
     // =========================================================================
-    // AUTOMATIC WATERMARK ENGINE UNTUK PCL (TERKUNCI SATELIT GPS & ANTI-RACE CONDITION)
+    // AUTOMATIC WATERMARK ENGINE RAMAH RAM & ANTI-LAG (OBJECT URL PREVIEW BLOB)
     // =========================================================================
     useEffect(() => {
         if (!rawPhotoFile || gpsLoading) return;
@@ -516,7 +519,7 @@ export default function PclAssignmentPage() {
                 img.onerror = (err) => {
                     console.error("Image Decode Error:", err);
                     if (isSubscribed) {
-                        alert("RAM HP penuh atau ukuran foto terlalu besar! Silakan turunkan resolusi kamera HP Anda atau gunakan Mode Manual.");
+                        alert("Format berkas gambar bermasalah atau RAM penuh. Silakan coba lagi.");
                         resetForm();
                     }
                 };
@@ -533,25 +536,23 @@ export default function PclAssignmentPage() {
                         width = MAX_WIDTH;
                     }
 
-                    const canvas = document.createElement('canvas');
+                    const canvas = canvasRef.current;
                     canvas.width = width;
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     
                     if (!ctx) {
-                        alert("Gagal mengaktifkan akselerasi grafis HP. Silakan muat ulang aplikasi.");
+                        alert("Gagal mengaktifkan akselerasi grafis HP.");
                         resetForm();
                         return;
                     }
                     
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    // 1. Inisialisasi Variabel Spasial Kontekstual
                     let nmsls = "";
                     let nmdesa = "";
                     let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
 
-                    // 2. Ambil data berdasarkan engine tracker yang aktif
                     if (detectedSls) {
                         nmsls = detectedSls.nmsls;
                         nmdesa = detectedSls.nmdesa;
@@ -566,7 +567,6 @@ export default function PclAssignmentPage() {
                         }
                     }
 
-                    // 3. Gabungkan Info Wilayah Menjadi 1 Baris Solid
                     let wilayahTeks = "MEMINDAI AREA...";
                     if (isOutsideBorderBlock) {
                         wilayahTeks = "DI LUAR WILAYAH TUGAS";
@@ -576,7 +576,6 @@ export default function PclAssignmentPage() {
                         if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
                     }
 
-                    // Watermark tanggal dinamis menyesuaikan pilihan form manual
                     const tglTeks = manualMode 
                         ? `${selectedManualDate} (UPLOAD MANUAL)` 
                         : new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
@@ -588,41 +587,38 @@ export default function PclAssignmentPage() {
                     const labelPcl = `NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PETUGAS LAPANGAN').toUpperCase()}`;
                     const labelSls = `LOKASI   : ${String(wilayahTeks).toUpperCase()}`;
 
-                    // 4. Render Background Panel Watermark (Slate Dark Elegant)
                     const panelHeight = 135;
                     ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
                     ctx.fillRect(0, height - panelHeight, width, panelHeight);
 
-                    // 5. Render Garis Aksen Atas Berwarna Oranye Jingga Khas BPS
                     ctx.fillStyle = "#f97316"; 
                     ctx.fillRect(0, height - panelHeight, width, 4);
 
-                    // 6. Cetak Teks Utama: Sensus Ekonomi
                     ctx.fillStyle = "#ffffff";
                     ctx.font = "bold 15px sans-serif";
                     ctx.fillText(labelSensus, 20, height - 105);
 
-                    // 7. Cetak Teks Kedua: Nama PCL Akurat (Sky Blue Accent)
                     ctx.fillStyle = "#38bdf8"; 
                     ctx.font = "bold 12px sans-serif";
                     ctx.fillText(labelPcl, 20, height - 82);
 
-                    // 8. Cetak Teks Ketiga: Kombinasi SLS - DESA - KECAMATAN (Amber/Gold Accent)
                     ctx.fillStyle = "#fbbf24"; 
                     ctx.font = "bold 12px sans-serif";
                     ctx.fillText(labelSls, 20, height - 60);
 
-                    // 9. Cetak Metadata Logistik Sistem (Monospace Typography)
                     ctx.fillStyle = "#cbd5e1"; 
                     ctx.font = "11px monospace";
                     ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
                     ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
 
-                    // 10. Enkapsulasi Hasil Gambar
-                    const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
-                    if (isSubscribed) {
-                        setPhotoBase64(compressedBase64);
-                    }
+                    // KONVERSI BLOB URL UNTUK PREVIEW RINGAN (ANTI-CRASH)
+                    canvas.toBlob((blob) => {
+                        if (blob && isSubscribed) {
+                            if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+                            const previewBlobUrl = URL.createObjectURL(blob);
+                            setPhotoPreviewUrl(previewBlobUrl);
+                        }
+                    }, "image/jpeg", 0.6);
                 };
             };
 
@@ -636,7 +632,6 @@ export default function PclAssignmentPage() {
         };
     }, [rawPhotoFile, gpsLoading, currentCoords, detectedSls, manualMode, selectedManualSls, selectedManualDate, profile, allMySls, isOutsideBorderBlock]);
 
-    // ⚡ PROSES UTAMA DOUBLE-ENGINE (GPS + KAMERA SIMULTAN)
     const handleDetectLocation = () => {
         if (!navigator.geolocation) {
             alert("HP Anda memblokir fitur lokasi. Aktifkan GPS Anda.");
@@ -649,7 +644,8 @@ export default function PclAssignmentPage() {
         setGpsLoading(true);
         setDetectedSls(null);
         setManualMode(false);
-        setPhotoBase64(null);
+        if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+        setPhotoPreviewUrl(null);
         setRawPhotoFile(null);
         setIsOutsideBorderBlock(false);
 
@@ -667,7 +663,7 @@ export default function PclAssignmentPage() {
                 }
                 setGpsLoading(false);
             },
-            (error) => {
+            () => {
                 setGpsLoading(false);
                 setManualMode(true);
                 alert("⚠️ Sinyal satelit GPS lemah. Aplikasi beralih otomatis ke mode pilihan manual.");
@@ -675,7 +671,6 @@ export default function PclAssignmentPage() {
             { enableHighAccuracy: true, timeout: 25000, maximumAge: 0 }
         );
 
-        // Secara sinkronus langsung memicu kamera HP terbuka tanpa jeda
         cameraInputRef.current?.click();
     };
 
@@ -689,7 +684,7 @@ export default function PclAssignmentPage() {
 
         const safeIdSubSls = String(targetIdSubSls).trim();
 
-        if (!photoBase64) {
+        if (!photoPreviewUrl) {
             alert("Wajib mengambil foto lokasi terlebih dahulu atau tunggu hingga watermark selesai dibuat!");
             return;
         }
@@ -836,26 +831,6 @@ export default function PclAssignmentPage() {
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
         >
-            {/* HIDDEN INPUT UTAMA: Selalu dipaksa membuka hardware kamera secara mutlak */}
-            <input 
-                type="file" 
-                ref={cameraInputRef} 
-                accept="image/*" 
-                capture="user" 
-                className="hidden" 
-                onChange={handleCapturePhoto} 
-            />
-
-            {/* HIDDEN INPUT GALERI: Polosan tanpa capture untuk memberikan akses ke album media galeri */}
-            <input 
-                type="file" 
-                ref={galleryInputRef} 
-                accept="image/*" 
-                className="hidden" 
-                onChange={handleCapturePhoto} 
-            />
-
-            {/* AREA MAIN PROFILE CARD */}
             <div className="p-4 bg-slate-50 shrink-0">
                 <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-3xl p-5 shadow-xl border border-slate-700/50">
                     <div className="flex justify-between items-center gap-2">
@@ -888,7 +863,6 @@ export default function PclAssignmentPage() {
                     </div>
                 </div>
 
-                {/* BANNER REKAP DATA OFFLINE */}
                 {offlineCount > 0 && (
                     <div className="mt-3 bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-2xl flex items-center justify-between text-xs font-bold animate-fadeIn">
                         <div className="flex items-center gap-2">
@@ -906,26 +880,22 @@ export default function PclAssignmentPage() {
                     </div>
                 )}
 
-                {/* DOT INDIKATOR TAB */}
                 <div className="flex justify-center gap-2 mt-4">
                     <button onClick={() => setActiveTab(0)} className={`h-2 transition-all rounded-full ${activeTab === 0 ? 'w-6 bg-orange-500' : 'w-2 bg-slate-300'}`}></button>
                     <button onClick={() => setActiveTab(1)} className={`h-2 transition-all rounded-full ${activeTab === 1 ? 'w-6 bg-orange-500' : 'w-2 bg-slate-300'}`}></button>
                 </div>
             </div>
 
-            {/* CONTAINER PANELS */}
             <div className="flex-1 flex w-[200%] transition-transform duration-300 ease-out overflow-hidden" style={{ transform: `translateX(-${activeTab * 50}%)` }}>
 
                 {/* PANEL 1: ABSENSI UTAMA */}
                 <div className="w-1/2 p-4 shrink-0 flex flex-col justify-start overflow-y-auto pb-12">
                     <div className="space-y-4">
-
                         <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm text-center space-y-5">
                             <div className="flex flex-col items-center justify-center">
                                 <h3 className="text-base font-black text-slate-800">Absensi Lapangan</h3>
                                 <p className="text-xs text-slate-400 mt-1">Tekan tombol di bawah untuk melakukan absensi lapangan.</p>
                                 
-                                {/* UI SWITCH MODE MANUAL (HANYA AKTIF JIKA DI-ALLOW ADMIN DI BACKEND) */}
                                 {allowManualMode && (
                                     <div 
                                         onClick={() => {
@@ -935,7 +905,6 @@ export default function PclAssignmentPage() {
                                         }}
                                         className="mt-3 bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 text-left shadow-xs flex items-center justify-between gap-3 cursor-pointer hover:bg-amber-100/50 active:scale-99 transition-all animate-fadeIn"
                                     >
-                                        {/* Teks Kiri */}
                                         <div className="flex gap-2.5 items-center min-w-0">
                                             <ShieldAlert size={18} className="text-amber-600 shrink-0" />
                                             <div className="min-w-0">
@@ -944,7 +913,6 @@ export default function PclAssignmentPage() {
                                             </div>
                                         </div>
 
-                                        {/* Indikator Switch Kanan */}
                                         <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${
                                             manualMode ? 'bg-amber-600' : 'bg-slate-300'
                                         }`}>
@@ -973,7 +941,6 @@ export default function PclAssignmentPage() {
                                 </div>
                             )}
 
-                            {/* WARNING BLOCKER OUTSIDE POLYGON */}
                             {isOutsideBorderBlock && (
                                 <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 text-left space-y-2 animate-fadeIn">
                                     <div className="flex items-center gap-2 text-rose-700 font-black text-xs uppercase">
@@ -981,7 +948,7 @@ export default function PclAssignmentPage() {
                                         <span>Di Luar Wilayah Tugas</span>
                                     </div>
                                     <p className="text-[11px] text-rose-600 font-bold leading-relaxed">
-                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah to area lokasi tugas asli Anda.
+                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah ke area lokasi tugas asli Anda.
                                     </p>
                                     <button
                                         onClick={resetForm}
@@ -992,17 +959,15 @@ export default function PclAssignmentPage() {
                                 </div>
                             )}
 
-                            {/* SLOT INTERAKSI: PREVIEW FOTO JIKA DIGUNAKAN */}
                             {(rawPhotoFile || gpsLoading || detectedSls || manualMode) && !isOutsideBorderBlock && (
                                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-3 animate-fadeIn">
                                     <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded block text-center">
                                         Rangkuman Foto & Deteksi Lokasi
                                     </span>
 
-                                    {/* Preview Foto */}
-                                    {photoBase64 ? (
+                                    {photoPreviewUrl ? (
                                         <div className="relative rounded-xl overflow-hidden border border-slate-300 shadow-inner">
-                                            <img src={photoBase64} alt="Preview Bukti" className="w-full h-36 object-cover" />
+                                            <img src={photoPreviewUrl} alt="Preview Bukti" className="w-full h-36 object-cover" />
                                             <div className="absolute bottom-2 right-2 flex gap-1.5">
                                                 <button 
                                                     onClick={() => {
@@ -1031,7 +996,6 @@ export default function PclAssignmentPage() {
                                         </div>
                                     ) : null}
 
-                                    {/* Info Deteksi Khusus non-manual mode */}
                                     {gpsLoading ? (
                                         <div className="flex items-center justify-center gap-2 py-3 text-xs font-bold text-slate-500 uppercase tracking-widest">
                                             <RefreshCw className="animate-spin text-orange-500" size={14} />
@@ -1042,7 +1006,7 @@ export default function PclAssignmentPage() {
                                             <h4 className="text-xs font-black text-slate-700 uppercase truncate">Target: {detectedSls.nmsls}</h4>
                                             <p className="text-[10px] text-slate-400 font-medium">Desa: {detectedSls.nmdesa}</p>
                                             <button
-                                                disabled={!photoBase64 || actionLoading}
+                                                disabled={!photoPreviewUrl || actionLoading}
                                                 onClick={() => submitCheckInData(detectedSls.idsubsls)}
                                                 className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300 flex items-center justify-center gap-2"
                                             >
@@ -1054,7 +1018,6 @@ export default function PclAssignmentPage() {
                                 </div>
                             )}
 
-                            {/* FALLBACK FIELD MANUAL (OTOMATIS / AKIBAT CONTROL TOGGLE ADMIN) */}
                             {(manualMode && !isOutsideBorderBlock) && (
                                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left animate-fadeIn space-y-3">
                                     <div className="flex gap-2 items-center text-amber-800 font-bold text-xs uppercase mb-1">
@@ -1062,7 +1025,6 @@ export default function PclAssignmentPage() {
                                         <span>Form Entri Absensi Manual</span>
                                     </div>
 
-                                    {/* Form Input Tanggal Manual */}
                                     <div>
                                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Tanggal Kegiatan</label>
                                         <input 
@@ -1074,7 +1036,6 @@ export default function PclAssignmentPage() {
                                         />
                                     </div>
 
-                                    {/* Form Pilihan SLS Manual */}
                                     <div>
                                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Wilayah SLS Kerja</label>
                                         <select
@@ -1091,7 +1052,6 @@ export default function PclAssignmentPage() {
                                         </select>
                                     </div>
 
-                                    {/* Tombol Ambil File dari Galeri / Kamera */}
                                     <div>
                                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Dokumen Bukti</label>
                                         <div className="flex gap-2">
@@ -1123,7 +1083,7 @@ export default function PclAssignmentPage() {
                                     {selectedManualSls && (
                                         <div className="mt-3 pt-1">
                                             <button
-                                                disabled={!photoBase64 || actionLoading}
+                                                disabled={!photoPreviewUrl || actionLoading}
                                                 onClick={() => submitCheckInData(selectedManualSls)}
                                                 className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300 flex items-center justify-center gap-2"
                                             >
@@ -1250,6 +1210,7 @@ export default function PclAssignmentPage() {
 
                         <div className="flex gap-2 pt-2">
                             <button
+                                type="button"
                                 disabled={actionLoading}
                                 onClick={() => {
                                     setShowValidationDialog(false);
@@ -1261,6 +1222,7 @@ export default function PclAssignmentPage() {
                                 Batalkan
                             </button>
                             <button
+                                type="button"
                                 disabled={actionLoading}
                                 onClick={async () => {
                                     if (actionLoading) return;
