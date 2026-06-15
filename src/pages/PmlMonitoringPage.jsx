@@ -448,28 +448,41 @@ export default function PmlMonitoringPage() {
     // =========================================================================
     // AUTOMATIC WATERMARK ENGINE UNTUK PML (GARANSI GPS KOORDINAT PATEN)
     // =========================================================================
-    useEffect(() => {
-        if (!rawPmlPhotoFile || pmlCheckingIn) return;
+// =========================================================================
+// AUTOMATIC WATERMARK ENGINE UNTUK PML (GARANSI ANTI-STUCK & AMAN MEMORI)
+// =========================================================================
+useEffect(() => {
+    if (!rawPmlPhotoFile || pmlCheckingIn) return;
 
-        const generateLivePmlWatermark = () => {
-            const reader = new FileReader();
+    // Fungsi pembantu untuk membatalkan loading jika terjadi error keras
+    const batalkanKarenaError = (pesan) => {
+        alert(pesan);
+        setRawPmlPhotoFile(null);
+        setPmlPhotoBase64(null);
+        if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+        if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+    };
 
-            reader.onerror = () => {
-                console.error("FileReader Error: Gagal membaca berkas foto.");
-                alert("Gagal memproses gambar. Silakan coba ambil foto ulang.");
+    const generateLivePmlWatermark = () => {
+        const reader = new FileReader();
+
+        reader.onerror = () => {
+            console.error("FileReader Error: Gagal membaca berkas foto.");
+            batalkanKarenaError("Gagal membaca file gambar. Silakan ambil foto ulang.");
+        };
+
+        reader.onload = (event) => {
+            const img = new window.Image();
+            
+            // 1. PASANG HANDLER DULUAN SEBELUM MENGISI .SRC (Mencegah Race Condition)
+            img.onerror = () => {
+                console.error("Image Load Error: Gambar tidak valid.");
+                batalkanKarenaError("Format gambar tidak didukung atau memori HP penuh. Silakan coba lagi.");
             };
 
-            reader.readAsDataURL(rawPmlPhotoFile);
-            
-            reader.onload = (event) => {
-                const img = new window.Image();
-                img.src = event.target.result;
-
-                img.onerror = () => {
-                    console.error("Image Load Error: Gambar tidak valid.");
-                };
-
-                img.onload = () => {
+            img.onload = () => {
+                try {
+                    // Batasi resolusi maksimal untuk mengamankan RAM HP lapangan
                     const MAX_WIDTH = 800;
                     let width = img.width;
                     let height = img.height;
@@ -484,7 +497,10 @@ export default function PmlMonitoringPage() {
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     
-                    if (!ctx) return; 
+                    if (!ctx) {
+                        batalkanKarenaError("Gagal menginisialisasi sistem rendering gambar di HP Anda.");
+                        return; 
+                    }
                     
                     ctx.drawImage(img, 0, 0, width, height);
 
@@ -546,7 +562,7 @@ export default function PmlMonitoringPage() {
 
                     ctx.fillStyle = "#fbbf24"; 
                     ctx.font = "bold 12px sans-serif";
-                    ctx.fillText(`LOKASI   : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
+                    ctx.fillText(`LOKASI    : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
 
                     ctx.fillStyle = "#cbd5e1"; 
                     ctx.font = "11px monospace";
@@ -555,13 +571,21 @@ export default function PmlMonitoringPage() {
 
                     const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
                     setPmlPhotoBase64(compressedBase64);
-                };
+                } catch (canvasErr) {
+                    console.error("Canvas Crash:", canvasErr);
+                    batalkanKarenaError("Gagal menggambar watermark karena keterbatasan memori HP.");
+                }
             };
+
+            // 2. DIISI PALING AKHIR SETELAH ONLOAD & ONERROR SIAP监听
+            img.src = event.target.result;
         };
 
-        generateLivePmlWatermark();
-    }, [rawPmlPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder, manualMode, selectedManualSls, selectedManualDate]);
+        reader.readAsDataURL(rawPmlPhotoFile);
+    };
 
+    generateLivePmlWatermark();
+}, [rawPmlPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder, manualMode, selectedManualSls, selectedManualDate]);
     const isPointInPolygon = (point, vs) => {
         const x = point[0], y = point[1];
         let inside = false;

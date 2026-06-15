@@ -314,6 +314,7 @@ export default function PclAssignmentPage() {
                 alert("Gagal menyimpan luring darurat: " + e.message);
             }
         } finally {
+            setStatusLoading(false);
             setActionLoading(false);
             setShowValidationDialog(false); 
             setPendingTargetId(null);
@@ -338,7 +339,6 @@ export default function PclAssignmentPage() {
                     .eq('key', 'allow_manual_upload')
                     .single();
                 if (remoteConfig) {
-                    // Karena tipenya sudah boolean (bool) di database, langsung ambil nilainya
                     const isAllowed = remoteConfig.value_boolean === true; 
                     setAllowManualMode(isAllowed);
                     localStorage.setItem('cache_allow_manual_upload', isAllowed ? 'true' : 'false');
@@ -494,13 +494,36 @@ export default function PclAssignmentPage() {
     useEffect(() => {
         if (!rawPhotoFile || gpsLoading) return;
 
+        let isSubscribed = true;
+
         const generateLiveWatermark = () => {
             const reader = new FileReader();
-            reader.readAsDataURL(rawPhotoFile);
+            
+            reader.onerror = (err) => {
+                console.error("FileReader Error:", err);
+                if (isSubscribed) {
+                    alert("Gagal membaca file foto dari kamera. Silakan coba ambil foto ulang.");
+                    resetForm();
+                }
+            };
+
             reader.onload = (event) => {
+                if (!isSubscribed) return;
+
                 const img = new window.Image();
                 img.src = event.target.result;
+
+                img.onerror = (err) => {
+                    console.error("Image Decode Error:", err);
+                    if (isSubscribed) {
+                        alert("RAM HP penuh atau ukuran foto terlalu besar! Silakan turunkan resolusi kamera HP Anda atau gunakan Mode Manual.");
+                        resetForm();
+                    }
+                };
+
                 img.onload = () => {
+                    if (!isSubscribed) return;
+
                     const MAX_WIDTH = 800;
                     let width = img.width;
                     let height = img.height;
@@ -514,6 +537,13 @@ export default function PclAssignmentPage() {
                     canvas.width = width;
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
+                    
+                    if (!ctx) {
+                        alert("Gagal mengaktifkan akselerasi grafis HP. Silakan muat ulang aplikasi.");
+                        resetForm();
+                        return;
+                    }
+                    
                     ctx.drawImage(img, 0, 0, width, height);
 
                     // 1. Inisialisasi Variabel Spasial Kontekstual
@@ -590,12 +620,20 @@ export default function PclAssignmentPage() {
 
                     // 10. Enkapsulasi Hasil Gambar
                     const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
-                    setPhotoBase64(compressedBase64);
+                    if (isSubscribed) {
+                        setPhotoBase64(compressedBase64);
+                    }
                 };
             };
+
+            reader.readAsDataURL(rawPhotoFile);
         };
 
         generateLiveWatermark();
+
+        return () => {
+            isSubscribed = false;
+        };
     }, [rawPhotoFile, gpsLoading, currentCoords, detectedSls, manualMode, selectedManualSls, selectedManualDate, profile, allMySls, isOutsideBorderBlock]);
 
     // ⚡ PROSES UTAMA DOUBLE-ENGINE (GPS + KAMERA SIMULTAN)

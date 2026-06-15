@@ -25,7 +25,7 @@ export default function LoginPage() {
       });
 
       // Langkah B: Jika akun auth belum ada atau password default dicoba pertama kali
-if (loginError) {
+      if (loginError) {
         // 1. Ambil data pengecekan secara paralel (menghemat waktu & mengurangi beban traffic)
         const [checkUser, checkPetugas] = await Promise.all([
           supabase.from('app_users').select('*').eq('email', inputEmail).maybeSingle(),
@@ -44,19 +44,18 @@ if (loginError) {
           throw new Error('Email Anda belum didaftarkan di dalam sistem. Silakan hubungi Admin BPS Kabupaten Boyolali.');
         }
 
-        // 🛠️ ANALISIS PENYEBAB 429:
-        // Jika akun SUDAH ada di 'app_users', artinya petugas ini SUDAH PERNAH AKTIVASI.
-        // Jika loginError tetap muncul, berarti dia murni SALAH MEMASUKKAN PASSWORD barunya, BUKAN ingin aktivasi!
-        if (registeredUser) {
-          throw new Error('Email terdaftar, namun password yang Anda masukkan salah. Silakan coba lagi atau hubungi Admin untuk reset password.');
-        }
-
-        // KUNCI KEAMANAN KEDUA: Jika belum punya akun app_users (murni aktivasi baru) tapi password bukan '123456'
+        // 🛠️ PERBAIKAN LOGIKA UTAMA: Cek validitas password '123456' sebelum melempar error
         if (password !== '123456') {
-          throw new Error('Email terdaftar di basis data, namun password awal untuk aktivasi pertama kali salah (Gunakan: 123456).');
+          // Skenario: Akun sudah aktif (ID tidak null) tapi murni SALAH memasukkan password barunya
+          if (registeredUser && registeredUser.id !== null) {
+            throw new Error('Email terdaftar, namun password yang Anda masukkan salah. Silakan coba lagi atau hubungi Admin untuk reset password.');
+          } else {
+            // Skenario: Akun belum aktif / habis di-reset admin (ID null), tapi salah mengetikkan password '123456'
+            throw new Error('Email terdaftar di basis data, namun password awal untuk aktivasi pertama kali salah (Gunakan: 123456).');
+          }
         }
 
-        // --- PROSES AKTIVASI AKUN LEGAL VIA SDK (Hanya dieksekusi jika akun murni belum aktivasi) ---
+        // --- PROSES AKTIVASI / RE-AKTIVASI AKUN LEGAL VIA SDK (Hanya dieksekusi jika password === '123456') ---
         let signUpData = null;
         let signUpError = null;
 
@@ -91,41 +90,29 @@ if (loginError) {
         if (sessionUser) {
           const newUid = sessionUser.id;
 
-          // Hapus sisa data duplikat jika ada untuk mencegah error Primary Key (id) berkali-kali
+          // Hapus sisa data duplikat/lama di app_users jika ada untuk mencegah error Primary Key berkali-kali
           await supabase.from('app_users').delete().eq('email', inputEmail);
 
-          if (registeredPml) {
-            // JIKA DIA PML: Buat profil baru di app_users sebagai role pml
-            const { error: insertError } = await supabase
-              .from('app_users')
-              .insert({
-                id: newUid,
-                email: inputEmail,
-                nama_pengguna: registeredPml.nama_petugas,
-                role: 'pml',
-                kecamatan_tugas: registeredPml.kecamatan_tugas,
-                is_first_login: true
-              });
+          // 🛠️ PENYELAMATAN DATA DATA LAMA: Gunakan fallback ke registeredUser jika data di tabel petugas tidak ada
+          const finalNama = registeredPml?.nama_petugas || registeredPcl?.nama_petugas || registeredUser?.nama_pengguna;
+          const finalRole = registeredPml ? 'pml' : (registeredPcl ? 'pcl' : (registeredUser?.role || 'pcl'));
+          const finalKecamatan = registeredPml?.kecamatan_tugas || registeredPcl?.kecamatan_tugas || registeredUser?.kecamatan_tugas;
 
-            if (insertError) throw insertError;
+          // Buat profil bersih di app_users dengan ID baru dari auth.users
+          const { error: insertError } = await supabase
+            .from('app_users')
+            .insert({
+              id: newUid,
+              email: inputEmail,
+              nama_pengguna: finalNama,
+              role: finalRole,
+              kecamatan_tugas: finalKecamatan,
+              is_first_login: true
+            });
 
-          } else if (registeredPcl) {
-            // JIKA DIA PCL: Buat profil baru di app_users sebagai role pcl
-            const { error: insertError } = await supabase
-              .from('app_users')
-              .insert({
-                id: newUid,
-                email: inputEmail,
-                nama_pengguna: registeredPcl.nama_petugas,
-                role: 'pcl',
-                kecamatan_tugas: registeredPcl.kecamatan_tugas,
-                is_first_login: true
-              });
+          if (insertError) throw insertError;
 
-            if (insertError) throw insertError;
-          }
-
-          // Sukses melakukan aktivasi awal, alihkan ke halaman ubah password resmi
+          // Sukses melakukan aktivasi awal / ulang pasca-reset, alihkan ke halaman ubah password resmi
           navigate('/change-password');
           return;
         } else {
@@ -133,7 +120,7 @@ if (loginError) {
         }
       }
 
-      // Langkah C: Jika login sukses (User lama yang sudah aktivasi)
+      // Langkah C: Jika login sukses tanpa error (User lama yang menggunakan password barunya)
       const { data: profile, error: profileError } = await supabase
         .from('app_users')
         .select('is_first_login')
@@ -153,7 +140,6 @@ if (loginError) {
     } catch (error) {
       setErrorMsg(error.message);
     } finally {
-      // PERBAIKAN: Baris pengebom sisa typo 'loading(false)' sudah dibersihkan total
       setLoading(false);
     }
   };
