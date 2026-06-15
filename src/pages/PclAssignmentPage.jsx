@@ -47,8 +47,8 @@ export default function PclAssignmentPage() {
 
     // State Data & Loading
     const [loading, setLoading] = useState(true);
-    const [gpsLoading, setGpsLoading] = useState(false); 
-    const [actionLoading, setActionLoading] = useState(false); 
+    const [gpsLoading, setGpsLoading] = useState(false);
+    const [actionLoading, setActionLoading] = useState(false);
     const [allMySls, setAllMySls] = useState([]);
     const [todayCheckIns, setTodayCheckIns] = useState([]);
     const [historyDates, setHistoryDates] = useState([]);
@@ -58,7 +58,7 @@ export default function PclAssignmentPage() {
     const [currentCoords, setCurrentCoords] = useState(null);
     const [manualMode, setManualMode] = useState(false);
     const [selectedManualSls, setSelectedManualSls] = useState("");
-    
+
     const [allowManualMode, setAllowManualMode] = useState(false);
     const [selectedManualDate, setSelectedManualDate] = useState("");
 
@@ -69,12 +69,12 @@ export default function PclAssignmentPage() {
     const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
     const [offlineCount, setOfflineCount] = useState(0);
     const [isSyncing, setIsSyncing] = useState(false);
-    const [rawPhotoFile, setRawPhotoFile] = useState(null); 
-    
+    const [rawPhotoFile, setRawPhotoFile] = useState(null);
+
     // State untuk kontrol modal peringatan luar wilayah tugas
     const [showValidationDialog, setShowValidationDialog] = useState(false);
     const [pendingTargetId, setPendingTargetId] = useState(null);
-    
+
     // State Kalender Bulanan
     const [currentMonth, setCurrentMonth] = useState(new Date());
 
@@ -138,7 +138,6 @@ export default function PclAssignmentPage() {
         try {
             let geojsonData = null;
 
-            // Memeriksa cache memory global terlebih dahulu (sangat cepat dan hemat kuota data)
             if (geojsonCache[kodeKec]) {
                 geojsonData = geojsonCache[kodeKec];
             } else {
@@ -191,25 +190,21 @@ export default function PclAssignmentPage() {
         setDetectedSls(null);
         setSelectedManualSls("");
         setManualMode(false);
-        
-        // Bersihkan memori Object URL preview lama agar terhindar dari Memory Leak internal browser
+
         if (photoPreviewUrl) {
             URL.revokeObjectURL(photoPreviewUrl);
         }
         setPhotoPreviewUrl(null);
-        setRawPhotoFile(null); 
+        setRawPhotoFile(null);
         setIsOutsideBorderBlock(false);
         setGpsLoading(false);
-        
+
         if (cameraInputRef.current) cameraInputRef.current.value = "";
         if (galleryInputRef.current) galleryInputRef.current.value = "";
-        
+
         setSelectedManualDate(getTodayDateString());
     }, [photoPreviewUrl]);
 
-    // =========================================================================
-    // CORE HANDLER: INJEKSI SIMPAN ABSENSI PCL (PROFIL VALIDASI AMAN)
-    // =========================================================================
     const eksekusiKirimBypass = useCallback(async (safeIdSubSls) => {
         if (actionLoading) return;
 
@@ -220,10 +215,9 @@ export default function PclAssignmentPage() {
         setActionLoading(true);
 
         const namaClean = profile?.nama_pengguna ? profile.nama_pengguna.replace(/\s+/g, '_').toUpperCase() : 'PETUGAS';
-        const tglClean = tglHariIni.replace(/-/g, ''); 
+        const tglClean = tglHariIni.replace(/-/g, '');
         const namaFileUnik = `SE26_PPL_${safeIdSubSls}_${namaClean}_${tglClean}.jpg`;
 
-        // Ambil screenshot data URL canvas secara on-demand sesaat sebelum post dikirim
         const canvas = canvasRef.current;
         const finalBase64Image = canvas ? canvas.toDataURL("image/jpeg", 0.6) : null;
 
@@ -255,7 +249,7 @@ export default function PclAssignmentPage() {
                     .select('nmsls, nmdesa, kdsls')
                     .eq('idsubsls', safeIdSubSls)
                     .single();
-                
+
                 if (globalSls) {
                     objekHistoriBaru.nmsls = globalSls.nmsls;
                     objekHistoriBaru.nmdesa = globalSls.nmdesa;
@@ -335,9 +329,8 @@ export default function PclAssignmentPage() {
                 alert("Gagal menyimpan luring darurat: " + e.message);
             }
         } finally {
-            // FIX BUG GAIBA: Mengganti setStatusLoading ke fungsi state yang benar
             setActionLoading(false);
-            setShowValidationDialog(false); 
+            setShowValidationDialog(false);
             setPendingTargetId(null);
         }
     }, [user, profile, currentCoords, manualMode, selectedManualDate, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading]);
@@ -359,7 +352,7 @@ export default function PclAssignmentPage() {
                     .eq('key', 'allow_manual_upload')
                     .single();
                 if (remoteConfig) {
-                    const isAllowed = remoteConfig.value_boolean === true; 
+                    const isAllowed = remoteConfig.value_boolean === true;
                     setAllowManualMode(isAllowed);
                     localStorage.setItem('cache_allow_manual_upload', isAllowed ? 'true' : 'false');
                 }
@@ -393,7 +386,7 @@ export default function PclAssignmentPage() {
                 .from('muatan_sls')
                 .select('*')
                 .eq('petugas_id', cleanEmail);
-            
+
             const currentMySls = slsData || [];
             setAllMySls(currentMySls);
             localStorage.setItem(`cache_sls_beban_${cleanEmail}`, JSON.stringify(currentMySls));
@@ -409,7 +402,7 @@ export default function PclAssignmentPage() {
                 localStorage.setItem(`cache_history_dates_${cleanEmail}`, JSON.stringify(uniqueDates));
 
                 const todayLogsRaw = allLogs.filter(log => log.tanggal === tglHariIni);
-                
+
                 const missingIds = [];
                 todayLogsRaw.forEach(log => {
                     const idString = String(log.idsubsls).trim();
@@ -423,7 +416,7 @@ export default function PclAssignmentPage() {
                         .from('muatan_sls')
                         .select('idsubsls, nmsls, nmdesa, kdsls')
                         .in('idsubsls', missingIds);
-                    
+
                     if (globalSlsData) {
                         globalSlsData.forEach(s => globalSlsMap.set(String(s.idsubsls).trim(), s));
                     }
@@ -492,7 +485,7 @@ export default function PclAssignmentPage() {
     };
 
     // =========================================================================
-    // AUTOMATIC WATERMARK ENGINE RAMAH RAM & ANTI-LAG (OBJECT URL PREVIEW BLOB)
+    // AUTOMATIC WATERMARK ENGINE RAMAH RAM (OBJECT URL PREVIEW BLOB)
     // =========================================================================
     useEffect(() => {
         if (!rawPhotoFile || gpsLoading) return;
@@ -501,7 +494,7 @@ export default function PclAssignmentPage() {
 
         const generateLiveWatermark = () => {
             const reader = new FileReader();
-            
+
             reader.onerror = (err) => {
                 console.error("FileReader Error:", err);
                 if (isSubscribed) {
@@ -540,13 +533,13 @@ export default function PclAssignmentPage() {
                     canvas.width = width;
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
-                    
+
                     if (!ctx) {
                         alert("Gagal mengaktifkan akselerasi grafis HP.");
                         resetForm();
                         return;
                     }
-                    
+
                     ctx.drawImage(img, 0, 0, width, height);
 
                     let nmsls = "";
@@ -561,7 +554,7 @@ export default function PclAssignmentPage() {
                         if (match) {
                             nmsls = match.nmsls;
                             nmdesa = match.nmdesa;
-                            if (match.nmkec) nmkec = match.nmkec; 
+                            if (match.nmkec) nmkec = match.nmkec;
                         } else {
                             nmsls = "PILIHAN MANUAL";
                         }
@@ -576,42 +569,41 @@ export default function PclAssignmentPage() {
                         if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
                     }
 
-                    const tglTeks = manualMode 
-                        ? `${selectedManualDate} (UPLOAD MANUAL)` 
+                    const tglTeks = manualMode
+                        ? `${selectedManualDate} (UPLOAD MANUAL)`
                         : new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-                        
+
                     const latTeks = currentCoords ? currentCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
                     const lonTeks = currentCoords ? currentCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
-                    
+
                     const labelSensus = `SENSUS EKONOMI 2026`;
                     const labelPcl = `NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PETUGAS LAPANGAN').toUpperCase()}`;
                     const labelSls = `LOKASI   : ${String(wilayahTeks).toUpperCase()}`;
 
                     const panelHeight = 135;
-                    ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
+                    ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
                     ctx.fillRect(0, height - panelHeight, width, panelHeight);
 
-                    ctx.fillStyle = "#f97316"; 
+                    ctx.fillStyle = "#f97316";
                     ctx.fillRect(0, height - panelHeight, width, 4);
 
                     ctx.fillStyle = "#ffffff";
                     ctx.font = "bold 15px sans-serif";
                     ctx.fillText(labelSensus, 20, height - 105);
 
-                    ctx.fillStyle = "#38bdf8"; 
+                    ctx.fillStyle = "#38bdf8";
                     ctx.font = "bold 12px sans-serif";
                     ctx.fillText(labelPcl, 20, height - 82);
 
-                    ctx.fillStyle = "#fbbf24"; 
+                    ctx.fillStyle = "#fbbf24";
                     ctx.font = "bold 12px sans-serif";
                     ctx.fillText(labelSls, 20, height - 60);
 
-                    ctx.fillStyle = "#cbd5e1"; 
+                    ctx.fillStyle = "#cbd5e1";
                     ctx.font = "11px monospace";
                     ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
                     ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
 
-                    // KONVERSI BLOB URL UNTUK PREVIEW RINGAN (ANTI-CRASH)
                     canvas.toBlob((blob) => {
                         if (blob && isSubscribed) {
                             if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
@@ -690,11 +682,11 @@ export default function PclAssignmentPage() {
         }
 
         const matchSlsLokal = allMySls.find(s => String(s.idsubsls).trim() === safeIdSubSls);
-        
+
         if (!matchSlsLokal) {
             setPendingTargetId(safeIdSubSls);
             setShowValidationDialog(true);
-            return; 
+            return;
         }
 
         await eksekusiKirimBypass(safeIdSubSls);
@@ -798,11 +790,10 @@ export default function PclAssignmentPage() {
             cells.push(
                 <div
                     key={`day-${day}`}
-                    className={`h-10 w-10 mx-auto flex items-center justify-center rounded-xl text-xs font-black border transition-all ${
-                        isCheckedIn
+                    className={`h-10 w-10 mx-auto flex items-center justify-center rounded-xl text-xs font-black border transition-all ${isCheckedIn
                             ? 'bg-green-500 border-green-600 text-white shadow-sm shadow-green-500/20'
                             : 'bg-white border-slate-200 text-slate-700'
-                    }`}
+                        }`}
                 >
                     {day}
                 </div>
@@ -825,12 +816,29 @@ export default function PclAssignmentPage() {
     }
 
     return (
-       <div
+        <div
             className="h-[100dvh] w-screen bg-slate-50 font-sans flex flex-col relative overflow-hidden text-slate-800"
             onTouchStart={onTouchStart}
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
         >
+            {/* HIDDEN FILE INPUT ENGINE */}
+            <input 
+                type="file" 
+                ref={cameraInputRef} 
+                accept="image/*" 
+                capture="user" 
+                className="hidden" 
+                onChange={handleCapturePhoto} 
+            />
+            <input 
+                type="file" 
+                ref={galleryInputRef} 
+                accept="image/*" 
+                className="hidden" 
+                onChange={handleCapturePhoto} 
+            />
+
             <div className="p-4 bg-slate-50 shrink-0">
                 <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-3xl p-5 shadow-xl border border-slate-700/50">
                     <div className="flex justify-between items-center gap-2">
@@ -895,12 +903,24 @@ export default function PclAssignmentPage() {
                             <div className="flex flex-col items-center justify-center">
                                 <h3 className="text-base font-black text-slate-800">Absensi Lapangan</h3>
                                 <p className="text-xs text-slate-400 mt-1">Tekan tombol di bawah untuk melakukan absensi lapangan.</p>
-                                
+
                                 {allowManualMode && (
-                                    <div 
+                                    <div
                                         onClick={() => {
                                             const nextState = !manualMode;
-                                            resetForm();
+                                            setDetectedSls(null);
+                                            setIsOutsideBorderBlock(false);
+                                            setGpsLoading(false);
+
+                                            if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+                                            setPhotoPreviewUrl(null);
+                                            setRawPhotoFile(null);
+
+                                            if (cameraInputRef.current) cameraInputRef.current.value = "";
+                                            if (galleryInputRef.current) galleryInputRef.current.value = "";
+
+                                            setSelectedManualDate(getTodayDateString());
+                                            setSelectedManualSls("");
                                             setManualMode(nextState);
                                         }}
                                         className="mt-3 bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 text-left shadow-xs flex items-center justify-between gap-3 cursor-pointer hover:bg-amber-100/50 active:scale-99 transition-all animate-fadeIn"
@@ -913,12 +933,8 @@ export default function PclAssignmentPage() {
                                             </div>
                                         </div>
 
-                                        <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${
-                                            manualMode ? 'bg-amber-600' : 'bg-slate-300'
-                                        }`}>
-                                            <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out ${
-                                                manualMode ? 'translate-x-4' : 'translate-x-0'
-                                            }`} />
+                                        <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${manualMode ? 'bg-amber-600' : 'bg-slate-300'}`}>
+                                            <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out ${manualMode ? 'translate-x-4' : 'translate-x-0'}`} />
                                         </div>
                                     </div>
                                 )}
@@ -929,11 +945,10 @@ export default function PclAssignmentPage() {
                                     <button
                                         disabled={gpsLoading || actionLoading}
                                         onClick={handleDetectLocation}
-                                        className={`w-32 h-32 rounded-full flex flex-col justify-center items-center gap-2 font-black text-sm uppercase tracking-wider border-8 shadow-xl transition-all duration-300 active:scale-95 ${
-                                            gpsLoading || actionLoading
+                                        className={`w-32 h-32 rounded-full flex flex-col justify-center items-center gap-2 font-black text-sm uppercase tracking-wider border-8 shadow-xl transition-all duration-300 active:scale-95 ${gpsLoading || actionLoading
                                                 ? 'bg-slate-100 border-slate-200 text-slate-400'
                                                 : 'bg-orange-500 hover:bg-orange-600 border-orange-100 text-white shadow-orange-500/20'
-                                        }`}
+                                            }`}
                                     >
                                         {gpsLoading || actionLoading ? <RefreshCw className="animate-spin" size={28} /> : <Navigation className="fill-white" size={28} />}
                                         <span className="text-[11px]">{gpsLoading ? "Mengunci Satelit..." : "Ambil Absen"}</span>
@@ -959,6 +974,7 @@ export default function PclAssignmentPage() {
                                 </div>
                             )}
 
+                            {/* RINGKASAN DATA PRATINJAU AREA SPASIAL */}
                             {(rawPhotoFile || gpsLoading || detectedSls || manualMode) && !isOutsideBorderBlock && (
                                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-3 animate-fadeIn">
                                     <span className="text-[9px] font-black uppercase text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded block text-center">
@@ -968,26 +984,6 @@ export default function PclAssignmentPage() {
                                     {photoPreviewUrl ? (
                                         <div className="relative rounded-xl overflow-hidden border border-slate-300 shadow-inner">
                                             <img src={photoPreviewUrl} alt="Preview Bukti" className="w-full h-36 object-cover" />
-                                            <div className="absolute bottom-2 right-2 flex gap-1.5">
-                                                <button 
-                                                    onClick={() => {
-                                                        if(cameraInputRef.current) cameraInputRef.current.value = "";
-                                                        cameraInputRef.current?.click();
-                                                    }} 
-                                                    className="bg-orange-500/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1 shadow-sm"
-                                                >
-                                                    <Camera size={10} /> Kamera
-                                                </button>
-                                                <button 
-                                                    onClick={() => {
-                                                        if(galleryInputRef.current) galleryInputRef.current.value = "";
-                                                        galleryInputRef.current?.click();
-                                                    }} 
-                                                    className="bg-indigo-600/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1 shadow-sm"
-                                                >
-                                                    <Image size={10} /> Galeri
-                                                </button>
-                                            </div>
                                         </div>
                                     ) : rawPhotoFile ? (
                                         <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest bg-white border rounded-xl">
@@ -1018,6 +1014,7 @@ export default function PclAssignmentPage() {
                                 </div>
                             )}
 
+                            {/* FORM ENTRI ABSENSI MANUAL STATIS */}
                             {(manualMode && !isOutsideBorderBlock) && (
                                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-left animate-fadeIn space-y-3">
                                     <div className="flex gap-2 items-center text-amber-800 font-bold text-xs uppercase mb-1">
@@ -1027,7 +1024,7 @@ export default function PclAssignmentPage() {
 
                                     <div>
                                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Tanggal Kegiatan</label>
-                                        <input 
+                                        <input
                                             type="date"
                                             max={getTodayDateString()}
                                             className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 outline-none"
@@ -1052,16 +1049,17 @@ export default function PclAssignmentPage() {
                                         </select>
                                     </div>
 
+                                    {/* POSISI TOMBOL MEDIA UTAMA: Berada di bawah form, kokoh dan anti-race condition */}
                                     <div>
                                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Dokumen Bukti</label>
                                         <div className="flex gap-2">
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    if(cameraInputRef.current) cameraInputRef.current.value = "";
+                                                    if (cameraInputRef.current) cameraInputRef.current.value = "";
                                                     cameraInputRef.current?.click();
                                                 }}
-                                                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 rounded-xl text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                                                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-xl text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
                                             >
                                                 <Camera size={12} />
                                                 <span>Kamera</span>
@@ -1069,10 +1067,10 @@ export default function PclAssignmentPage() {
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    if(galleryInputRef.current) galleryInputRef.current.value = "";
+                                                    if (galleryInputRef.current) galleryInputRef.current.value = "";
                                                     galleryInputRef.current?.click();
                                                 }}
-                                                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                                                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
                                             >
                                                 <Image size={12} />
                                                 <span>Galeri</span>
@@ -1085,7 +1083,7 @@ export default function PclAssignmentPage() {
                                             <button
                                                 disabled={!photoPreviewUrl || actionLoading}
                                                 onClick={() => submitCheckInData(selectedManualSls)}
-                                                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300 flex items-center justify-center gap-2"
+                                                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all disabled:bg-slate-300 flex items-center justify-center gap-2 cursor-pointer"
                                             >
                                                 {actionLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
                                                 <span>{actionLoading ? "Mengunci..." : "Kunci Wilayah & Simpan"}</span>
@@ -1109,19 +1107,16 @@ export default function PclAssignmentPage() {
 
                             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                                 {todayCheckIns.map((sls, idx) => (
-                                    <div 
-                                        key={`today-hist-${sls.idsubsls}-${idx}`} 
-                                        className={`flex items-center justify-between p-2.5 rounded-xl border text-left gap-2 animate-fadeIn ${
-                                            sls.isLuarWilayah 
-                                                ? 'bg-orange-50/40 border-orange-200/70' 
+                                    <div
+                                        key={`today-hist-${sls.idsubsls}-${idx}`}
+                                        className={`flex items-center justify-between p-2.5 rounded-xl border text-left gap-2 animate-fadeIn ${sls.isLuarWilayah
+                                                ? 'bg-orange-50/40 border-orange-200/70'
                                                 : 'bg-slate-50 border-slate-200/60'
-                                        }`}
+                                            }`}
                                     >
                                         <div className="min-w-0 flex-1">
                                             <div className="flex items-start gap-2">
-                                                <div className={`w-4 h-4 rounded-full text-white flex items-center justify-center font-mono text-[9px] font-black shrink-0 mt-0.5 shadow-xs ${
-                                                    sls.isLuarWilayah ? 'bg-orange-500' : 'bg-emerald-500'
-                                                }`}>
+                                                <div className={`w-4 h-4 rounded-full text-white flex items-center justify-center font-mono text-[9px] font-black shrink-0 mt-0.5 shadow-xs ${sls.isLuarWilayah ? 'bg-orange-500' : 'bg-emerald-500'}`}>
                                                     {sls.isLuarWilayah ? '!' : '✓'}
                                                 </div>
                                                 <div className="min-w-0">
@@ -1134,7 +1129,7 @@ export default function PclAssignmentPage() {
                                                 </div>
                                             </div>
                                         </div>
-                                        
+
                                         {sls.isLuarWilayah ? (
                                             <span className="text-[7px] font-black tracking-wider text-orange-600 bg-orange-100/60 border border-orange-200 px-1.5 py-0.5 rounded-md shrink-0 uppercase">
                                                 LUAR WILAYAH
@@ -1193,14 +1188,14 @@ export default function PclAssignmentPage() {
                 </div>
             </div>
 
-            {/* INTERAKTIF DIALOG DI LUAR WILAYAH KERJA DENGAN ABSOLUTE LOCK TOMBOL */}
+            {/* INTERAKTIF DIALOG DI LUAR WILAYAH KERJA */}
             {showValidationDialog && (
                 <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-5 z-50 animate-fadeIn">
                     <div className="bg-white rounded-3xl p-6 w-full max-w-sm border border-slate-100 shadow-2xl text-center space-y-4">
                         <div className="mx-auto w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-500">
                             <ShieldAlert size={26} className="animate-pulse" />
                         </div>
-                        
+
                         <div>
                             <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Konfirmasi Di Luar Wilayah Kerja</h3>
                             <p className="text-[11px] text-slate-500 leading-relaxed mt-1.5">
