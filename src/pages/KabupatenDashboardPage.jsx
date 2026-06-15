@@ -492,19 +492,32 @@ export default function DashboardPusat() {
     const trendChartData = trendAndMetricsData.trendChartData;
 
     // 4. KECAMATAN AKTIF HARI INI GRAPH DATA GENERATOR
-    const kecamatanChartData = useMemo(() => {
-        if (daftarKecamatan.length === 0) return [];
-        return daftarKecamatan.map(item => {
-            const pclKec = masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === item.kode);
-            const pmlKec = masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === item.kode);
-            return {
-                name: item.label,
-                kode: item.kode,
-                'PCL Aktif (%)': pclKec.length > 0 ? Math.round((pclKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length / pclKec.length) * 100) : 0,
-                'PML Aktif (%)': pmlKec.length > 0 ? Math.round((pmlKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length / pmlKec.length) * 100) : 0
-            };
-        });
-    }, [daftarKecamatan, masterPclList, masterPmlList, selectedFilterDate]);
+const kecamatanChartData = useMemo(() => {
+    if (daftarKecamatan.length === 0) return [];
+    return daftarKecamatan.map(item => {
+        // Saring master list petugas berdasarkan kode kecamatan saat ini
+        const pclKec = masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === item.kode);
+        const pmlKec = masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === item.kode);
+
+        // 1. Hitung jumlah RIIL petugas yang aktif pada tanggal terpilih
+        const pclAktifRiil = pclKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length;
+        const pmlAktifRiil = pmlKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length;
+
+        return {
+            name: item.label,
+            kode: item.kode,
+            // Properti untuk tinggi BAR grafik (tetap persentase)
+            'PCL Aktif (%)': pclKec.length > 0 ? Math.round((pclAktifRiil / pclKec.length) * 100) : 0,
+            'PML Aktif (%)': pmlKec.length > 0 ? Math.round((pmlAktifRiil / pmlKec.length) * 100) : 0,
+            
+            // 🔥 TAMBAHAN DATA UTK TOOLTIP RIIL (Jumlah Orang)
+            pclAktif: pclAktifRiil,
+            pclTotal: pclKec.length,
+            pmlAktif: pmlAktifRiil,
+            pmlTotal: pmlKec.length
+        };
+    });
+}, [daftarKecamatan, masterPclList, masterPmlList, selectedFilterDate]);
 
     // 5. MONITORING SIKLUS BATCH
     const progresSiklusTerfilter = useMemo(() => {
@@ -1013,25 +1026,71 @@ export default function DashboardPusat() {
                         <div className="h-60 w-full min-w-[500px] md:min-w-0">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart
-                                    data={kecamatanChartData}
-                                    onClick={(e) => {
-                                        if (e && e.activePayload && e.activePayload[0]) {
-                                            const payloadData = e.activePayload[0].payload;
-                                            setSelectedKecamatan(payloadData.kode);
-                                            setSelectedKecTab(payloadData.kode);
-                                            setSelectedPetugas(null);
-                                        }
-                                    }}
-                                    margin={{ bottom: 35 }}
-                                >
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={8} tickLine={false} angle={-45} textAnchor="end" interval={0} height={45} tick={{ fontWeight: 700 }} />
-                                    <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} unit="%" domain={[0, 100]} />
-                                    <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '11px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                                    <Legend wrapperStyle={{ fontSize: '9px' }} verticalAlign="top" align="right" />
-                                    <Bar dataKey="PCL Aktif (%)" fill="#6366f1" radius={[3, 3, 0, 0]} barSize={10} cursor="pointer" />
-                                    <Bar dataKey="PML Aktif (%)" fill="#10b981" radius={[3, 3, 0, 0]} barSize={10} cursor="pointer" />
-                                </BarChart>
+    data={kecamatanChartData}
+    onClick={(e) => {
+        if (e && e.activePayload && e.activePayload[0]) {
+            const payloadData = e.activePayload[0].payload;
+            setSelectedKecamatan(payloadData.kode);
+            setSelectedKecTab(payloadData.kode);
+            setSelectedPetugas(null);
+        }
+    }}
+    margin={{ bottom: 35 }}
+>
+    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+    <XAxis dataKey="name" stroke="#94a3b8" fontSize={8} tickLine={false} angle={-45} textAnchor="end" interval={0} height={45} tick={{ fontWeight: 700 }} />
+    <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} unit="%" domain={[0, 100]} />
+    
+    {/* 🔥 PROSES PENGGANTIAN: Di sinilah tag Tooltip baru diletakkan */}
+    <Tooltip 
+        cursor={{ fill: '#f8fafc', opacity: 0.4 }} 
+        content={({ active, payload }) => {
+            if (active && payload && payload.length) {
+                const data = payload[0].payload;
+                return (
+                    <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xl text-[11px] space-y-1.5 font-sans min-w-[160px] z-50">
+                        {/* Judul Nama Kecamatan */}
+                        <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1 flex items-center gap-1 font-mono">
+                            📍 {data.name}
+                        </div>
+                        
+                        {/* Keterangan Jumlah Orang Riil */}
+                        <div className="space-y-1 font-semibold text-slate-500">
+                            <div className="flex justify-between items-center gap-4">
+                                <span className="flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#6366f1]"></span> PPL Aktif:
+                                </span>
+                                <strong className="text-indigo-600 font-mono">
+                                    {data.pclAktif} / {data.pclTotal} <span className="text-[9px] font-normal text-slate-400 font-sans">Org</span>
+                                </strong>
+                            </div>
+
+                            <div className="flex justify-between items-center gap-4">
+                                <span className="flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]"></span> PML Aktif:
+                                </span>
+                                <strong className="text-emerald-600 font-mono">
+                                    {data.pmlAktif} / {data.pmlTotal} <span className="text-[9px] font-normal text-slate-400 font-sans">Org</span>
+                                </strong>
+                            </div>
+                        </div>
+
+                        {/* Rasio Info Persentase Kecil di bawah */}
+                        <div className="border-t border-slate-100 pt-1 text-[8px] text-slate-400 font-bold uppercase flex justify-between tracking-tight">
+                            <span>Rasio Capaian:</span>
+                            <span>PPL {data['PCL Aktif (%)']}% | PML {data['PML Aktif (%)']}%</span>
+                        </div>
+                    </div>
+                );
+            }
+            return null;
+        }}
+    />
+
+    <Legend wrapperStyle={{ fontSize: '9px' }} verticalAlign="top" align="right" />
+    <Bar dataKey="PCL Aktif (%)" fill="#6366f1" radius={[3, 3, 0, 0]} barSize={10} cursor="pointer" />
+    <Bar dataKey="PML Aktif (%)" fill="#10b981" radius={[3, 3, 0, 0]} barSize={10} cursor="pointer" />
+</BarChart>
                             </ResponsiveContainer>
                         </div>
                     </div>
@@ -1324,7 +1383,7 @@ export default function DashboardPusat() {
                                     <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
                                     <div>
                                         <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">Rekap Evaluasi Masalah & Solusi</h3>
-                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Siklus Tanggal: {dataEvaluasiTerpilih.tanggal}</p>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Tanggal: {dataEvaluasiTerpilih.tanggal}</p>
                                     </div>
                                 </div>
                                 <button onClick={() => setShowDetailEvaluasi(false)} className="text-[10px] font-black bg-slate-100 hover:bg-rose-500 hover:text-white text-slate-500 w-6 h-6 rounded-xl transition-all flex items-center justify-center shadow-xs">✕</button>
@@ -1467,7 +1526,7 @@ export default function DashboardPusat() {
                                     <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></div>
                                     <div>
                                         <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">Pemantauan Petugas Lapangan (PPL)</h3>
-                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Tanggal Operasional: {dataLapanganTerpilih.tanggalLabel}</p>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Tanggal : {dataLapanganTerpilih.tanggalLabel}</p>
                                     </div>
                                 </div>
                                 <button onClick={() => setShowDetailLapangan(false)} className="text-[10px] font-black bg-slate-100 hover:bg-rose-500 hover:text-white text-slate-500 w-6 h-6 rounded-xl transition-all flex items-center justify-center shadow-xs">✕</button>
@@ -1479,7 +1538,7 @@ export default function DashboardPusat() {
                                     <div className="text-sm font-mono mt-0.5">{listAktif.length} ORG</div>
                                 </button>
                                 <button type="button" onClick={() => { setLapActiveFilter('ABSEN'); setLapCurrentPage(1); }} className={`p-2 rounded-xl border text-center transition-all ${lapActiveFilter === 'ABSEN' ? 'bg-rose-50 border-rose-200 font-black text-rose-700 shadow-xs ring-1 ring-rose-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}>
-                                    <div className="text-[8px] uppercase tracking-wider">Tidak Aktif (Belum Input)</div>
+                                    <div className="text-[8px] uppercase tracking-wider">Tidak Aktif (Belum Absen Lapangan)</div>
                                     <div className="text-sm font-mono mt-0.5">{listAbsen.length} ORG</div>
                                 </button>
                             </div>
