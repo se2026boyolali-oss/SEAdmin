@@ -932,79 +932,145 @@ const kecamatanChartData = useMemo(() => {
                         </div>
                     </div>
 
-                    <div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4">
-                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center lg:text-left">Progres Lapangan</div>
-                        <div className="h-40 w-full relative group">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie data={[{ name: 'Selesai', value: dataMonitoringWilayah.muatanStatus.selesai }, { name: 'Proses', value: dataMonitoringWilayah.muatanStatus.proses }, { name: 'Belum', value: dataMonitoringWilayah.muatanStatus.belum }]} cx="50%" cy="50%" innerRadius={45} outerRadius={60} paddingAngle={3} dataKey="value" stroke="none">
-                                        <Cell fill="#10b981" /><Cell fill="#6366f1" /><Cell fill="#e2e8f0" />
-                                    </Pie>
-                                    <Tooltip
-                                        wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
-                                        content={({ active }) => {
-                                            if (active) {
-                                                const muatan = dataMonitoringWilayah.muatanStatus;
-                                                const totalTarget = muatan.selesai + muatan.proses + muatan.belum;
-                                                const pctSelesai = totalTarget > 0 ? ((muatan.selesai / totalTarget) * 100).toFixed(2) : "0.00";
-                                                const pctProses = totalTarget > 0 ? ((muatan.proses / totalTarget) * 100).toFixed(2) : "0.00";
-                                                const pctBelum = totalTarget > 0 ? ((muatan.belum / totalTarget) * 100).toFixed(2) : "0.00";
-                                                return (
-                                                    <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xl text-[11px] space-y-2 font-sans min-w-[190px]">
-                                                        <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1.5 mb-1 flex items-center gap-1">📊 Rekap Assignment</div>
-                                                        <div className="space-y-1 font-medium text-slate-500">
-                                                            <div className="flex justify-between items-center">
-                                                                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Selesai:</span></div>
-                                                                <strong className="text-emerald-600 font-mono">{muatan.selesai.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctSelesai}%)</span></strong>
-                                                            </div>
-                                                            <div className="flex justify-between items-center">
-                                                                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span><span>Proses:</span></div>
-                                                                <strong className="text-indigo-600 font-mono">{muatan.proses.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctProses}%)</span></strong>
-                                                            </div>
-                                                            <div className="flex justify-between items-center">
-                                                                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span><span>Belum:</span></div>
-                                                                <strong className="text-slate-500 font-mono">{muatan.belum.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctBelum}%)</span></strong>
-                                                            </div>
-                                                        </div>
-                                                        <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-slate-700 font-black text-[10px] uppercase flex justify-between font-mono"><span>Total:</span><span>{totalTarget.toLocaleString('id-ID')}</span></div>
-                                                    </div>
-                                                );
-                                            }
-                                            return null;
-                                        }}
-                                    />
-                                </PieChart>
-                            </ResponsiveContainer>
-                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none z-10 transition-opacity duration-200 group-hover:opacity-20">
-                                <span className="text-[14px] font-black text-slate-800 font-mono">{(dataMonitoringWilayah.muatanStatus.selesai + dataMonitoringWilayah.muatanStatus.proses + dataMonitoringWilayah.muatanStatus.belum).toLocaleString('id-ID')}</span>
-                                <span className="text-[8px] text-slate-400 uppercase font-bold tracking-wider mt-0.5">Total Target</span>
-                            </div>
-                        </div>
+<div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4">
+    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center lg:text-left">Progres Lapangan</div>
+    <div className="h-44 w-full relative group"> {/* 💡 Tingginya sedikit dinaikkan ke h-44 agar memberi ruang bagi legend di bawah */}
+        <ResponsiveContainer width="100%" height="100%">
+            <PieChart margin={{ top: 0, right: 0, bottom: 5, left: 0 }}>
+                <Pie 
+                    data={[
+                        { name: 'Selesai', value: dataMonitoringWilayah.muatanStatus.selesai }, 
+                        { name: 'Proses', value: dataMonitoringWilayah.muatanStatus.proses }, 
+                        { name: 'Belum', value: dataMonitoringWilayah.muatanStatus.belum }
+                    ]} 
+                    cx="50%" 
+                    cy="45%" // 💡 Sumbu Y diturunkan sedikit ke 45% agar lingkaran pas di tengah area atas, sebelum kepotong legend bawah
+                    innerRadius={42} 
+                    outerRadius={55} 
+                    paddingAngle={3} 
+                    dataKey="value" 
+                    stroke="none"
+                >
+                    <Cell fill="#10b981" /><Cell fill="#6366f1" /><Cell fill="#e2e8f0" />
+                </Pie>
+                
+                {/* 🎯 KOORDINAT TEKS TENGAH (Disesuaikan dengan cy="45%") */}
+                <text 
+                    x="50%" 
+                    y="35%" 
+                    textAnchor="middle" 
+                    dominantBaseline="middle" 
+                    className="fill-slate-800 font-mono font-black text-[14px] pointer-events-none select-none"
+                >
+                    {(dataMonitoringWilayah.muatanStatus.selesai + dataMonitoringWilayah.muatanStatus.proses + dataMonitoringWilayah.muatanStatus.belum).toLocaleString('id-ID')}
+                </text>
+                <text 
+                    x="50%" 
+                    y="42%" 
+                    textAnchor="middle" 
+                    dominantBaseline="middle" 
+                    className="fill-slate-400 font-sans font-bold uppercase text-[7px] tracking-wider pointer-events-none select-none"
+                >
+                    Assignment
+                </text>
 
-                        <div className="space-y-2 mt-4">
-                            {[
-                                { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
-                                { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
-                                { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
-                            ].map((item) => {
-                                const totalSls = dataMonitoringWilayah.statusSls.total || 1;
-                                const pctSls = ((item.count / totalSls) * 100).toFixed(1);
-                                return (
-                                    <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px] hover:bg-slate-100 transition-colors">
-                                        <div className="flex items-center gap-2">
-                                            <div className={`w-1.5 h-1.5 rounded-full ${item.color}`}></div>
-                                            <span className="font-bold text-slate-500 uppercase tracking-wide">{item.label}</span>
+                {/* Tooltip Melayang Saat Hover */}
+                <Tooltip
+                    wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
+                    content={({ active }) => {
+                        if (active) {
+                            const muatan = dataMonitoringWilayah.muatanStatus;
+                            const totalTarget = muatan.selesai + muatan.proses + muatan.belum;
+                            const pctSelesai = totalTarget > 0 ? ((muatan.selesai / totalTarget) * 100).toFixed(2) : "0.00";
+                            const pctProses = totalTarget > 0 ? ((muatan.proses / totalTarget) * 100).toFixed(2) : "0.00";
+                            const pctBelum = totalTarget > 0 ? ((muatan.belum / totalTarget) * 100).toFixed(2) : "0.00";
+                            return (
+                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xl text-[11px] space-y-2 font-sans min-w-[190px]">
+                                    <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1.5 mb-1 flex items-center gap-1">📊 Rekap Assignment</div>
+                                    <div className="space-y-1 font-medium text-slate-500">
+                                        <div className="flex justify-between items-center">
+                                            <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Selesai:</span></div>
+                                            <strong className="text-emerald-600 font-mono">{muatan.selesai.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctSelesai}%)</span></strong>
                                         </div>
-                                        <div className="flex items-center font-mono font-black text-slate-700">
-                                            <div className="w-14 text-right pr-2">{item.count} <span className="text-[8px] text-slate-400 font-bold uppercase">SLS</span></div>
-                                            <span className="text-slate-300 font-normal">|</span>
-                                            <div className="w-12 text-right text-slate-600 text-[9px] pl-2">{pctSls}%</div>
+                                        <div className="flex justify-between items-center">
+                                            <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span><span>Proses:</span></div>
+                                            <strong className="text-indigo-600 font-mono">{muatan.proses.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctProses}%)</span></strong>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span><span>Belum:</span></div>
+                                            <strong className="text-slate-500 font-mono">{muatan.belum.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctBelum}%)</span></strong>
                                         </div>
                                     </div>
-                                );
-                            })}
-                        </div>
+                                    <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-slate-700 font-black text-[10px] uppercase flex justify-between font-mono"><span>Total:</span><span>{totalTarget.toLocaleString('id-ID')}</span></div>
+                                </div>
+                            );
+                        }
+                        return null;
+                    }}
+                />
+
+                {/* 🔥 MENAMPILKAN LEGENDA BAWAAN DI BAWAH PIECHART */}
+{/* 🔥 PERBAIKAN: Legend sekarang dilengkapi dengan Formatter Angka dan Persentase */}
+<Legend 
+    verticalAlign="bottom" 
+    align="center" 
+    iconType="circle"
+    iconSize={7}
+    wrapperStyle={{ 
+        fontSize: '9px', 
+        fontWeight: 'bold', 
+        textTransform: 'uppercase', 
+        color: '#64748b', 
+        paddingTop: '12px' 
+    }}
+    formatter={(value) => {
+        const muatan = dataMonitoringWilayah.muatanStatus;
+        const total = muatan.selesai + muatan.proses + muatan.belum || 1;
+        
+        let count = 0;
+        if (value === 'Selesai') count = muatan.selesai;
+        if (value === 'Proses') count = muatan.proses;
+        if (value === 'Belum') count = muatan.belum;
+        
+        const pct = ((count / total) * 100).toFixed(1);
+        
+        // Mengembalikan format teks: NAMA (JUMLAH | PERSENTASE%)
+        return (
+            <span className="text-slate-600 font-sans tracking-tight">
+                {value} <span className="font-mono text-slate-800 ml-1">{count.toLocaleString('id-ID')}</span> <span className="text-slate-400 font-normal font-mono text-[8px]">({pct}%)</span>
+            </span>
+        );
+    }}
+/>
+            </PieChart>
+        </ResponsiveContainer>
+    </div>
+
+    {/* Daftar Detail SLS Terbawah */}
+    <div className="space-y-2 mt-4">
+        {[
+            { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
+            { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
+            { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
+        ].map((item) => {
+            const totalSls = dataMonitoringWilayah.statusSls.total || 1;
+            const pctSls = ((item.count / totalSls) * 100).toFixed(1);
+            return (
+                <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px] hover:bg-slate-100 transition-colors">
+                    <div className="flex items-center gap-2">
+                        <div className={`w-1.5 h-1.5 rounded-full ${item.color}`}></div>
+                        <span className="font-bold text-slate-500 uppercase tracking-wide">{item.label}</span>
                     </div>
+                    <div className="flex items-center font-mono font-black text-slate-700">
+                        <div className="w-14 text-right pr-2">{item.count} <span className="text-[8px] text-slate-400 font-bold uppercase">SLS</span></div>
+                        <span className="text-slate-300 font-normal">|</span>
+                        <div className="w-12 text-right text-slate-600 text-[9px] pl-2">{pctSls}%</div>
+                    </div>
+                </div>
+            );
+        })}
+    </div>
+</div>
                 </div>
             </div>
 

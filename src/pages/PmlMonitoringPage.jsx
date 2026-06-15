@@ -896,8 +896,8 @@ export default function PmlMonitoringPage() {
 
     const handleFinalSubmitEvaluasi = async () => {
         if (submitSiklusLoading) return;
-        if (!kendalaLapangan.trim() || !solusiLapangan.trim()) {
-            alert("Wajib mengisi Kendala Lapangan dan Solusi Terpilih sebelum mengirim rekap!");
+        if (!kendalaLapangan.trim() || !solusiLapangan.trim() || !fotoEvaluasiBase64) {
+            alert("Wajib mengisi Kendala Lapangan, Solusi Terpilih, dan Foto sebelum mengirim evaluasi!");
             return;
         }
 
@@ -947,7 +947,7 @@ export default function PmlMonitoringPage() {
 
             if (error) throw error;
             
-            alert("🚀 Laporan Realisasi, Kendala, dan Solusi Berhasil Dikirim ke Kabupaten!");
+            alert("Laporan Evaluasi Lapangan Berhasil Dikirim ke Kabupaten!");
             
             setKendalaLapangan("");
             setSolusiLapangan("");
@@ -1767,7 +1767,7 @@ export default function PmlMonitoringPage() {
                         {/* ATTACHMENT BUKTI FOTO */}
                         <div className="space-y-1.5">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-tight block">
-                                3. Foto Bukti Kegiatan Evaluasi
+                                3. Foto Kegiatan Evaluasi (Pendampingan Lapangan/Diskusi dengan Petugas) <span className="text-rose-500">*</span>
                             </label>
                             
                             {fotoEvaluasiBase64 ? (
