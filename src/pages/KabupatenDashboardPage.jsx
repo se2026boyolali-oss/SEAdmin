@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import {
     BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie
@@ -28,7 +28,15 @@ const MiniCalendar = React.memo(({ arrayTanggalAktif }) => {
         return `${yyyy}-${mm}-${dd}`;
     });
 
-    const aktifSet = useMemo(() => new Set(arrayTanggalAktif), [arrayTanggalAktif]);
+    const aktifSet = useMemo(() => {
+        return new Set(arrayTanggalAktif.map(tgl => {
+            if (typeof tgl === 'number') {
+                // Konversi angka hari kembali ke format string YYYY-MM-DD (Asumsi Juni 2026 sesuai konteks siklus)
+                return `2026-06-${String(tgl).padStart(2, '0')}`;
+            }
+            return tgl;
+        }));
+    }, [arrayTanggalAktif]);
 
     return (
         <div className="flex gap-1">
@@ -63,7 +71,11 @@ MiniCalendar.displayName = 'MiniCalendar';
 export default function DashboardPusat() {
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    
+    // State Pencarian Teks dengan Debounce lokal
+    const [searchInputValue, setSearchInputValue] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    
     const [activeTab, setActiveTab] = useState('PCL'); 
     const [filterStatus, setFilterStatus] = useState('all'); 
 
@@ -77,19 +89,18 @@ export default function DashboardPusat() {
     const [showDetailEvaluasi, setShowDetailEvaluasi] = useState(false);
     const [dataEvaluasiTerpilih, setDataEvaluasiTerpilih] = useState({ tanggal: '', listLaporan: [] });
     const [loadingDetailEval, setLoadingDetailEval] = useState(false);
-const [evalSearchTerm, setEvalSearchTerm] = useState('');
-const [evalActiveFilter, setEvalActiveFilter] = useState('SUDAH'); // 'SUDAH' atau 'BELUM'
-const [evalCurrentPage, setEvalCurrentPage] = useState(1);
-const itemsPerPage = 5;
+    const [evalSearchTerm, setEvalSearchTerm] = useState('');
+    const [evalActiveFilter, setEvalActiveFilter] = useState('SUDAH'); 
+    const [evalCurrentPage, setEvalCurrentPage] = useState(1);
+    const itemsPerPage = 5;
 
-// State Kontrol untuk Pop-up Lapangan PPL
-const [showDetailLapangan, setShowDetailLapangan] = useState(false);
-const [dataLapanganTerpilih, setDataLapanganTerpilih] = useState({ tanggalLabel: '', tanggalDb: '', listPetugasAktif: [] });
-const [lapSearchTerm, setLapSearchTerm] = useState('');
-const [lapActiveFilter, setLapActiveFilter] = useState('AKTIF'); // 'AKTIF' atau 'ABSEN'
-const [lapCurrentPage, setLapCurrentPage] = useState(1);
-const lapItemsPerPage = 10;
-
+    // State Kontrol untuk Pop-up Lapangan PPL
+    const [showDetailLapangan, setShowDetailLapangan] = useState(false);
+    const [dataLapanganTerpilih, setDataLapanganTerpilih] = useState({ tanggalLabel: '', tanggalDb: '', listPetugasAktif: [] });
+    const [lapSearchTerm, setLapSearchTerm] = useState('');
+    const [lapActiveFilter, setLapActiveFilter] = useState('AKTIF'); 
+    const [lapCurrentPage, setLapCurrentPage] = useState(1);
+    const lapItemsPerPage = 10;
 
     const [selectedFilterDate, setSelectedFilterDate] = useState(() => {
         const jktDate = new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
@@ -112,256 +123,45 @@ const lapItemsPerPage = 10;
     const [rawRealisasiPml, setRawRealisasiPml] = useState([]);
     const [rawMasterSls, setRawMasterSls] = useState([]);
 
+    // 💡 EFFECT UNTUK DEBOUNCING PENCARIAN UTAMA (Mengurangi beban render berlebih)
+    useEffect(() => {
+        const delayDebounceFn = setTimeout(() => {
+            setSearchTerm(searchInputValue);
+        }, 300);
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchInputValue]);
+
     useEffect(() => {
         if (selectedKecTab === "SEMUA") {
             setViewModeTab("DESA");
         }
     }, [selectedKecTab]);
 
-    useEffect(() => {
-        fetchOperationalData();
-    }, []);
-
-    // 1. ENGINE AGREGASI SENSUS
-    const dataMonitoringWilayah = useMemo(() => {
-        const rekapKecamatan = {};
-        const rekapDesa = {};
-        const rekapPetugas = {};
-
-        rawMasterSls.forEach(sls => {
-            const kodeKec = sls.kdkec ? String(sls.kdkec).trim() : "";
-            const kodeDesa = sls.kddesa ? String(sls.kddesa).trim() : "";
-
-            const idPetugas = sls.petugas_id ? String(sls.petugas_id).trim() : "";
-            const namaDariJoin = sls.petugas?.nama_petugas || sls.petugas_id?.nama_petugas;
-            const namaMentah = namaDariJoin || (idPetugas ? idPetugas.split('@')[0] : "Tanpa Petugas");
-            const namaPetugas = String(namaMentah).toUpperCase();
-
-            if (!kodeKec || !kodeDesa) return;
-
-            const namaKec = sls.nmkec || `Kec. ${kodeKec}`;
-            const namaDesa = sls.nmdesa || `Desa ${kodeDesa}`;
-
-            const muatanAwal = parseInt(sls.jml_muatan) || 0;
-            const realisasi = parseInt(sls.realisasi_pencacahan) || 0;
-            const isSelesai = sls.is_selesai === true;
-
-            const targetDinamis = (isSelesai || realisasi > muatanAwal) ? realisasi : muatanAwal;
-
-            let muatanSelesai = 0;
-            let muatanSedang = 0;
-            let muatanBelum = 0;
-
-            if (isSelesai) {
-                muatanSelesai = realisasi;
-            } else if (realisasi > 0) {
-                muatanSedang = realisasi;
-                muatanBelum = Math.max(0, targetDinamis - realisasi);
-            } else {
-                muatanBelum = targetDinamis;
-            }
-
-            if (!rekapKecamatan[kodeKec]) {
-                rekapKecamatan[kodeKec] = {
-                    kode: kodeKec, nama_asli: namaKec, nama: `[${kodeKec}] ${namaKec}`,
-                    total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
-                    muatan_selesat: 0, muatan_sedang: 0, muatan_belum: 0
-                };
-            }
-            rekapKecamatan[kodeKec].total_target += targetDinamis;
-            rekapKecamatan[kodeKec].total_realisasi += realisasi;
-            rekapKecamatan[kodeKec].jml_sls += 1;
-            rekapKecamatan[kodeKec].muatan_selesat += muatanSelesai;
-            rekapKecamatan[kodeKec].muatan_sedang += muatanSedang;
-            rekapKecamatan[kodeKec].muatan_belum += muatanBelum;
-            if (isSelesai) rekapKecamatan[kodeKec].sls_selesai += 1;
-
-            const keyDesa = `${kodeKec}-${kodeDesa}`;
-            if (!rekapDesa[keyDesa]) {
-                rekapDesa[keyDesa] = {
-                    kode: kodeDesa, kodeKec: kodeKec, nama_asli: namaDesa, nama: `[${kodeDesa}] ${namaDesa}`,
-                    total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
-                    muatan_selesat: 0, muatan_sedang: 0, muatan_belum: 0
-                };
-            }
-            rekapDesa[keyDesa].total_target += targetDinamis;
-            rekapDesa[keyDesa].total_realisasi += realisasi;
-            rekapDesa[keyDesa].jml_sls += 1;
-            rekapDesa[keyDesa].muatan_selesat += muatanSelesai;
-            rekapDesa[keyDesa].muatan_sedang += muatanSedang;
-            rekapDesa[keyDesa].muatan_belum += muatanBelum;
-            if (isSelesai) rekapDesa[keyDesa].sls_selesai += 1;
-
-            if (idPetugas) {
-                const keyPetugas = `${kodeKec}-${idPetugas}`;
-                if (!rekapPetugas[keyPetugas]) {
-                    rekapPetugas[keyPetugas] = {
-                        kode: idPetugas, kodeKec: kodeKec, nama_asli: namaPetugas, nama: namaPetugas,
-                        total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
-                        muatan_selesat: 0, muatan_sedang: 0, muatan_belum: 0
-                    };
-                }
-                rekapPetugas[keyPetugas].total_target += targetDinamis;
-                rekapPetugas[keyPetugas].total_realisasi += realisasi;
-                rekapPetugas[keyPetugas].jml_sls += 1;
-                rekapPetugas[keyPetugas].muatan_selesat += muatanSelesai;
-                rekapPetugas[keyPetugas].muatan_sedang += muatanSedang;
-                rekapPetugas[keyPetugas].muatan_belum += muatanBelum;
-                if (isSelesai) rekapPetugas[keyPetugas].sls_selesai += 1;
-            }
-        });
-
-        const targetSlsTerfilter = selectedKecTab === "SEMUA"
-            ? rawMasterSls
-            : rawMasterSls.filter(sls => String(sls.kdkec).trim() === selectedKecTab);
-
-        const rekapStatusSls = { selesai: 0, sedang: 0, belum: 0, total: targetSlsTerfilter.length };
-        const muatanStatus = { selesai: 0, proses: 0, belum: 0 };
-
-        targetSlsTerfilter.forEach(sls => {
-            const muatanAwal = parseInt(sls.jml_muatan) || 0;
-            const realisasi = parseInt(sls.realisasi_pencacahan) || 0;
-            const isSelesai = sls.is_selesai === true;
-            const targetDinamis = (isSelesai || realisasi > muatanAwal) ? realisasi : muatanAwal;
-
-            if (isSelesai) rekapStatusSls.selesai++;
-            else if (realisasi > 0) rekapStatusSls.sedang++;
-            else rekapStatusSls.belum++;
-
-            if (isSelesai) {
-                muatanStatus.selesai += realisasi;
-            } else if (realisasi > 0) {
-                muatanStatus.proses += realisasi;
-                muatanStatus.belum += Math.max(0, targetDinamis - realisasi);
-            } else {
-                muatanStatus.belum += targetDinamis;
-            }
-        });
-
-        const calculateStatus = (item) => {
-            const totalTargetWilayah = item.total_target || 1;
-            const selesai = Math.round((item.muatan_selesat / totalTargetWilayah) * 100);
-            const sedang = Math.round((item.muatan_sedang / totalTargetWilayah) * 100);
-            const belum = Math.max(0, 100 - selesai - sedang);
-            const persen = totalTargetWilayah > 0 ? Math.min(Math.round((item.total_realisasi / totalTargetWilayah) * 100), 100) : 0;
-            return { selesai, sedang, belum, persen };
-        };
-
-        return {
-            kecamatan: Object.values(rekapKecamatan).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true })),
-            desa: Object.values(rekapDesa).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true })),
-            petugas: Object.values(rekapPetugas).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => b.persen - a.persen),
-            statusSls: rekapStatusSls,
-            muatanStatus: muatanStatus
-        };
-    }, [rawMasterSls, selectedKecTab]);
-
-    const namaKecamatanTerpilihText = useMemo(() => {
-        if (!selectedKecamatan) return null;
-        const match = dataMonitoringWilayah.kecamatan.find(k => k.kode === selectedKecamatan);
-        return match ? match.nama_asli : null;
-    }, [selectedKecamatan, dataMonitoringWilayah]);
-
-    // 2. TIMELINE GENERATOR & HISTORIS 14 HARI
-    const trendAndMetricsData = useMemo(() => {
-        const now = new Date();
-        const jktDateString = now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
-        const nowJkt = new Date(jktDateString);
-
-        const hitungTrenHarian = (listPcl, listPml, logsPcl, logsPml) => {
-            const trendDataRaw = [];
-            const logPclMap = new Map();
-            const logPmlMap = new Map();
-
-            logsPcl.forEach(l => {
-                if (!logPclMap.has(l.tanggal)) logPclMap.set(l.tanggal, new Set());
-                logPclMap.get(l.tanggal).add(l.petugas_email);
-            });
-
-            logsPml.forEach(l => {
-                if (!logPmlMap.has(l.tanggal)) logPmlMap.set(l.tanggal, new Set());
-                logPmlMap.get(l.tanggal).add(l.pml_email);
-            });
-
-            for (let i = 13; i >= 0; i--) {
-                const d = new Date(nowJkt);
-                d.setDate(nowJkt.getDate() - i);
-                const dateString = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-                const pclAktifTgl = logPclMap.get(dateString)?.size || 0;
-                const pclPct = listPcl.length > 0 ? Math.round((pclAktifTgl / listPcl.length) * 100) : 0;
-
-                const pmlAktifTgl = logPmlMap.get(dateString)?.size || 0;
-                const pmlPct = listPml.length > 0 ? Math.round((pmlAktifTgl / listPml.length) * 100) : 0;
-
-                trendDataRaw.push({
-                    rawDate: dateString, 
-                    tanggalLabel: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
-                    'PCL Aktif (%)': pclPct,
-                    'PML Aktif (%)': pmlPct
-                });
-            }
-            return trendDataRaw;
-        };
-
-        const seluruhLogPcl = masterPclList.flatMap(p => p.rawLogs || []);
-        const seluruhLogPml = masterPmlList.flatMap(p => p.rawLogs || []);
-
-        if (!selectedKecamatan) {
-            return {
-                filteredMetrics: globalMetrics,
-                trendChartData: hitungTrenHarian(masterPclList, masterPmlList, seluruhLogPcl, seluruhLogPml)
-            };
-        }
-
-        const pclKec = masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan);
-        const pmlKec = masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan);
-
-        const pclAktif = pclKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length;
-        const pmlAktif = pmlKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length;
-        const stagnan = [...pclKec, ...pmlKec].filter(p => p.isStagnan).length;
-
-        const logPclKec = seluruhLogPcl.filter(l => pclKec.some(p => p.email === l.petugas_email));
-        const logPmlKec = seluruhLogPml.filter(l => pmlKec.some(p => p.email === l.pml_email));
-
-        return {
-            filteredMetrics: {
-                totalPcl: pclKec.length,
-                pclAktifHariIni: pclAktif,
-                totalPml: pmlKec.length,
-                pmlAktifHariIni: pmlAktif,
-                totalStagnan: stagnan
-            },
-            trendChartData: hitungTrenHarian(pclKec, pmlKec, logPclKec, logPmlKec)
-        };
-    }, [selectedKecamatan, globalMetrics, masterPclList, masterPmlList, selectedFilterDate]);
-
-    const filteredMetrics = trendAndMetricsData.filteredMetrics;
-    const trendChartData = trendAndMetricsData.trendChartData;
-
-    // 3. FETCH OPERATIONAL ENGINE SUPABASE
-    const fetchOperationalData = async () => {
+    // 💡 OPTIMALISASI: FETCH DATA OPERASIONAL BERBASIS SERVER-SIDE FILTERING (H-14 Rentang Waktu)
+    const fetchOperationalData = useCallback(async () => {
         setIsRefreshing(true);
         if (rawPetugas.length === 0) setLoading(true);
 
+        // Ambil penanda waktu Jakarta hari ini
         const jktDateString = new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
         const now = new Date(jktDateString);
+        const tglHariIni = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const tglHariIni = `${year}-${month}-${day}`;
+        // Hitung batas bawah tanggal (H-14 dari tanggal filter aktif demi efisiensi data transfer)
+        const batasBawahTanggal = new Date(selectedFilterDate);
+        batasBawahTanggal.setDate(batasBawahTanggal.getDate() - 14);
+        const batasBawahStr = `${batasBawahTanggal.getFullYear()}-${String(batasBawahTanggal.getMonth() + 1).padStart(2, '0')}-${String(batasBawahTanggal.getDate()).padStart(2, '0')}`;
 
         const [petugasRes, logsPclRes, logsPmlRes, masterSlsRes, realisasiPmlRes] = await Promise.all([
             supabase.from('petugas').select('email, nama_petugas, posisi_tugas, status, kecamatan_tugas').eq('status', 'Diterima'),
-            supabase.from('log_checkin_pcl').select('idsubsls, tanggal, petugas_email'),
-            supabase.from('log_checkin_pml').select('pml_email, tanggal, idsubsls'),
+            supabase.from('log_checkin_pcl').select('idsubsls, tanggal, petugas_email').gte('tanggal', batasBawahStr),
+            supabase.from('log_checkin_pml').select('pml_email, tanggal, idsubsls').gte('tanggal', batasBawahStr),
             supabase.from('muatan_sls').select('idsubsls, kdkec, nmkec, kddesa, nmdesa, jml_muatan, realisasi_pencacahan, is_selesai, petugas_id, petugas(nama_petugas)'),
-            supabase.from('log_realisasi_pml').select('tanggal, pml_email')
+            supabase.from('log_realisasi_pml').select('tanggal, pml_email').gte('tanggal', batasBawahStr)
         ]);
 
         if (petugasRes.error || logsPclRes.error || logsPmlRes.error || masterSlsRes.error || realisasiPmlRes.error) {
-            console.error("Gagal mengambil data operasional atau realisasi");
+            console.error("Gagal mengambil data operasional atau realisasi terfilter server");
             setLoading(false);
             setIsRefreshing(false);
             return;
@@ -468,7 +268,228 @@ const lapItemsPerPage = 10;
 
         setLoading(false);
         setIsRefreshing(false);
-    };
+    }, [selectedFilterDate]);
+
+    useEffect(() => {
+        fetchOperationalData();
+    }, [fetchOperationalData]);
+
+    // 1. ENGINE AGREGASI SENSUS (Dioptimasi)
+    const dataMonitoringWilayah = useMemo(() => {
+        const rekapKecamatan = {};
+        const rekapDesa = {};
+        const rekapPetugas = {};
+
+        rawMasterSls.forEach(sls => {
+            const kodeKec = sls.kdkec ? String(sls.kdkec).trim() : "";
+            const kodeDesa = sls.kddesa ? String(sls.kddesa).trim() : "";
+
+            const idPetugas = sls.petugas_id ? String(sls.petugas_id).trim() : "";
+            const namaDariJoin = sls.petugas?.nama_petugas || sls.petugas_id?.nama_petugas;
+            const namaMentah = namaDariJoin || (idPetugas ? idPetugas.split('@')[0] : "Tanpa Petugas");
+            const namaPetugas = String(namaMentah).toUpperCase();
+
+            if (!kodeKec || !kodeDesa) return;
+
+            const namaKec = sls.nmkec || `Kec. ${kodeKec}`;
+            const namaDesa = sls.nmdesa || `Desa ${kodeDesa}`;
+
+            const muatanAwal = parseInt(sls.jml_muatan) || 0;
+            const realisasi = parseInt(sls.realisasi_pencacahan) || 0;
+            const isSelesai = sls.is_selesai === true;
+
+            const targetDinamis = (isSelesai || realisasi > muatanAwal) ? realisasi : muatanAwal;
+
+            let muatanSelesai = 0;
+            let muatanSedang = 0;
+            let muatanBelum = 0;
+
+            if (isSelesai) {
+                muatanSelesai = realisasi;
+            } else if (realisasi > 0) {
+                muatanSedang = realisasi;
+                muatanBelum = Math.max(0, targetDinamis - realisasi);
+            } else {
+                muatanBelum = targetDinamis;
+            }
+
+            if (!rekapKecamatan[kodeKec]) {
+                rekapKecamatan[kodeKec] = {
+                    kode: kodeKec, nama_asli: namaKec, nama: `[${kodeKec}] ${namaKec}`,
+                    total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
+                    muatan_selesai: 0, muatan_sedang: 0, muatan_belum: 0
+                };
+            }
+            rekapKecamatan[kodeKec].total_target += targetDinamis;
+            rekapKecamatan[kodeKec].total_realisasi += realisasi;
+            rekapKecamatan[kodeKec].jml_sls += 1;
+            rekapKecamatan[kodeKec].muatan_selesai += muatanSelesai;
+            rekapKecamatan[kodeKec].muatan_sedang += muatanSedang;
+            rekapKecamatan[kodeKec].muatan_belum += muatanBelum;
+            if (isSelesai) rekapKecamatan[kodeKec].sls_selesai += 1;
+
+            const keyDesa = `${kodeKec}-${kodeDesa}`;
+            if (!rekapDesa[keyDesa]) {
+                rekapDesa[keyDesa] = {
+                    kode: kodeDesa, kodeKec: kodeKec, nama_asli: namaDesa, nama: `[${kodeDesa}] ${namaDesa}`,
+                    total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
+                    muatan_selesai: 0, muatan_sedang: 0, muatan_belum: 0
+                };
+            }
+            rekapDesa[keyDesa].total_target += targetDinamis;
+            rekapDesa[keyDesa].total_realisasi += realisasi;
+            rekapDesa[keyDesa].jml_sls += 1;
+            rekapDesa[keyDesa].muatan_selesai += muatanSelesai;
+            rekapDesa[keyDesa].muatan_sedang += muatanSedang;
+            rekapDesa[keyDesa].muatan_belum += muatanBelum;
+            if (isSelesai) rekapDesa[keyDesa].sls_selesai += 1;
+
+            if (idPetugas) {
+                const keyPetugas = `${kodeKec}-${idPetugas}`;
+                if (!rekapPetugas[keyPetugas]) {
+                    rekapPetugas[keyPetugas] = {
+                        kode: idPetugas, kodeKec: kodeKec, nama_asli: namaPetugas, nama: namaPetugas,
+                        total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
+                        muatan_selesai: 0, muatan_sedang: 0, muatan_belum: 0
+                    };
+                }
+                rekapPetugas[keyPetugas].total_target += targetDinamis;
+                rekapPetugas[keyPetugas].total_realisasi += realisasi;
+                rekapPetugas[keyPetugas].jml_sls += 1;
+                rekapPetugas[keyPetugas].muatan_selesai += muatanSelesai;
+                rekapPetugas[keyPetugas].muatan_sedang += muatanSedang;
+                rekapPetugas[keyPetugas].muatan_belum += muatanBelum;
+                if (isSelesai) rekapPetugas[keyPetugas].sls_selesai += 1;
+            }
+        });
+
+        const targetSlsTerfilter = selectedKecTab === "SEMUA"
+            ? rawMasterSls
+            : rawMasterSls.filter(sls => String(sls.kdkec).trim() === selectedKecTab);
+
+        const rekapStatusSls = { selesai: 0, sedang: 0, belum: 0, total: targetSlsTerfilter.length };
+        const muatanStatus = { selesai: 0, proses: 0, belum: 0 };
+
+        targetSlsTerfilter.forEach(sls => {
+            const muatanAwal = parseInt(sls.jml_muatan) || 0;
+            const realisasi = parseInt(sls.realisasi_pencacahan) || 0;
+            const isSelesai = sls.is_selesai === true;
+            const targetDinamis = (isSelesai || realisasi > muatanAwal) ? realisasi : muatanAwal;
+
+            if (isSelesai) rekapStatusSls.selesai++;
+            else if (realisasi > 0) rekapStatusSls.sedang++;
+            else rekapStatusSls.belum++;
+
+            if (isSelesai) {
+                muatanStatus.selesai += realisasi;
+            } else if (realisasi > 0) {
+                muatanStatus.proses += realisasi;
+                muatanStatus.belum += Math.max(0, targetDinamis - realisasi);
+            } else {
+                muatanStatus.belum += targetDinamis;
+            }
+        });
+
+        const calculateStatus = (item) => {
+            const totalTargetWilayah = item.total_target || 1;
+            const selesai = Math.round((item.muatan_selesai / totalTargetWilayah) * 100);
+            const sedang = Math.round((item.muatan_sedang / totalTargetWilayah) * 100);
+            const belum = Math.max(0, 100 - selesai - sedang);
+            const persen = totalTargetWilayah > 0 ? Math.min(Math.round((item.total_realisasi / totalTargetWilayah) * 100), 100) : 0;
+            return { selesai, sedang, belum, persen };
+        };
+
+        return {
+            kecamatan: Object.values(rekapKecamatan).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true })),
+            desa: Object.values(rekapDesa).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true })),
+            petugas: Object.values(rekapPetugas).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => b.persen - a.persen),
+            statusSls: rekapStatusSls,
+            muatanStatus: muatanStatus
+        };
+    }, [rawMasterSls, selectedKecTab]);
+
+    const namaKecamatanTerpilihText = useMemo(() => {
+        if (!selectedKecamatan) return null;
+        const match = dataMonitoringWilayah.kecamatan.find(k => k.kode === selectedKecamatan);
+        return match ? match.nama_asli : null;
+    }, [selectedKecamatan, dataMonitoringWilayah]);
+
+    // 2. TIMELINE GENERATOR & HISTORIS 14 HARI
+    const trendAndMetricsData = useMemo(() => {
+        const now = new Date();
+        const jktDateString = now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
+        const nowJkt = new Date(jktDateString);
+
+        const hitungTrenHarian = (listPcl, listPml, logsPcl, logsPml) => {
+            const trendDataRaw = [];
+            const logPclMap = new Map();
+            const logPmlMap = new Map();
+
+            logsPcl.forEach(l => {
+                if (!logPclMap.has(l.tanggal)) logPclMap.set(l.tanggal, new Set());
+                logPclMap.get(l.tanggal).add(l.petugas_email);
+            });
+
+            logsPml.forEach(l => {
+                if (!logPmlMap.has(l.tanggal)) logPmlMap.set(l.tanggal, new Set());
+                logPmlMap.get(l.tanggal).add(l.pml_email);
+            });
+
+            for (let i = 13; i >= 0; i--) {
+                const d = new Date(nowJkt);
+                d.setDate(nowJkt.getDate() - i);
+                const dateString = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+                const pclAktifTgl = logPclMap.get(dateString)?.size || 0;
+                const pclPct = listPcl.length > 0 ? Math.round((pclAktifTgl / listPcl.length) * 100) : 0;
+
+                const pmlAktifTgl = logPmlMap.get(dateString)?.size || 0;
+                const pmlPct = listPml.length > 0 ? Math.round((pmlAktifTgl / listPml.length) * 100) : 0;
+
+                trendDataRaw.push({
+                    rawDate: dateString, 
+                    tanggalLabel: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+                    'PCL Aktif (%)': pclPct,
+                    'PML Aktif (%)': pmlPct
+                });
+            }
+            return trendDataRaw;
+        };
+
+        const seluruhLogPcl = masterPclList.flatMap(p => p.rawLogs || []);
+        const seluruhLogPml = masterPmlList.flatMap(p => p.rawLogs || []);
+
+        if (!selectedKecamatan) {
+            return {
+                filteredMetrics: globalMetrics,
+                trendChartData: hitungTrenHarian(masterPclList, masterPmlList, seluruhLogPcl, seluruhLogPml)
+            };
+        }
+
+        const pclKec = masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan);
+        const pmlKec = masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan);
+
+        const pclAktif = pclKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length;
+        const pmlAktif = pmlKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length;
+        const stagnan = [...pclKec, ...pmlKec].filter(p => p.isStagnan).length;
+
+        const logPclKec = seluruhLogPcl.filter(l => pclKec.some(p => p.email === l.petugas_email));
+        const logPmlKec = seluruhLogPml.filter(l => pmlKec.some(p => p.email === l.pml_email));
+
+        return {
+            filteredMetrics: {
+                totalPcl: pclKec.length,
+                pclAktifHariIni: pclAktif,
+                totalPml: pmlKec.length,
+                pmlAktifHariIni: pmlAktif,
+                totalStagnan: stagnan
+            },
+            trendChartData: hitungTrenHarian(pclKec, pmlKec, logPclKec, logPmlKec)
+        };
+    }, [selectedKecamatan, globalMetrics, masterPclList, masterPmlList, selectedFilterDate]);
+
+    const filteredMetrics = trendAndMetricsData.filteredMetrics;
+    const trendChartData = trendAndMetricsData.trendChartData;
 
     // 4. KECAMATAN AKTIF HARI INI GRAPH DATA GENERATOR
     const kecamatanChartData = useMemo(() => {
@@ -510,7 +531,7 @@ const lapItemsPerPage = 10;
         return hasilSiklus;
     }, [selectedKecamatan, rawPetugas, rawLogsPcl, rawRealisasiPml]);
 
-    // 6. RE-EVALUASI FILTER LIST UTAMA
+    // 6. RE-EVALUASI FILTER LIST UTAMA (Mendukung Debounced Search Term)
     const filteredList = useMemo(() => {
         const listDataAktif = activeTab === 'PCL' ? masterPclList : masterPmlList;
         const jktDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
@@ -546,94 +567,89 @@ const lapItemsPerPage = 10;
         });
 
     }, [activeTab, masterPclList, masterPmlList, searchTerm, selectedKecamatan, filterStatus, selectedFilterDate]);
-const handleBukaDetailLapangan = (tanggalLabel) => {
-    setLapCurrentPage(1);
-    setLapSearchTerm('');
-    setLapActiveFilter('AKTIF');
 
-    // Konversi tanggal label "15 Juni 2026" -> "2026-06-15" untuk pencocokan log database
-    const part = tanggalLabel.split(' ');
-    const day = part[0].padStart(2, '0');
-    const dbDateFormatted = `2026-06-${day}`;
+    const handleBukaDetailLapangan = (tanggalLabel) => {
+        setLapCurrentPage(1);
+        setLapSearchTerm('');
+        setLapActiveFilter('AKTIF');
 
-    // Cari semua email unik PPL yang check-in pada tanggal tersebut dari log mentah
-    const emailAktifSet = new Set(
-        rawLogsPcl
-            .filter(log => log.tanggal === dbDateFormatted)
-            .map(log => log.petugas_email.toLowerCase().trim())
-    );
+        const part = tanggalLabel.split(' ');
+        const day = part[0].padStart(2, '0');
+        const dbDateFormatted = `2026-06-${day}`;
 
-    setDataLapanganTerpilih({
-        tanggalLabel,
-        tanggalDb: dbDateFormatted,
-        listPetugasAktif: Array.from(emailAktifSet)
-    });
-    setShowDetailLapangan(true);
-};
-    // Handlers Buka Evaluasi Drawer
-const handleBukaDetailEvaluasi = async (tanggalLabel) => {
-    setLoadingDetailEval(true);
-    setShowDetailEvaluasi(true);
-    setEvalCurrentPage(1); 
-    setEvalSearchTerm(''); 
-    
-    const part = tanggalLabel.split(' ');
-    const day = part[0].padStart(2, '0');
-    const dbDateFormatted = `2026-06-${day}`;
-    
-    setDataEvaluasiTerpilih({ tanggal: tanggalLabel, listLaporan: [] });
+        const emailAktifSet = new Set(
+            rawLogsPcl
+                .filter(log => log.tanggal === dbDateFormatted)
+                .map(log => log.petugas_email.toLowerCase().trim())
+        );
 
-    try {
-        // 🔥 PERBAIKAN: Melakukan join query ke tabel petugas berbasis Foreign Key
-        const { data, error } = await supabase
-            .from('log_realisasi_pml')
-            .select(`
-                pml_email,
-                kendala_lapangan,
-                solusi_lapangan,
-                foto_evaluasi,
-                petugas!pml_email (
-                    nama_petugas,
-                    kecamatan_tugas
-                )
-            `)
-            .eq('tanggal', dbDateFormatted);
-
-        if (error) throw error;
-
-        // Racik data agar informasi petugas naik ke level utama (flattening object)
-        const dataFormatted = (data || []).map(log => ({
-            pml_email: log.pml_email,
-            kendala_lapangan: log.kendala_lapangan,
-            solusi_lapangan: log.solusi_lapangan,
-            foto_evaluasi: log.foto_evaluasi,
-            // Jika data join kosong (petugas terhapus/tidak cocok), berikan fallback
-            nama_petugas: log.petugas?.nama_petugas || 'TANPA NAMA',
-            kecamatan_tugas: log.petugas?.kecamatan_tugas || '999 KOSONG' 
-        }));
-
-        // 🔥 PERBAIKAN: Urutkan hasil secara Alfanumerik berdasarkan kecamatan_tugas (010 SELO, 011 AMPEL, dst)
-        const dataSorted = dataFormatted.sort((a, b) => {
-            return a.kecamatan_tugas.localeCompare(b.kecamatan_tugas, 'id', { numeric: true });
+        setDataLapanganTerpilih({
+            tanggalLabel,
+            tanggalDb: dbDateFormatted,
+            listPetugasAktif: Array.from(emailAktifSet)
         });
+        setShowDetailLapangan(true);
+    };
 
-        setDataEvaluasiTerpilih({
-            tanggal: tanggalLabel,
-            listLaporan: dataSorted
-        });
+    const handleBukaDetailEvaluasi = async (tanggalLabel) => {
+        setLoadingDetailEval(true);
+        setShowDetailEvaluasi(true);
+        setEvalCurrentPage(1); 
+        setEvalSearchTerm(''); 
+        
+        const part = tanggalLabel.split(' ');
+        const day = part[0].padStart(2, '0');
+        const dbDateFormatted = `2026-06-${day}`;
+        
+        setDataEvaluasiTerpilih({ tanggal: tanggalLabel, listLaporan: [] });
 
-    } catch (err) {
-        console.error("Gagal mengambil detail evaluasi join petugas:", err.message);
-    } finally {
-        setLoadingDetailEval(false);
-    }
-};
+        try {
+            const { data, error } = await supabase
+                .from('log_realisasi_pml')
+                .select(`
+                    pml_email,
+                    kendala_lapangan,
+                    solusi_lapangan,
+                    foto_evaluasi,
+                    petugas!pml_email (
+                        nama_petugas,
+                        kecamatan_tugas
+                    )
+                `)
+                .eq('tanggal', dbDateFormatted);
 
-    // Format tanggal untuk Tampilan filter atas
+            if (error) throw error;
+
+            const dataFormatted = (data || []).map(log => ({
+                pml_email: log.pml_email,
+                kendala_lapangan: log.kendala_lapangan,
+                solusi_lapangan: log.solusi_lapangan,
+                foto_evaluasi: log.foto_evaluasi,
+                nama_petugas: log.petugas?.nama_petugas || 'TANPA NAMA',
+                kecamatan_tugas: log.petugas?.kecamatan_tugas || '999 KOSONG' 
+            }));
+
+            const dataSorted = dataFormatted.sort((a, b) => {
+                return a.kecamatan_tugas.localeCompare(b.kecamatan_tugas, 'id', { numeric: true });
+            });
+
+            setDataEvaluasiTerpilih({
+                tanggal: tanggalLabel,
+                listLaporan: dataSorted
+            });
+
+        } catch (err) {
+            console.error("Gagal mengambil detail evaluasi join petugas:", err.message);
+        } finally {
+            setLoadingDetailEval(false);
+        }
+    };
+
     const [tahun, bulan, hari] = selectedFilterDate.split('-');
     const namaBulan = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
     const tanggalTampil = `${parseInt(hari)} ${namaBulan[parseInt(bulan) - 1]} ${tahun}`;
-    const isHariIni = selectedFilterDate === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+    const formatSistemSekarang = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+    const isHariIni = selectedFilterDate === formatSistemSekarang;
     const labelTanggal = isHariIni ? `Hari Ini (${tanggalTampil})` : tanggalTampil;
 
     if (loading) {
@@ -748,81 +764,80 @@ const handleBukaDetailEvaluasi = async (tanggalLabel) => {
                 </div>
             </div>
 
-            {/* ✅ PENYEMPURNAAN STRUKTUR SIKLUS MONITORING GRID (DIBUNGKUS BOX DAN CLASS GRID 6 KOLOM) */}
+            {/* SIKLUS MONITORING GRID */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm mb-6">
                 <h3 className="text-xs font-black uppercase text-slate-800 mb-4 flex items-center gap-2">
                     <Calendar size={14} className="text-slate-400" />
                     Monitoring Pelaksanaan 2-1-2-1 {namaKecamatanTerpilihText ? `Kec. ${namaKecamatanTerpilihText}` : '(Kabupaten)'}
                 </h3>
                 
-<div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-    {progresSiklusTerfilter.map((item, idx) => {
-        const isLapangan = item.target === 'PENDATAAN';
-        return (
-            <div 
-                key={idx} 
-                // 🔥 SEKARANG KEDUA CARD BISA DIKLIK: Lapangan ke handleBukaDetailLapangan, Evaluasi ke handleBukaDetailEvaluasi
-                onClick={() => isLapangan ? handleBukaDetailLapangan(item.tanggal) : handleBukaDetailEvaluasi(item.tanggal)}
-                className={`p-3 rounded-2xl border flex flex-col justify-between transition-all duration-200 cursor-pointer active:scale-98 ${
-                    isLapangan 
-                        ? 'bg-indigo-50/50 border-indigo-100 hover:bg-indigo-100/60' 
-                        : 'bg-emerald-50/50 border-emerald-100 hover:bg-emerald-100/60'
-                }`}
-            >
-                <div>
-                    <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-bold text-slate-500 uppercase">{item.tanggal}</span>
-                        <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded-md ${
-                            isLapangan ? 'bg-indigo-200/50 text-indigo-700' : 'bg-emerald-200/60 text-emerald-700'
-                        }`}>
-                            {item.target} 🔍
-                        </span>
-                    </div>
-                    <div className="mt-2">
-                        <div className={`text-sm font-black font-mono ${item.persentase > 70 ? (isLapangan ? 'text-indigo-600' : 'text-emerald-600') : 'text-rose-500'}`}>
-                            {Number(item.persentase).toFixed(2)}%
-                        </div>
-                    </div>
-                </div>
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                    {progresSiklusTerfilter.map((item, idx) => {
+                        const isLapangan = item.target === 'PENDATAAN';
+                        return (
+                            <div 
+                                key={idx} 
+                                onClick={() => isLapangan ? handleBukaDetailLapangan(item.tanggal) : handleBukaDetailEvaluasi(item.tanggal)}
+                                className={`p-3 rounded-2xl border flex flex-col justify-between transition-all duration-200 cursor-pointer active:scale-98 ${
+                                    isLapangan 
+                                        ? 'bg-indigo-50/50 border-indigo-100 hover:bg-indigo-100/60' 
+                                        : 'bg-emerald-50/50 border-emerald-100 hover:bg-emerald-100/60'
+                                }`}
+                            >
+                                <div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[9px] font-bold text-slate-500 uppercase">{item.tanggal}</span>
+                                        <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                                            isLapangan ? 'bg-indigo-200/50 text-indigo-700' : 'bg-emerald-200/60 text-emerald-700'
+                                        }`}>
+                                            {item.target} 🔍
+                                        </span>
+                                    </div>
+                                    <div className="mt-2">
+                                        <div className={`text-sm font-black font-mono ${item.persentase > 70 ? (isLapangan ? 'text-indigo-600' : 'text-emerald-600') : 'text-rose-500'}`}>
+                                            {Number(item.persentase).toFixed(2)}%
+                                        </div>
+                                    </div>
+                                </div>
 
-                <div className="mt-3 space-y-1.5 text-[10px] border-t pt-2 border-slate-200/40">
-                    {isLapangan ? (
-                        <>
-                            <div className="text-slate-600 font-medium flex items-center justify-between gap-1.5">
-                                <div className="flex items-center gap-1"><MapPin size={10} className="text-emerald-500" /> Petugas Jalan Lapangan:</div>
-                                <strong className="text-slate-800">{item.aktif} Org</strong>
+                                <div className="mt-3 space-y-1.5 text-[10px] border-t pt-2 border-slate-200/40">
+                                    {isLapangan ? (
+                                        <>
+                                            <div className="text-slate-600 font-medium flex items-center justify-between gap-1.5">
+                                                <div className="flex items-center gap-1"><MapPin size={10} className="text-emerald-500" /> Petugas Jalan Lapangan:</div>
+                                                <strong className="text-slate-800">{item.aktif} Org</strong>
+                                            </div>
+                                            <div className="text-rose-600 font-medium flex items-center justify-between gap-1.5">
+                                                <div className="flex items-center gap-1"><UserX size={10} className="text-rose-500" /> Petugas Tidak Aktif:</div>
+                                                <strong>{item.absen} Org</strong>
+                                            </div>
+                                            <div className="text-[8px] text-indigo-600/80 font-bold text-center pt-1 italic tracking-wide">
+                                                (Klik untuk lihat petugas aktif)
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="text-slate-600 font-medium flex items-center justify-between gap-1.5">
+                                                <div className="flex items-center gap-1"><CheckCircle2 size={10} className="text-emerald-500" /> Tim Sudah Kirim Evaluasi:</div>
+                                                <strong className="text-slate-800">{item.aktif} TIM</strong>
+                                            </div>
+                                            <div className="text-slate-500 font-medium flex items-center justify-between gap-1.5">
+                                                <div className="flex items-center gap-1"><Clock size={10} className="text-slate-400" /> Tim Belum Kirim Evaluasi:</div>
+                                                <strong className="text-slate-800">{item.absen} TIM</strong>
+                                            </div>
+                                            <div className="text-[8px] text-emerald-600/80 font-bold text-center pt-1 italic tracking-wide">
+                                                (Klik untuk lihat hasil evaluasi)
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="w-full bg-white h-1.5 rounded-full mt-2.5 overflow-hidden border border-slate-100 shadow-inner">
+                                    <div className={`h-full transition-all duration-500 ${isLapangan ? 'bg-indigo-500' : 'bg-emerald-500'}`} style={{ width: `${item.persentase}%` }}></div>
+                                </div>
                             </div>
-                            <div className="text-rose-600 font-medium flex items-center justify-between gap-1.5">
-                                <div className="flex items-center gap-1"><UserX size={10} className="text-rose-500" /> Petugas Tidak Aktif:</div>
-                                <strong>{item.absen} Org</strong>
-                            </div>
-                            <div className="text-[8px] text-indigo-600/80 font-bold text-center pt-1 italic tracking-wide">
-                                (Klik untuk lihat petugas aktif)
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <div className="text-slate-600 font-medium flex items-center justify-between gap-1.5">
-                                <div className="flex items-center gap-1"><CheckCircle2 size={10} className="text-emerald-500" /> Tim Sudah Kirim Evaluasi:</div>
-                                <strong className="text-slate-800">{item.aktif} TIM</strong>
-                            </div>
-                            <div className="text-slate-500 font-medium flex items-center justify-between gap-1.5">
-                                <div className="flex items-center gap-1"><Clock size={10} className="text-slate-400" /> Tim Belum Kirim Evaluasi:</div>
-                                <strong className="text-slate-800">{item.absen} TIM</strong>
-                            </div>
-                            <div className="text-[8px] text-emerald-600/80 font-bold text-center pt-1 italic tracking-wide">
-                                (Klik untuk lihat hasil evaluasi)
-                            </div>
-                        </>
-                    )}
+                        );
+                    })}
                 </div>
-                <div className="w-full bg-white h-1.5 rounded-full mt-2.5 overflow-hidden border border-slate-100 shadow-inner">
-                    <div className={`h-full transition-all duration-500 ${isLapangan ? 'bg-indigo-500' : 'bg-emerald-500'}`} style={{ width: `${item.persentase}%` }}></div>
-                </div>
-            </div>
-        );
-    })}
-</div>
             </div>
 
             {/* ASSIGNMENT REALISASI CHART PANEL */}
@@ -1096,7 +1111,8 @@ const handleBukaDetailEvaluasi = async (tanggalLabel) => {
                 <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto items-center flex-1 lg:justify-end">
                     <div className="relative w-full sm:w-56">
                         <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
-                        <input type="text" placeholder={`Cari nama / email ${activeTab}...`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-shadow" />
+                        {/* 💡 SINKRONISASI KE STATE INPUT DENGAN DEBOUNCE EFFECT */}
+                        <input type="text" placeholder={`Cari nama / email ${activeTab}...`} value={searchInputValue} onChange={(e) => setSearchInputValue(e.target.value)} className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-shadow" />
                     </div>
 
                     <div className="relative w-full sm:w-40 group">
@@ -1220,7 +1236,7 @@ const handleBukaDetailEvaluasi = async (tanggalLabel) => {
                                         {[...Array(4)].map((_, i) => <div key={`b-${i}`} className="h-6"></div>)}
                                         {[...Array(31)].map((_, i) => {
                                             const dateNum = i + 1;
-                                            const isPetugasAktif = selectedPetugas.arrayTanggalAktif?.includes(dateNum);
+                                            const isPetugasAktif = selectedPetugas.rawLogs?.some(l => parseInt(l.tanggal.split('-')[2], 10) === dateNum);
                                             let dateBg = "bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100";
                                             if (isPetugasAktif) dateBg = "bg-gradient-to-br from-emerald-400 to-emerald-500 text-white font-black shadow-md shadow-emerald-200 border-none";
                                             return <div key={dateNum} className={`h-6 w-full mx-auto rounded-lg text-[10px] flex items-center justify-center transition-all select-none cursor-default ${dateBg}`}>{dateNum}</div>;
@@ -1265,413 +1281,255 @@ const handleBukaDetailEvaluasi = async (tanggalLabel) => {
                 </div>
             </div>
 
-            {/* ✅ MODAL SLIDE-OVER DETAIL LAPORAN EVALUASI (Ditaruh di luar hierarki grid, aman dan terisolasi) */}
-{/* ✅ POP-UP WINDOW EVALUASI (CENTERED MODAL DENGAN PAGINATION & TAB FILTER) */}
-{showDetailEvaluasi && (() => {
-    // 1. Ambil list PML yang ditugaskan berdasarkan filter kecamatan saat ini
-    const petugasTerfilter = selectedKecamatan 
-        ? rawPetugas.filter(p => p.posisi_tugas === 'PML' && ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
-        : rawPetugas.filter(p => p.posisi_tugas === 'PML');
+            {/* ✅ WINDOW BOX EVALUASI DENGAN SERVER SIDE INTEGRATION */}
+            {showDetailEvaluasi && (() => {
+                const petugasTerfilter = selectedKecamatan 
+                    ? rawPetugas.filter(p => p.posisi_tugas === 'PML' && ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
+                    : rawPetugas.filter(p => p.posisi_tugas === 'PML');
 
-    // Buat set data untuk memisahkan status pengiriman
-    const emailSudahKirimSet = new Set(dataEvaluasiTerpilih.listLaporan.map(l => l.pml_email.toLowerCase().trim()));
+                const emailSudahKirimSet = new Set(dataEvaluasiTerpilih.listLaporan.map(l => l.pml_email.toLowerCase().trim()));
 
-    // 2. Pisahkan data PML yang SUDAH vs BELUM kirim
-    // 2. Pisahkan data PML yang SUDAH vs BELUM kirim
-const pmlSudahKirim = dataEvaluasiTerpilih.listLaporan.filter(l => 
-    petugasTerfilter.some(p => p.email.toLowerCase().trim() === l.pml_email.toLowerCase().trim())
-);
+                const pmlSudahKirim = dataEvaluasiTerpilih.listLaporan.filter(l => 
+                    petugasTerfilter.some(p => p.email.toLowerCase().trim() === l.pml_email.toLowerCase().trim())
+                );
 
-// AMBIL DATA BELUM KIRIM
-const pmlBelumKirimRaw = petugasTerfilter.filter(p => !emailSudahKirimSet.has(p.email.toLowerCase().trim()));
+                const pmlBelumKirimRaw = petugasTerfilter.filter(p => !emailSudahKirimSet.has(p.email.toLowerCase().trim()));
 
-// 🔥 PERBAIKAN: Urutkan data PML Belum Lapor berdasarkan kecamatan_tugas secara alfanumerik (010, 011, dst)
-const pmlBelumKirim = pmlBelumKirimRaw.sort((a, b) => {
-    const kecA = a.kecamatan_tugas || '999 KOSONG';
-    const kecB = b.kecamatan_tugas || '999 KOSONG';
-    return kecA.localeCompare(kecB, 'id', { numeric: true });
-});
+                const pmlBelumKirim = pmlBelumKirimRaw.sort((a, b) => {
+                    const kecA = a.kecamatan_tugas || '999 KOSONG';
+                    const kecB = b.kecamatan_tugas || '999 KOSONG';
+                    return kecA.localeCompare(kecB, 'id', { numeric: true });
+                });
 
-    // 3. Filter berdasarkan Tab Aktif & Filter Pencarian Teks
-    const listSesuaiTab = evalActiveFilter === 'SUDAH' ? pmlSudahKirim : pmlBelumKirim;
-    const listTerfilterFinal = listSesuaiTab.filter(item => {
-        const emailToSearch = evalActiveFilter === 'SUDAH' ? item.pml_email : item.email;
-        const namaToSearch = evalActiveFilter === 'SUDAH' ? '' : (item.nama_petugas || '');
-        return emailToSearch.toLowerCase().includes(evalSearchTerm.toLowerCase()) || 
-               namaToSearch.toLowerCase().includes(evalSearchTerm.toLowerCase());
-    });
+                const listSesuaiTab = evalActiveFilter === 'SUDAH' ? pmlSudahKirim : pmlBelumKirim;
+                const listTerfilterFinal = listSesuaiTab.filter(item => {
+                    const emailToSearch = evalActiveFilter === 'SUDAH' ? item.pml_email : item.email;
+                    const namaToSearch = evalActiveFilter === 'SUDAH' ? '' : (item.nama_petugas || '');
+                    return emailToSearch.toLowerCase().includes(evalSearchTerm.toLowerCase()) || 
+                           namaToSearch.toLowerCase().includes(evalSearchTerm.toLowerCase());
+                });
 
-    // 4. Kalkulasi Data Pagination
-    const totalItems = listTerfilterFinal.length;
-    const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
-    const indexOfLastItem = evalCurrentPage * itemsPerPage;
-    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-    const currentItems = listTerfilterFinal.slice(indexOfFirstItem, indexOfLastItem);
+                const totalItems = listTerfilterFinal.length;
+                const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+                const indexOfLastItem = evalCurrentPage * itemsPerPage;
+                const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+                const currentItems = listTerfilterFinal.slice(indexOfFirstItem, indexOfLastItem);
 
-    return (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
-            {/* WINDOW BOX (Berada di tengah layar, responsif, maksimal tinggi 80% layar agar tidak amblas ke bawah) */}
-            <div className="bg-slate-50 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[85vh] flex flex-col animate-scaleIn">
-                
-                {/* 1. HEADER WINDOW */}
-                <div className="bg-white p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                        <div>
-                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">
-                                Rekap Evaluasi Masalah & Solusi
-                            </h3>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Siklus Tanggal: {dataEvaluasiTerpilih.tanggal}</p>
-                        </div>
-                    </div>
-                    <button 
-                        onClick={() => setShowDetailEvaluasi(false)}
-                        className="text-[10px] font-black bg-slate-100 hover:bg-rose-500 hover:text-white text-slate-500 w-6 h-6 rounded-xl transition-all flex items-center justify-center shadow-xs"
-                    >
-                        ✕
-                    </button>
-                </div>
-
-                {/* 2. STATS TAB BAR */}
-                <div className="grid grid-cols-2 gap-2 p-3 bg-white border-b border-slate-100 shrink-0">
-                    <button 
-                        type="button"
-                        onClick={() => { setEvalActiveFilter('SUDAH'); setEvalCurrentPage(1); }}
-                        className={`p-2 rounded-xl border text-center transition-all ${evalActiveFilter === 'SUDAH' ? 'bg-emerald-50 border-emerald-200 font-black text-emerald-700 shadow-xs ring-1 ring-emerald-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}
-                    >
-                        <div className="text-[8px] uppercase tracking-wider">Sudah Kirim</div>
-                        <div className="text-sm font-mono mt-0.5">{pmlSudahKirim.length} TIM</div>
-                    </button>
-                    <button 
-                        type="button"
-                        onClick={() => { setEvalActiveFilter('BELUM'); setEvalCurrentPage(1); }}
-                        className={`p-2 rounded-xl border text-center transition-all ${evalActiveFilter === 'BELUM' ? 'bg-rose-50 border-rose-200 font-black text-rose-700 shadow-xs ring-1 ring-rose-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}
-                    >
-                        <div className="text-[8px] uppercase tracking-wider">Belum Laporan</div>
-                        <div className="text-sm font-mono mt-0.5">{pmlBelumKirim.length} TIM</div>
-                    </button>
-                </div>
-
-                {/* 3. TOOLBAR PENCARIAN */}
-                <div className="p-3 bg-white border-b border-slate-200 shrink-0">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-2.5 text-slate-400" size={12} />
-                        <input 
-                            type="text" 
-                            placeholder={`Cari dari ${listSesuaiTab.length} petugas di tab ini...`}
-                            value={evalSearchTerm}
-                            onChange={(e) => { setEvalSearchTerm(e.target.value); setEvalCurrentPage(1); }}
-                            className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-shadow"
-                        />
-                    </div>
-                </div>
-
-                {/* 4. AREA KONTEN UTAMA (SCROLLABLE SCROLL BAR) */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50 scrollbar-thin">
-                    {loadingDetailEval ? (
-                        <div className="h-40 flex flex-col justify-center items-center gap-2 text-slate-400 text-xs font-bold uppercase tracking-widest">
-                            <RefreshCw className="animate-spin text-emerald-500" size={16} />
-                            <span>Membaca Tabel Database...</span>
-                        </div>
-                    ) : currentItems.length === 0 ? (
-                        <div className="text-center text-[10px] text-slate-400 font-bold py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
-                            Tidak ada data tim yang cocok dengan kata kunci pencarian.
-                        </div>
-                    ) : (
-                        currentItems.map((item, idx) => {
-                            if (evalActiveFilter === 'SUDAH') {
-    return (
-        <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs space-y-3">
-            
-            {/* INFO LOG IDENTITAS PML & WILAYAH KECAMATAN */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-slate-100 pb-2">
-                <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center text-[9px] font-black uppercase font-mono">
-                        {item.nama_petugas.charAt(0)}
-                    </div>
-                    <div>
-                        <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide">{item.nama_petugas}</div>
-                        <div className="text-[9px] text-slate-400 font-mono tracking-tight">{item.pml_email}</div>
-                    </div>
-                </div>
-                
-                {/* Badge Indikator Kecamatan Tugas (e.g., 010 SELO) */}
-                <span className="self-start sm:self-center text-[9px] font-black uppercase bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-lg border border-indigo-100 flex items-center gap-1 font-mono">
-                    <MapPin size={10} className="text-indigo-400" />
-                    {item.kecamatan_tugas}
-                </span>
-            </div>
-
-            {/* AREA FORM KENDALA & SOLUSI */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px]">
-                <div className="bg-rose-50/50 border border-rose-100 p-2.5 rounded-xl space-y-0.5">
-                    <span className="text-[8px] font-black text-rose-700 uppercase tracking-tight block">⚠️ Kendala Lapangan:</span>
-                    <p className="font-semibold text-slate-700 leading-relaxed">{item.kendala_lapangan || '-'}</p>
-                </div>
-                <div className="bg-emerald-50/50 border border-emerald-100 p-2.5 rounded-xl space-y-0.5">
-                    <span className="text-[8px] font-black text-emerald-700 uppercase tracking-tight block">💡 Solusi:</span>
-                    <p className="font-semibold text-slate-700 leading-relaxed">{item.solusi_lapangan || '-'}</p>
-                </div>
-            </div>
-
-            {/* ATTACHMENT LINK FOTO BUKTI */}
-            {item.foto_evaluasi && item.foto_evaluasi !== "KOSONG_ATAU_OFFLINE" && (
-                <div className="pt-1 border-t border-slate-100 mt-1 flex justify-end">
-                    <a href={item.foto_evaluasi} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[9px] font-black text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-100 transition-all">
-                        Lihat Lampiran Foto Bukti Evaluasi ↗
-                    </a>
-                </div>
-            )}
-        </div>
-    );
-} else {
-    // 🔥 PERBAIKAN: RENDER UNTUK LIST YANG BELUM KIRIM LAPORAN (DENGAN KETERANGAN KECAMATAN TUGAS)
-    return (
-        <div key={idx} className="bg-white border border-rose-100 rounded-2xl p-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors hover:bg-rose-50/20">
-            
-            {/* SISI KIRI: IDENTITAS PML */}
-            <div className="flex items-center gap-2 overflow-hidden">
-                <div className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[9px] font-black uppercase font-mono shrink-0">
-                    {item.nama_petugas ? item.nama_petugas.charAt(0) : '👔'}
-                </div>
-                <div className="overflow-hidden">
-                    <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide truncate">
-                        {item.nama_petugas || 'Tanpa Nama'}
-                    </div>
-                    <div className="text-[9px] text-slate-400 font-mono truncate mt-0.5">
-                        {item.email}
-                    </div>
-                </div>
-            </div>
-
-            {/* SISI KANAN: BADGE KECAMATAN & STATUS BADGE */}
-            <div className="flex items-center gap-2 justify-between sm:justify-end shrink-0">
-                {/* Badge Keterangan Kecamatan Tugas PML */}
-                <span className="text-[8px] font-black uppercase bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200/60 font-mono flex items-center gap-0.5">
-                    <MapPin size={9} className="text-slate-400" />
-                    {item.kecamatan_tugas || 'Belum Diatur'}
-                </span>
-
-                <span className="text-[8px] font-black uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200/40 tracking-tight">
-                    Belum Lapor
-                </span>
-            </div>
-
-        </div>
-    );
-}
-                        })
-                    )}
-                </div>
-
-                {/* 5. FOOTER CONTROL PAGINATION WINDOW */}
-                <div className="bg-white p-3 border-t border-slate-200 flex items-center justify-between shrink-0 text-[10px]">
-                    <span className="font-bold text-slate-400 uppercase tracking-wider">
-                        Halaman {evalCurrentPage} / {totalPages} <span className="font-medium font-mono text-slate-300">({totalItems} data)</span>
-                    </span>
-                    <div className="flex gap-1.5">
-                        <button
-                            type="button"
-                            disabled={evalCurrentPage === 1}
-                            onClick={() => setEvalCurrentPage(prev => Math.max(prev - 1, 1))}
-                            className="bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none text-slate-700 font-black px-3 py-1.5 rounded-xl uppercase tracking-tight transition-all active:scale-95"
-                        >
-                            Sebelumnya
-                        </button>
-                        <button
-                            type="button"
-                            disabled={evalCurrentPage === totalPages}
-                            onClick={() => setEvalCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-30 disabled:pointer-events-none text-white font-black px-3 py-1.5 rounded-xl uppercase tracking-tight transition-all shadow-md active:scale-95"
-                        >
-                            Berikutnya
-                        </button>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-    );
-})()}
-
-{/* ✅ POP-UP WINDOW PEMANTAUAN PETUGAS LAPANGAN (PPL) */}
-{showDetailLapangan && (() => {
-    // 1. Saring master PPL berdasarkan filter hirarki kecamatan yang sedang aktif di dashboard
-    const baseMasterPcl = selectedKecamatan
-        ? rawPetugas.filter(p => p.posisi_tugas === 'PCL' && ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
-        : rawPetugas.filter(p => p.posisi_tugas === 'PCL');
-
-    const setAktifHariIni = new Set(dataLapanganTerpilih.listPetugasAktif);
-
-    // 2. Belah PPL menjadi kelompok AKTIF (Jalan Lapangan) vs ABSEN (Belum Bergerak)
-    const listAktif = baseMasterPcl.filter(p => setAktifHariIni.has(p.email.toLowerCase().trim()));
-    const listAbsen = baseMasterPcl.filter(p => !setAktifHariIni.has(p.email.toLowerCase().trim()));
-
-    const currentTabList = lapActiveFilter === 'AKTIF' ? listAktif : listAbsen;
-
-    // 3. Eksekusi filter pencarian teks (Email / Nama / Kecamatan)
-    const filteredFinal = currentTabList.filter(p => {
-        const query = lapSearchTerm.toLowerCase();
-        return (p.nama_petugas || '').toLowerCase().includes(query) ||
-               p.email.toLowerCase().includes(query) ||
-               (p.kecamatan_tugas || '').toLowerCase().includes(query);
-    });
-
-    // 4. 🔥 PENGURUTAN ALFANUMERIK BERDASARKAN KECAMATAN TUGAS (010 SELO, 011 AMPEL...)
-    const sortedFinal = filteredFinal.sort((a, b) => {
-        const kecA = a.kecamatan_tugas || '999 KOSONG';
-        const kecB = b.kecamatan_tugas || '999 KOSONG';
-        return kecA.localeCompare(kecB, 'id', { numeric: true });
-    });
-
-    // 5. Rumus Hitung Navigasi Halaman Pagination
-    const totalItems = sortedFinal.length;
-    const totalPages = Math.ceil(totalItems / lapItemsPerPage) || 1;
-    const indexOfLastItem = lapCurrentPage * lapItemsPerPage;
-    const indexOfFirstItem = indexOfLastItem - lapItemsPerPage;
-    const currentItems = sortedFinal.slice(indexOfFirstItem, indexOfLastItem);
-
-    return (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
-            <div className="bg-slate-50 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[85vh] flex flex-col animate-scaleIn">
-                
-                {/* HEADER TABEL MODAL */}
-                <div className="bg-white p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
-                    <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></div>
-                        <div>
-                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">
-                                Pemantauan Petugas Lapangan (PPL)
-                            </h3>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Tanggal Operasional: {dataLapanganTerpilih.tanggalLabel}</p>
-                        </div>
-                    </div>
-                    <button 
-                        onClick={() => setShowDetailLapangan(false)}
-                        className="text-[10px] font-black bg-slate-100 hover:bg-rose-500 hover:text-white text-slate-500 w-6 h-6 rounded-xl transition-all flex items-center justify-center shadow-xs"
-                    >
-                        ✕
-                    </button>
-                </div>
-
-                {/* DOUBLE ACTION BUTTON STATUS */}
-                <div className="grid grid-cols-2 gap-2 p-3 bg-white border-b border-slate-100 shrink-0">
-                    <button 
-                        type="button"
-                        onClick={() => { setLapActiveFilter('AKTIF'); setLapCurrentPage(1); }}
-                        className={`p-2 rounded-xl border text-center transition-all ${lapActiveFilter === 'AKTIF' ? 'bg-indigo-50 border-indigo-200 font-black text-indigo-700 shadow-xs ring-1 ring-indigo-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}
-                    >
-                        <div className="text-[8px] uppercase tracking-wider">Aktif Jalan Lapangan</div>
-                        <div className="text-sm font-mono mt-0.5">{listAktif.length} ORG</div>
-                    </button>
-                    <button 
-                        type="button"
-                        onClick={() => { setLapActiveFilter('ABSEN'); setLapCurrentPage(1); }}
-                        className={`p-2 rounded-xl border text-center transition-all ${lapActiveFilter === 'ABSEN' ? 'bg-rose-50 border-rose-200 font-black text-rose-700 shadow-xs ring-1 ring-rose-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}
-                    >
-                        <div className="text-[8px] uppercase tracking-wider">Tidak Aktif (Belum Input)</div>
-                        <div className="text-sm font-mono mt-0.5">{listAbsen.length} ORG</div>
-                    </button>
-                </div>
-
-                {/* SEARCH INPUT FIELD BAR */}
-                <div className="p-3 bg-white border-b border-slate-200 shrink-0">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-2.5 text-slate-400" size={12} />
-                        <input 
-                            type="text" 
-                            placeholder={`Cari dari ${currentTabList.length} PPL di tab ini (Nama/Email/Kecamatan)...`}
-                            value={lapSearchTerm}
-                            onChange={(e) => { setLapSearchTerm(e.target.value); setLapCurrentPage(1); }}
-                            className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-slate-700 focus:outline-none focus:border-indigo-500"
-                        />
-                    </div>
-                </div>
-
-                {/* FEED RENDER AREA (SCROLLABLE LIST ITEM) */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/50 scrollbar-thin">
-                    {currentItems.length === 0 ? (
-                        <div className="text-center text-[10px] text-slate-400 font-bold py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
-                            Tidak ada data PPL yang sesuai dengan kriteria pencarian Anda.
-                        </div>
-                    ) : (
-                        currentItems.map((ppl, idx) => {
-                            const isPplAktif = lapActiveFilter === 'AKTIF';
-                            return (
-                                <div 
-                                    key={idx} 
-                                    className={`bg-white border rounded-2xl p-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all ${
-                                        isPplAktif ? 'border-slate-200 hover:border-indigo-200' : 'border-rose-100 hover:bg-rose-50/10'
-                                    }`}
-                                >
-                                    {/* DATA PROFIL */}
-                                    <div className="flex items-center gap-2.5 overflow-hidden">
-                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black uppercase font-mono shrink-0 ${
-                                            isPplAktif ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'
-                                        }`}>
-                                            {ppl.nama_petugas ? ppl.nama_petugas.charAt(0) : '👥'}
-                                        </div>
-                                        <div className="overflow-hidden">
-                                            <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide truncate">
-                                                {ppl.nama_petugas || 'PPL Tanpa Nama'}
-                                            </div>
-                                            <div className="text-[9px] text-slate-400 font-mono truncate mt-0.5">
-                                                {ppl.email}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* BADGE KECAMATAN & STATUS INDIKATOR */}
-                                    <div className="flex items-center gap-2 justify-between sm:justify-end shrink-0">
-                                        {/* Badge Kecamatan Urut (e.g., 010 SELO) */}
-                                        <span className="text-[9px] font-black uppercase bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-lg border border-slate-200/70 font-mono flex items-center gap-1">
-                                            <MapPin size={10} className="text-slate-400" />
-                                            {ppl.kecamatan_tugas || 'Belum Diatur'}
-                                        </span>
-
-                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border tracking-tight ${
-                                            isPplAktif 
-                                                ? 'bg-emerald-50 border-emerald-200 text-emerald-600' 
-                                                : 'bg-rose-50 border-rose-200 text-rose-600'
-                                        }`}>
-                                            {isPplAktif ? 'Sudah Mulai' : 'Belum Jalan'}
-                                        </span>
+                return (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+                        <div className="bg-slate-50 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[85vh] flex flex-col animate-scaleIn">
+                            
+                            <div className="bg-white p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                                    <div>
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">Rekap Evaluasi Masalah & Solusi</h3>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Siklus Tanggal: {dataEvaluasiTerpilih.tanggal}</p>
                                     </div>
                                 </div>
-                            );
-                        })
-                    )}
-                </div>
+                                <button onClick={() => setShowDetailEvaluasi(false)} className="text-[10px] font-black bg-slate-100 hover:bg-rose-500 hover:text-white text-slate-500 w-6 h-6 rounded-xl transition-all flex items-center justify-center shadow-xs">✕</button>
+                            </div>
 
-                {/* STICKY FOOTER NAVIGATION CONTROL */}
-                <div className="bg-white p-3 border-t border-slate-200 flex items-center justify-between shrink-0 text-[10px]">
-                    <span className="font-bold text-slate-400 uppercase tracking-wider">
-                        Halaman {lapCurrentPage} / {totalPages} <span className="font-medium font-mono text-slate-300">({totalItems} PPL)</span>
-                    </span>
-                    <div className="flex gap-1.5">
-                        <button
-                            type="button"
-                            disabled={lapCurrentPage === 1}
-                            onClick={() => setLapCurrentPage(prev => Math.max(prev - 1, 1))}
-                            className="bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none text-slate-700 font-black px-3 py-1.5 rounded-xl uppercase tracking-tight transition-all"
-                        >
-                            Sebelumnya
-                        </button>
-                        <button
-                            type="button"
-                            disabled={lapCurrentPage === totalPages}
-                            onClick={() => setLapCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-30 disabled:pointer-events-none text-white font-black px-3 py-1.5 rounded-xl uppercase tracking-tight transition-all shadow-md"
-                        >
-                            Berikutnya
-                        </button>
+                            <div className="grid grid-cols-2 gap-2 p-3 bg-white border-b border-slate-100 shrink-0">
+                                <button type="button" onClick={() => { setEvalActiveFilter('SUDAH'); setEvalCurrentPage(1); }} className={`p-2 rounded-xl border text-center transition-all ${evalActiveFilter === 'SUDAH' ? 'bg-emerald-50 border-emerald-200 font-black text-emerald-700 shadow-xs ring-1 ring-emerald-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}>
+                                    <div className="text-[8px] uppercase tracking-wider">Sudah Kirim</div>
+                                    <div className="text-sm font-mono mt-0.5">{pmlSudahKirim.length} TIM</div>
+                                </button>
+                                <button type="button" onClick={() => { setEvalActiveFilter('BELUM'); setEvalCurrentPage(1); }} className={`p-2 rounded-xl border text-center transition-all ${evalActiveFilter === 'BELUM' ? 'bg-rose-50 border-rose-200 font-black text-rose-700 shadow-xs ring-1 ring-rose-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}>
+                                    <div className="text-[8px] uppercase tracking-wider">Belum Laporan</div>
+                                    <div className="text-sm font-mono mt-0.5">{pmlBelumKirim.length} TIM</div>
+                                </button>
+                            </div>
+
+                            <div className="p-3 bg-white border-b border-slate-200 shrink-0">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-2.5 text-slate-400" size={12} />
+                                    <input type="text" placeholder={`Cari dari ${listSesuaiTab.length} petugas di tab ini...`} value={evalSearchTerm} onChange={(e) => { setEvalSearchTerm(e.target.value); setEvalCurrentPage(1); }} className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-slate-700 focus:outline-none focus:border-indigo-500" />
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50 scrollbar-thin">
+                                {loadingDetailEval ? (
+                                    <div className="h-40 flex flex-col justify-center items-center gap-2 text-slate-400 text-xs font-bold uppercase tracking-widest">
+                                        <RefreshCw className="animate-spin text-emerald-500" size={16} />
+                                        <span>Membaca Tabel Database...</span>
+                                    </div>
+                                ) : currentItems.length === 0 ? (
+                                    <div className="text-center text-[10px] text-slate-400 font-bold py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">Tidak ada data tim yang cocok dengan kata kunci pencarian.</div>
+                                ) : (
+                                    currentItems.map((item, idx) => {
+                                        if (evalActiveFilter === 'SUDAH') {
+                                            return (
+                                                <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs space-y-3">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-slate-100 pb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center text-[9px] font-black uppercase font-mono">{item.nama_petugas.charAt(0)}</div>
+                                                            <div>
+                                                                <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide">{item.nama_petugas}</div>
+                                                                <div className="text-[9px] text-slate-400 font-mono tracking-tight">{item.pml_email}</div>
+                                                            </div>
+                                                        </div>
+                                                        <span className="self-start sm:self-center text-[9px] font-black uppercase bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-lg border border-indigo-100 flex items-center gap-1 font-mono">
+                                                            <MapPin size={10} className="text-indigo-400" /> {item.kecamatan_tugas}
+                                                        </span>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px]">
+                                                        <div className="bg-rose-50/50 border border-rose-100 p-2.5 rounded-xl space-y-0.5">
+                                                            <span className="text-[8px] font-black text-rose-700 uppercase tracking-tight block">⚠️ Kendala Lapangan:</span>
+                                                            <p className="font-semibold text-slate-700 leading-relaxed">{item.kendala_lapangan || '-'}</p>
+                                                        </div>
+                                                        <div className="bg-emerald-50/50 border border-emerald-100 p-2.5 rounded-xl space-y-0.5">
+                                                            <span className="text-[8px] font-black text-emerald-700 uppercase tracking-tight block">💡 Solusi:</span>
+                                                            <p className="font-semibold text-slate-700 leading-relaxed">{item.solusi_lapangan || '-'}</p>
+                                                        </div>
+                                                    </div>
+                                                    {item.foto_evaluasi && item.foto_evaluasi !== "KOSONG_ATAU_OFFLINE" && (
+                                                        <div className="pt-1 border-t border-slate-100 mt-1 flex justify-end">
+                                                            <a href={item.foto_evaluasi} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[9px] font-black text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-100 transition-all">Lihat Lampiran Foto Bukti Evaluasi ↗</a>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        } else {
+                                            return (
+                                                <div key={idx} className="bg-white border border-rose-100 rounded-2xl p-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors hover:bg-rose-50/20">
+                                                    <div className="flex items-center gap-2 overflow-hidden">
+                                                        <div className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[9px] font-black uppercase font-mono shrink-0">{item.nama_petugas ? item.nama_petugas.charAt(0) : '👔'}</div>
+                                                        <div className="overflow-hidden">
+                                                            <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide truncate">{item.nama_petugas || 'Tanpa Nama'}</div>
+                                                            <div className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{item.email}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 justify-between sm:justify-end shrink-0">
+                                                        <span className="text-[8px] font-black uppercase bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200/60 font-mono flex items-center gap-0.5">
+                                                            <MapPin size={9} className="text-slate-400" /> {item.kecamatan_tugas || 'Belum Diatur'}
+                                                        </span>
+                                                        <span className="text-[8px] font-black uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200/40 tracking-tight">Belum Lapor</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                    })
+                                )}
+                            </div>
+
+                            <div className="bg-white p-3 border-t border-slate-200 flex items-center justify-between shrink-0 text-[10px]">
+                                <span className="font-bold text-slate-400 uppercase tracking-wider">Halaman {evalCurrentPage} / {totalPages} <span className="font-medium font-mono text-slate-300">({totalItems} data)</span></span>
+                                <div className="flex gap-1.5">
+                                    <button type="button" disabled={evalCurrentPage === 1} onClick={() => setEvalCurrentPage(prev => Math.max(prev - 1, 1))} className="bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none text-slate-700 font-black px-3 py-1.5 rounded-xl transition-all">Sebelumnya</button>
+                                    <button type="button" disabled={evalCurrentPage === totalPages} onClick={() => setEvalCurrentPage(prev => Math.min(prev + 1, totalPages))} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-30 disabled:pointer-events-none text-white font-black px-3 py-1.5 rounded-xl transition-all shadow-md">Berikutnya</button>
+                                </div>
+                            </div>
+
+                        </div>
                     </div>
-                </div>
+                );
+            })()}
 
-            </div>
-        </div>
-    );
-})()}
+            {/* ✅ WINDOW BOX PEMANTAUAN PETUGAS LAPANGAN (PPL) */}
+            {showDetailLapangan && (() => {
+                const baseMasterPcl = selectedKecamatan
+                    ? rawPetugas.filter(p => p.posisi_tugas === 'PCL' && ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
+                    : rawPetugas.filter(p => p.posisi_tugas === 'PCL');
+
+                const setAktifHariIni = new Set(dataLapanganTerpilih.listPetugasAktif);
+
+                const listAktif = baseMasterPcl.filter(p => setAktifHariIni.has(p.email.toLowerCase().trim()));
+                const listAbsen = baseMasterPcl.filter(p => !setAktifHariIni.has(p.email.toLowerCase().trim()));
+
+                const currentTabList = lapActiveFilter === 'AKTIF' ? listAktif : listAbsen;
+
+                const filteredFinal = currentTabList.filter(p => {
+                    const query = lapSearchTerm.toLowerCase();
+                    return (p.nama_petugas || '').toLowerCase().includes(query) ||
+                           p.email.toLowerCase().includes(query) ||
+                           (p.kecamatan_tugas || '').toLowerCase().includes(query);
+                });
+
+                const sortedFinal = filteredFinal.sort((a, b) => {
+                    const kecA = a.kecamatan_tugas || '999 KOSONG';
+                    const kecB = b.kecamatan_tugas || '999 KOSONG';
+                    return kecA.localeCompare(kecB, 'id', { numeric: true });
+                });
+
+                const totalItems = sortedFinal.length;
+                const totalPages = Math.ceil(totalItems / lapItemsPerPage) || 1;
+                const indexOfLastItem = lapCurrentPage * lapItemsPerPage;
+                const indexOfFirstItem = indexOfLastItem - lapItemsPerPage;
+                const currentItems = sortedFinal.slice(indexOfFirstItem, indexOfLastItem);
+
+                return (
+                    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+                        <div className="bg-slate-50 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[85vh] flex flex-col animate-scaleIn">
+                            
+                            <div className="bg-white p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></div>
+                                    <div>
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">Pemantauan Petugas Lapangan (PPL)</h3>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Tanggal Operasional: {dataLapanganTerpilih.tanggalLabel}</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setShowDetailLapangan(false)} className="text-[10px] font-black bg-slate-100 hover:bg-rose-500 hover:text-white text-slate-500 w-6 h-6 rounded-xl transition-all flex items-center justify-center shadow-xs">✕</button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 p-3 bg-white border-b border-slate-100 shrink-0">
+                                <button type="button" onClick={() => { setLapActiveFilter('AKTIF'); setLapCurrentPage(1); }} className={`p-2 rounded-xl border text-center transition-all ${lapActiveFilter === 'AKTIF' ? 'bg-indigo-50 border-indigo-200 font-black text-indigo-700 shadow-xs ring-1 ring-indigo-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}>
+                                    <div className="text-[8px] uppercase tracking-wider">Aktif Jalan Lapangan</div>
+                                    <div className="text-sm font-mono mt-0.5">{listAktif.length} ORG</div>
+                                </button>
+                                <button type="button" onClick={() => { setLapActiveFilter('ABSEN'); setLapCurrentPage(1); }} className={`p-2 rounded-xl border text-center transition-all ${lapActiveFilter === 'ABSEN' ? 'bg-rose-50 border-rose-200 font-black text-rose-700 shadow-xs ring-1 ring-rose-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}>
+                                    <div className="text-[8px] uppercase tracking-wider">Tidak Aktif (Belum Input)</div>
+                                    <div className="text-sm font-mono mt-0.5">{listAbsen.length} ORG</div>
+                                </button>
+                            </div>
+
+                            <div className="p-3 bg-white border-b border-slate-200 shrink-0">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-2.5 text-slate-400" size={12} />
+                                    <input type="text" placeholder={`Cari dari ${currentTabList.length} PPL di tab ini (Nama/Email/Kecamatan)...`} value={lapSearchTerm} onChange={(e) => { setLapSearchTerm(e.target.value); setLapCurrentPage(1); }} className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-slate-700 focus:outline-none focus:border-indigo-500" />
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/50 scrollbar-thin">
+                                {currentItems.length === 0 ? (
+                                    <div className="text-center text-[10px] text-slate-400 font-bold py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">Tidak ada data PPL yang sesuai dengan kriteria pencarian Anda.</div>
+                                ) : (
+                                    currentItems.map((ppl, idx) => {
+                                        const isPplAktif = lapActiveFilter === 'AKTIF';
+                                        return (
+                                            <div key={idx} className={`bg-white border rounded-2xl p-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all ${isPplAktif ? 'border-slate-200 hover:border-indigo-200' : 'border-rose-100 hover:bg-rose-50/10'}`}>
+                                                <div className="flex items-center gap-2.5 overflow-hidden">
+                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black uppercase font-mono shrink-0 ${isPplAktif ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'}`}>{ppl.nama_petugas ? ppl.nama_petugas.charAt(0) : '👥'}</div>
+                                                    <div className="overflow-hidden">
+                                                        <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide truncate">{ppl.nama_petugas || 'PPL Tanpa Nama'}</div>
+                                                        <div className="text-[9px] text-slate-400 font-mono truncate mt-0.5">{ppl.email}</div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2 justify-between sm:justify-end shrink-0">
+                                                    <span className="text-[9px] font-black uppercase bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-lg border border-slate-200/70 font-mono flex items-center gap-1">
+                                                        <MapPin size={10} className="text-slate-400" /> {ppl.kecamatan_tugas || 'Belum Diatur'}
+                                                    </span>
+                                                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border tracking-tight ${isPplAktif ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-rose-50 border-rose-200 text-rose-600'}`}>{isPplAktif ? 'Sudah Mulai' : 'Belum Jalan'}</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+
+                            <div className="bg-white p-3 border-t border-slate-200 flex items-center justify-between shrink-0 text-[10px]">
+                                <span className="font-bold text-slate-400 uppercase tracking-wider">Halaman {lapCurrentPage} / {totalPages} <span className="font-medium font-mono text-slate-300">({totalItems} PPL)</span></span>
+                                <div className="flex gap-1.5">
+                                    <button type="button" disabled={lapCurrentPage === 1} onClick={() => setLapCurrentPage(prev => Math.max(prev - 1, 1))} className="bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none text-slate-700 font-black px-3 py-1.5 rounded-xl">Sebelumnya</button>
+                                    <button type="button" disabled={lapCurrentPage === totalPages} onClick={() => setLapCurrentPage(prev => Math.min(prev + 1, totalPages))} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-30 disabled:pointer-events-none text-white font-black px-3 py-1.5 rounded-xl shadow-md">Berikutnya</button>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
