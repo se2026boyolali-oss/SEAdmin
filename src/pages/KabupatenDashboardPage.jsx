@@ -7,20 +7,18 @@ import {
     ShieldAlert, Search, ArrowRight, User, Calendar, X, AlertTriangle, CheckCircle2, Clock, MapPin, UserX, RefreshCw
 } from 'lucide-react';
 
-// 🛡️ Helper Taktis: Ekstraksi 3 digit kode kecamatan_tugas (Dipindah ke luar komponen agar tidak dibuat ulang tiap render)
+// 🛡️ Helper Taktis: Ekstraksi 3 digit kode kecamatan_tugas
 const ekstrakKodeKecPetugas = (stringKec) => {
     if (!stringKec) return "";
     const match = String(stringKec).trim().match(/^\d+/);
     return match ? match[0] : "";
 };
 
-// 📅 Komponen MiniCalendar yang sudah dioptimasi (Dipindah ke luar komponen utama agar React.memo bekerja sempurna)
+// 📅 Komponen MiniCalendar yang sudah dioptimasi
 const MiniCalendar = React.memo(({ arrayTanggalAktif }) => {
-    // 1. Dapatkan tanggal hari ini (WIB) untuk perbandingan
     const jktDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
     const tglHariIni = `${jktDate.getFullYear()}-${String(jktDate.getMonth() + 1).padStart(2, '0')}-${String(jktDate.getDate()).padStart(2, '0')}`;
 
-    // 2. Buat array 7 hari terakhir
     const tujuhHariTerakhir = Array.from({ length: 7 }, (_, i) => {
         const d = new Date(jktDate);
         d.setDate(jktDate.getDate() - (6 - i));
@@ -39,11 +37,7 @@ const MiniCalendar = React.memo(({ arrayTanggalAktif }) => {
                 const isActive = aktifSet.has(fullDate);
                 const isHariIni = fullDate === tglHariIni;
 
-                // LOGIKA WARNA KONSISTEN:
-                // 1. Sudah absen (isActive) -> Emerald/Hijau
-                // 2. Belum absen (hari ini) -> Rose/Merah + Pulse
-                // 3. Belum absen (hari lalu) -> Abu-abu/Slate
-                let styleClass = "bg-slate-50 text-slate-300 border-slate-100"; // Default
+                let styleClass = "bg-slate-50 text-slate-300 border-slate-100";
 
                 if (isActive) {
                     styleClass = "bg-emerald-500 text-white border-emerald-600 shadow-sm";
@@ -70,26 +64,39 @@ export default function DashboardPusat() {
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState('PCL'); // 'PCL' atau 'PML'
-    const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'stagnan', 'aktif'
+    const [activeTab, setActiveTab] = useState('PCL'); 
+    const [filterStatus, setFilterStatus] = useState('all'); 
 
     // 🛡️ Kunci Sinkronisasi Spasial & Tampilan
     const [selectedKecamatan, setSelectedKecamatan] = useState(null);
     const [selectedKecTab, setSelectedKecTab] = useState("SEMUA");
-    const [viewModeTab, setViewModeTab] = useState("DESA"); // "DESA" atau "PETUGAS"
+    const [viewModeTab, setViewModeTab] = useState("DESA"); 
     const [daftarKecamatan, setDaftarKecamatan] = useState([]);
 
+    // Detail Evaluasi Modal States
+    const [showDetailEvaluasi, setShowDetailEvaluasi] = useState(false);
+    const [dataEvaluasiTerpilih, setDataEvaluasiTerpilih] = useState({ tanggal: '', listLaporan: [] });
+    const [loadingDetailEval, setLoadingDetailEval] = useState(false);
+const [evalSearchTerm, setEvalSearchTerm] = useState('');
+const [evalActiveFilter, setEvalActiveFilter] = useState('SUDAH'); // 'SUDAH' atau 'BELUM'
+const [evalCurrentPage, setEvalCurrentPage] = useState(1);
+const itemsPerPage = 5;
+
+// State Kontrol untuk Pop-up Lapangan PPL
+const [showDetailLapangan, setShowDetailLapangan] = useState(false);
+const [dataLapanganTerpilih, setDataLapanganTerpilih] = useState({ tanggalLabel: '', tanggalDb: '', listPetugasAktif: [] });
+const [lapSearchTerm, setLapSearchTerm] = useState('');
+const [lapActiveFilter, setLapActiveFilter] = useState('AKTIF'); // 'AKTIF' atau 'ABSEN'
+const [lapCurrentPage, setLapCurrentPage] = useState(1);
+const lapItemsPerPage = 10;
+
+
     const [selectedFilterDate, setSelectedFilterDate] = useState(() => {
-        // 1. Ambil waktu saat ini dalam format string zona waktu Jakarta
         const jktDate = new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
         const dateObj = new Date(jktDate);
-
-        // 2. Ambil komponen tahun, bulan, dan hari
         const year = dateObj.getFullYear();
         const month = String(dateObj.getMonth() + 1).padStart(2, '0');
         const day = String(dateObj.getDate()).padStart(2, '0');
-
-        // 3. Gabungkan jadi format YYYY-MM-DD
         return `${year}-${month}-${day}`;
     });
 
@@ -115,7 +122,7 @@ export default function DashboardPusat() {
         fetchOperationalData();
     }, []);
 
-    // 1. ENGINE AGREGASI SENSUS (STRUKTUR KECAMATAN & DESA & VOLUME BEBAN KERJA)
+    // 1. ENGINE AGREGASI SENSUS
     const dataMonitoringWilayah = useMemo(() => {
         const rekapKecamatan = {};
         const rekapDesa = {};
@@ -154,7 +161,6 @@ export default function DashboardPusat() {
                 muatanBelum = targetDinamis;
             }
 
-            // Agregasi Tingkat Kecamatan
             if (!rekapKecamatan[kodeKec]) {
                 rekapKecamatan[kodeKec] = {
                     kode: kodeKec, nama_asli: namaKec, nama: `[${kodeKec}] ${namaKec}`,
@@ -170,7 +176,6 @@ export default function DashboardPusat() {
             rekapKecamatan[kodeKec].muatan_belum += muatanBelum;
             if (isSelesai) rekapKecamatan[kodeKec].sls_selesai += 1;
 
-            // Agregasi Tingkat Desa
             const keyDesa = `${kodeKec}-${kodeDesa}`;
             if (!rekapDesa[keyDesa]) {
                 rekapDesa[keyDesa] = {
@@ -187,7 +192,6 @@ export default function DashboardPusat() {
             rekapDesa[keyDesa].muatan_belum += muatanBelum;
             if (isSelesai) rekapDesa[keyDesa].sls_selesai += 1;
 
-            // Agregasi Tingkat Petugas
             if (idPetugas) {
                 const keyPetugas = `${kodeKec}-${idPetugas}`;
                 if (!rekapPetugas[keyPetugas]) {
@@ -207,7 +211,6 @@ export default function DashboardPusat() {
             }
         });
 
-        // Loop Kedua: Filtered Summary Ringkasan Geo
         const targetSlsTerfilter = selectedKecTab === "SEMUA"
             ? rawMasterSls
             : rawMasterSls.filter(sls => String(sls.kdkec).trim() === selectedKecTab);
@@ -259,7 +262,7 @@ export default function DashboardPusat() {
         return match ? match.nama_asli : null;
     }, [selectedKecamatan, dataMonitoringWilayah]);
 
-    // 2. TIMELINE GENERATOR & DINAMISASI EVALUASI TREN (HISTORIS 14 HARI) - OPTIMALISASI useMemo (Mencegah Extra Render Multi-State)
+    // 2. TIMELINE GENERATOR & HISTORIS 14 HARI
     const trendAndMetricsData = useMemo(() => {
         const now = new Date();
         const jktDateString = now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
@@ -292,7 +295,7 @@ export default function DashboardPusat() {
                 const pmlPct = listPml.length > 0 ? Math.round((pmlAktifTgl / listPml.length) * 100) : 0;
 
                 trendDataRaw.push({
-                    rawDate: dateString, // Dipertahankan untuk kebutuhan event click handler
+                    rawDate: dateString, 
                     tanggalLabel: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
                     'PCL Aktif (%)': pclPct,
                     'PML Aktif (%)': pmlPct
@@ -314,7 +317,6 @@ export default function DashboardPusat() {
         const pclKec = masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan);
         const pmlKec = masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan);
 
-        // Rekalkulasi Metrics Filtered
         const pclAktif = pclKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length;
         const pmlAktif = pmlKec.filter(p => (p.rawLogs || []).some(l => l.tanggal === selectedFilterDate)).length;
         const stagnan = [...pclKec, ...pmlKec].filter(p => p.isStagnan).length;
@@ -334,26 +336,22 @@ export default function DashboardPusat() {
         };
     }, [selectedKecamatan, globalMetrics, masterPclList, masterPmlList, selectedFilterDate]);
 
-    // Destrukturisasi hasil memo tren & metrik terfilter
     const filteredMetrics = trendAndMetricsData.filteredMetrics;
     const trendChartData = trendAndMetricsData.trendChartData;
 
-    // 3. FETCH OPERATIONAL ENGINE SUPABASE (OPTIMALISASI LOG SEARCH: O(N*M) -> O(N+M) menggunakan HashMap)
+    // 3. FETCH OPERATIONAL ENGINE SUPABASE
     const fetchOperationalData = async () => {
         setIsRefreshing(true);
         if (rawPetugas.length === 0) setLoading(true);
 
-        // 1. Dapatkan waktu saat ini di zona waktu Jakarta
         const jktDateString = new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
         const now = new Date(jktDateString);
 
-        // 2. Format YYYY-MM-DD dengan aman menggunakan komponen waktu Jakarta
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const day = String(now.getDate()).padStart(2, '0');
         const tglHariIni = `${year}-${month}-${day}`;
 
-        // 3. Fetch data dari Supabase
         const [petugasRes, logsPclRes, logsPmlRes, masterSlsRes, realisasiPmlRes] = await Promise.all([
             supabase.from('petugas').select('email, nama_petugas, posisi_tugas, status, kecamatan_tugas').eq('status', 'Diterima'),
             supabase.from('log_checkin_pcl').select('idsubsls, tanggal, petugas_email'),
@@ -392,7 +390,6 @@ export default function DashboardPusat() {
         const allPcl = allPetugas.filter(p => p.posisi_tugas === 'PCL');
         const allPml = allPetugas.filter(p => p.posisi_tugas === 'PML');
 
-        // Optimalisasi Pencarian: Kelompokkan logs menggunakan HashMap O(N) untuk akses kilat O(1) di perulangan profil
         const logsPclMap = new Map();
         logsPcl.forEach(log => {
             if (!logsPclMap.has(log.petugas_email)) logsPclMap.set(log.petugas_email, []);
@@ -417,7 +414,6 @@ export default function DashboardPusat() {
             const urutLog = [...pclLogs].sort((a, b) => new Date(b.tanggal) - new Date(a.tanggal));
             const terakhirActivity = urutLog.length > 0 ? new Date(urutLog[0].tanggal) : null;
 
-            // Perhitungan hari stagnan menggunakan waktu Jakarta (now)
             const hariSelesai = terakhirActivity ? Math.floor((now - terakhirActivity) / (1000 * 60 * 60 * 24)) : 999;
             const isStagnan = hariSelesai >= 3;
             if (isStagnan) totalStagnanCount++;
@@ -474,7 +470,7 @@ export default function DashboardPusat() {
         setIsRefreshing(false);
     };
 
-    // 4. KECAMATAN AKTIF HARI INI GRAPH DATA GENERATOR - OPTIMALISASI useMemo (Mencegah Sinkronisasi Render Tertunda)
+    // 4. KECAMATAN AKTIF HARI INI GRAPH DATA GENERATOR
     const kecamatanChartData = useMemo(() => {
         if (daftarKecamatan.length === 0) return [];
         return daftarKecamatan.map(item => {
@@ -514,11 +510,9 @@ export default function DashboardPusat() {
         return hasilSiklus;
     }, [selectedKecamatan, rawPetugas, rawLogsPcl, rawRealisasiPml]);
 
-    // 6. 🔥 RE-EVALUASI FILTER LIST UTAMA BERDASARKAN INPUTAN TANGGAL KALENDER
+    // 6. RE-EVALUASI FILTER LIST UTAMA
     const filteredList = useMemo(() => {
         const listDataAktif = activeTab === 'PCL' ? masterPclList : masterPmlList;
-
-        // Mendapatkan tanggal hari ini (WIB) untuk pengecekan status stagnan
         const jktDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
         const tglSistemSekarang = `${jktDate.getFullYear()}-${String(jktDate.getMonth() + 1).padStart(2, '0')}-${String(jktDate.getDate()).padStart(2, '0')}`;
 
@@ -528,7 +522,6 @@ export default function DashboardPusat() {
 
             let statusDinamis = isAktifPadaTanggal ? 'AKTIF' : 'ABSEN';
 
-            // Logika stagnan hanya valid jika filter tanggalnya "Hari Ini"
             if (!isAktifPadaTanggal && petugas.isStagnan && selectedFilterDate === tglSistemSekarang) {
                 statusDinamis = 'STAGNAN';
             }
@@ -536,7 +529,6 @@ export default function DashboardPusat() {
             return { ...petugas, statusHariIni: statusDinamis };
         });
 
-        // Melakukan Filter
         const filtered = processedList.filter(p => {
             const matchSearch = (p.nama_petugas || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                 p.email.toLowerCase().includes(searchTerm.toLowerCase());
@@ -547,7 +539,6 @@ export default function DashboardPusat() {
             return matchSearch && matchKecamatan;
         });
 
-        // Melakukan Pengurutan berdasarkan Kecamatan Tugas (010, 011, dst)
         return filtered.sort((a, b) => {
             const kecA = a.kecamatan_tugas || "";
             const kecB = b.kecamatan_tugas || "";
@@ -555,28 +546,94 @@ export default function DashboardPusat() {
         });
 
     }, [activeTab, masterPclList, masterPmlList, searchTerm, selectedKecamatan, filterStatus, selectedFilterDate]);
+const handleBukaDetailLapangan = (tanggalLabel) => {
+    setLapCurrentPage(1);
+    setLapSearchTerm('');
+    setLapActiveFilter('AKTIF');
 
-    // 1. Hitung 7 hari terakhir sekali saja di komponen parent (DashboardPusat)
-    const tujuhHariTerakhir = useMemo(() => {
-        const jktDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
-        return Array.from({ length: 7 }, (_, i) => {
-            const d = new Date(jktDate);
-            d.setDate(jktDate.getDate() - (6 - i));
-            return d.toISOString().split('T')[0];
+    // Konversi tanggal label "15 Juni 2026" -> "2026-06-15" untuk pencocokan log database
+    const part = tanggalLabel.split(' ');
+    const day = part[0].padStart(2, '0');
+    const dbDateFormatted = `2026-06-${day}`;
+
+    // Cari semua email unik PPL yang check-in pada tanggal tersebut dari log mentah
+    const emailAktifSet = new Set(
+        rawLogsPcl
+            .filter(log => log.tanggal === dbDateFormatted)
+            .map(log => log.petugas_email.toLowerCase().trim())
+    );
+
+    setDataLapanganTerpilih({
+        tanggalLabel,
+        tanggalDb: dbDateFormatted,
+        listPetugasAktif: Array.from(emailAktifSet)
+    });
+    setShowDetailLapangan(true);
+};
+    // Handlers Buka Evaluasi Drawer
+const handleBukaDetailEvaluasi = async (tanggalLabel) => {
+    setLoadingDetailEval(true);
+    setShowDetailEvaluasi(true);
+    setEvalCurrentPage(1); 
+    setEvalSearchTerm(''); 
+    
+    const part = tanggalLabel.split(' ');
+    const day = part[0].padStart(2, '0');
+    const dbDateFormatted = `2026-06-${day}`;
+    
+    setDataEvaluasiTerpilih({ tanggal: tanggalLabel, listLaporan: [] });
+
+    try {
+        // 🔥 PERBAIKAN: Melakukan join query ke tabel petugas berbasis Foreign Key
+        const { data, error } = await supabase
+            .from('log_realisasi_pml')
+            .select(`
+                pml_email,
+                kendala_lapangan,
+                solusi_lapangan,
+                foto_evaluasi,
+                petugas!pml_email (
+                    nama_petugas,
+                    kecamatan_tugas
+                )
+            `)
+            .eq('tanggal', dbDateFormatted);
+
+        if (error) throw error;
+
+        // Racik data agar informasi petugas naik ke level utama (flattening object)
+        const dataFormatted = (data || []).map(log => ({
+            pml_email: log.pml_email,
+            kendala_lapangan: log.kendala_lapangan,
+            solusi_lapangan: log.solusi_lapangan,
+            foto_evaluasi: log.foto_evaluasi,
+            // Jika data join kosong (petugas terhapus/tidak cocok), berikan fallback
+            nama_petugas: log.petugas?.nama_petugas || 'TANPA NAMA',
+            kecamatan_tugas: log.petugas?.kecamatan_tugas || '999 KOSONG' 
+        }));
+
+        // 🔥 PERBAIKAN: Urutkan hasil secara Alfanumerik berdasarkan kecamatan_tugas (010 SELO, 011 AMPEL, dst)
+        const dataSorted = dataFormatted.sort((a, b) => {
+            return a.kecamatan_tugas.localeCompare(b.kecamatan_tugas, 'id', { numeric: true });
         });
-    }, []);
 
-    // 1. Ambil tanggal hari ini dalam format YYYY-MM-DD sesuai waktu Jakarta
-    const jktDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
-    const todayString = `${jktDate.getFullYear()}-${String(jktDate.getMonth() + 1).padStart(2, '0')}-${String(jktDate.getDate()).padStart(2, '0')}`;
+        setDataEvaluasiTerpilih({
+            tanggal: tanggalLabel,
+            listLaporan: dataSorted
+        });
 
-    // 2. Format tanggal untuk tampilan
+    } catch (err) {
+        console.error("Gagal mengambil detail evaluasi join petugas:", err.message);
+    } finally {
+        setLoadingDetailEval(false);
+    }
+};
+
+    // Format tanggal untuk Tampilan filter atas
     const [tahun, bulan, hari] = selectedFilterDate.split('-');
     const namaBulan = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
     const tanggalTampil = `${parseInt(hari)} ${namaBulan[parseInt(bulan) - 1]} ${tahun}`;
-
-    // 3. Bandingkan dengan todayString yang sudah berbasis Jakarta
-    const isHariIni = selectedFilterDate === todayString;
+    const isHariIni = selectedFilterDate === `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
     const labelTanggal = isHariIni ? `Hari Ini (${tanggalTampil})` : tanggalTampil;
 
     if (loading) {
@@ -691,65 +748,84 @@ export default function DashboardPusat() {
                 </div>
             </div>
 
-            {/* SIKLUS MONITORING GRID */}
+            {/* ✅ PENYEMPURNAAN STRUKTUR SIKLUS MONITORING GRID (DIBUNGKUS BOX DAN CLASS GRID 6 KOLOM) */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm mb-6">
                 <h3 className="text-xs font-black uppercase text-slate-800 mb-4 flex items-center gap-2">
                     <Calendar size={14} className="text-slate-400" />
                     Monitoring Pelaksanaan 2-1-2-1 {namaKecamatanTerpilihText ? `Kec. ${namaKecamatanTerpilihText}` : '(Kabupaten)'}
                 </h3>
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                    {progresSiklusTerfilter.map((item, idx) => {
-                        const isLapangan = item.target === 'PENDATAAN';
-                        return (
-                            <div key={idx} className={`p-3 rounded-2xl border flex flex-col justify-between transition-colors hover:shadow-md ${isLapangan ? 'bg-indigo-50/50 border-indigo-100' : 'bg-emerald-50/50 border-emerald-100'}`}>
-                                <div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[9px] font-bold text-slate-500 uppercase">{item.tanggal}</span>
-                                        <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded-md ${isLapangan ? 'bg-indigo-200/50 text-indigo-700' : 'bg-emerald-200/60 text-emerald-700'}`}>
-                                            {item.target}
-                                        </span>
-                                    </div>
-                                    <div className="mt-2">
-                                        <div className={`text-sm font-black font-mono ${item.persentase > 70 ? (isLapangan ? 'text-indigo-600' : 'text-emerald-600') : 'text-rose-500'}`}>
-                                            {Number(item.persentase).toFixed(2)}%
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="mt-3 space-y-1.5 text-[10px] border-t pt-2 border-slate-200/40">
-                                    {isLapangan ? (
-                                        <>
-                                            <div className="text-slate-600 font-medium flex items-center justify-between gap-1.5">
-                                                <div className="flex items-center gap-1"><MapPin size={10} className="text-emerald-500" /> Petugas Jalan Lapangan:</div>
-                                                <strong className="text-slate-800">{item.aktif} Org</strong>
-                                            </div>
-                                            <div className="text-rose-600 font-medium flex items-center justify-between gap-1.5">
-                                                <div className="flex items-center gap-1"><UserX size={10} className="text-rose-500" /> Petugas Tidak Aktif:</div>
-                                                <strong>{item.absen} Org</strong>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div className="text-slate-600 font-medium flex items-center justify-between gap-1.5">
-                                                <div className="flex items-center gap-1"><CheckCircle2 size={10} className="text-emerald-500" /> Tim Sudah Kirim Evaluasi:</div>
-                                                <strong className="text-slate-800">{item.aktif} TIM</strong>
-                                            </div>
-                                            <div className="text-slate-500 font-medium flex items-center justify-between gap-1.5">
-                                                <div className="flex items-center gap-1"><Clock size={10} className="text-slate-400" /> Tim Belum Kirim Evaluasi:</div>
-                                                <strong className="text-slate-800">{item.absen} TIM</strong>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                                <div className="w-full bg-white h-1.5 rounded-full mt-2.5 overflow-hidden border border-slate-100 shadow-inner">
-                                    <div className={`h-full transition-all duration-500 ${isLapangan ? 'bg-indigo-500' : 'bg-emerald-500'}`} style={{ width: `${item.persentase}%` }}></div>
-                                </div>
+                
+<div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+    {progresSiklusTerfilter.map((item, idx) => {
+        const isLapangan = item.target === 'PENDATAAN';
+        return (
+            <div 
+                key={idx} 
+                // 🔥 SEKARANG KEDUA CARD BISA DIKLIK: Lapangan ke handleBukaDetailLapangan, Evaluasi ke handleBukaDetailEvaluasi
+                onClick={() => isLapangan ? handleBukaDetailLapangan(item.tanggal) : handleBukaDetailEvaluasi(item.tanggal)}
+                className={`p-3 rounded-2xl border flex flex-col justify-between transition-all duration-200 cursor-pointer active:scale-98 ${
+                    isLapangan 
+                        ? 'bg-indigo-50/50 border-indigo-100 hover:bg-indigo-100/60' 
+                        : 'bg-emerald-50/50 border-emerald-100 hover:bg-emerald-100/60'
+                }`}
+            >
+                <div>
+                    <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold text-slate-500 uppercase">{item.tanggal}</span>
+                        <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                            isLapangan ? 'bg-indigo-200/50 text-indigo-700' : 'bg-emerald-200/60 text-emerald-700'
+                        }`}>
+                            {item.target} 🔍
+                        </span>
+                    </div>
+                    <div className="mt-2">
+                        <div className={`text-sm font-black font-mono ${item.persentase > 70 ? (isLapangan ? 'text-indigo-600' : 'text-emerald-600') : 'text-rose-500'}`}>
+                            {Number(item.persentase).toFixed(2)}%
+                        </div>
+                    </div>
+                </div>
+
+                <div className="mt-3 space-y-1.5 text-[10px] border-t pt-2 border-slate-200/40">
+                    {isLapangan ? (
+                        <>
+                            <div className="text-slate-600 font-medium flex items-center justify-between gap-1.5">
+                                <div className="flex items-center gap-1"><MapPin size={10} className="text-emerald-500" /> Petugas Jalan Lapangan:</div>
+                                <strong className="text-slate-800">{item.aktif} Org</strong>
                             </div>
-                        );
-                    })}
+                            <div className="text-rose-600 font-medium flex items-center justify-between gap-1.5">
+                                <div className="flex items-center gap-1"><UserX size={10} className="text-rose-500" /> Petugas Tidak Aktif:</div>
+                                <strong>{item.absen} Org</strong>
+                            </div>
+                            <div className="text-[8px] text-indigo-600/80 font-bold text-center pt-1 italic tracking-wide">
+                                (Klik untuk lihat petugas aktif)
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="text-slate-600 font-medium flex items-center justify-between gap-1.5">
+                                <div className="flex items-center gap-1"><CheckCircle2 size={10} className="text-emerald-500" /> Tim Sudah Kirim Evaluasi:</div>
+                                <strong className="text-slate-800">{item.aktif} TIM</strong>
+                            </div>
+                            <div className="text-slate-500 font-medium flex items-center justify-between gap-1.5">
+                                <div className="flex items-center gap-1"><Clock size={10} className="text-slate-400" /> Tim Belum Kirim Evaluasi:</div>
+                                <strong className="text-slate-800">{item.absen} TIM</strong>
+                            </div>
+                            <div className="text-[8px] text-emerald-600/80 font-bold text-center pt-1 italic tracking-wide">
+                                (Klik untuk lihat hasil evaluasi)
+                            </div>
+                        </>
+                    )}
+                </div>
+                <div className="w-full bg-white h-1.5 rounded-full mt-2.5 overflow-hidden border border-slate-100 shadow-inner">
+                    <div className={`h-full transition-all duration-500 ${isLapangan ? 'bg-indigo-500' : 'bg-emerald-500'}`} style={{ width: `${item.persentase}%` }}></div>
                 </div>
             </div>
+        );
+    })}
+</div>
+            </div>
 
-            {/* ASSIGNMENT REALISASI CHART PANEL (3/4 & 1/4 layout) */}
+            {/* ASSIGNMENT REALISASI CHART PANEL */}
             <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm mb-6">
                 <div className="flex justify-between items-center mb-6">
                     <div>
@@ -946,7 +1022,6 @@ export default function DashboardPusat() {
                     </div>
                 </div>
 
-                {/* TREN 2 MINGGU DENGAN ONCLICK FILTER TANGGAL */}
                 <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
                     <div className="flex justify-between items-center mb-4">
                         <div>
@@ -974,8 +1049,6 @@ export default function DashboardPusat() {
                                     contentStyle={{ backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '11px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                                 />
                                 <Legend wrapperStyle={{ fontSize: '9px' }} verticalAlign="top" align="right" />
-
-                                {/* Garis PPL */}
                                 <Line
                                     type="monotone"
                                     dataKey="PCL Aktif (%)"
@@ -983,7 +1056,6 @@ export default function DashboardPusat() {
                                     strokeWidth={3}
                                     dot={{ r: 6, strokeWidth: 2, fill: '#fff', cursor: 'pointer' }}
                                     activeDot={{ r: 8, strokeWidth: 0, cursor: 'pointer' }}
-                                    cursor="pointer"
                                     onClick={(data) => {
                                         if (data && data.payload) {
                                             setSelectedFilterDate(data.payload.rawDate);
@@ -991,8 +1063,6 @@ export default function DashboardPusat() {
                                         }
                                     }}
                                 />
-
-                                {/* Garis PML */}
                                 <Line
                                     type="monotone"
                                     dataKey="PML Aktif (%)"
@@ -1000,7 +1070,6 @@ export default function DashboardPusat() {
                                     strokeWidth={3}
                                     dot={{ r: 6, strokeWidth: 2, fill: '#fff', cursor: 'pointer' }}
                                     activeDot={{ r: 8, strokeWidth: 0, cursor: 'pointer' }}
-                                    cursor="pointer"
                                     onClick={(data) => {
                                         if (data && data.payload) {
                                             setSelectedFilterDate(data.payload.rawDate);
@@ -1014,7 +1083,7 @@ export default function DashboardPusat() {
                 </div>
             </div>
 
-            {/* UNIFIED CONTROL TOOLBAR DENGAN KALENDER INPUT */}
+            {/* UNIFIED CONTROL TOOLBAR */}
             <div className="p-3 bg-white border border-slate-200 rounded-2xl flex flex-col lg:flex-row gap-3 justify-between items-center mb-4 shadow-sm">
                 <div className="flex bg-slate-100 p-1.5 rounded-xl w-full lg:w-auto gap-1">
                     {['PCL', 'PML'].map((role) => (
@@ -1030,7 +1099,6 @@ export default function DashboardPusat() {
                         <input type="text" placeholder={`Cari nama / email ${activeTab}...`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-shadow" />
                     </div>
 
-                    {/* 🔥 UNIFIED FILTER KALENDER TANGGAL HISTORIS */}
                     <div className="relative w-full sm:w-40 group">
                         <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                             <Calendar size={13} className="text-indigo-500" />
@@ -1082,7 +1150,7 @@ export default function DashboardPusat() {
                                     </tr>
                                 ) : (
                                     filteredList.map((petugas) => {
-                                        const tidakAktif = petugas.statusHariIni === 'ABSEN' || petugas.statusHariIni === 'STAGNAN' || petugas.statusHariIni === 'STAGNAN';
+                                        const tidakAktif = petugas.statusHariIni === 'ABSEN' || petugas.statusHariIni === 'STAGNAN';
                                         return (
                                             <tr key={petugas.email} className={`transition-colors cursor-pointer ${selectedPetugas?.email === petugas.email ? 'bg-indigo-50/60 border-l-4 border-l-indigo-600' : tidakAktif ? 'bg-slate-50/50 hover:bg-slate-100/70 border-l-4 border-l-transparent' : 'bg-white hover:bg-slate-50 border-l-4 border-l-transparent'}`} onClick={() => setSelectedPetugas(petugas)}>
                                                 <td className="p-3 pl-4">
@@ -1095,10 +1163,7 @@ export default function DashboardPusat() {
                                                 </td>
                                                 <td className="p-3">
                                                     <div className="flex flex-col gap-1.5">
-                                                        {/* Mengirimkan array string "YYYY-MM-DD" langsung ke komponen */}
                                                         <MiniCalendar arrayTanggalAktif={petugas.rawLogs.map(l => l.tanggal)} />
-
-                                                        {/* Teks Status Singkat di bawah kalender */}
                                                         <div className="flex items-center gap-2">
                                                             <span className={`font-mono text-[10px] ${tidakAktif ? 'text-slate-400' : 'text-slate-600 font-bold'}`}>
                                                                 {petugas.terakhirAktivitas}
@@ -1199,6 +1264,414 @@ export default function DashboardPusat() {
                     )}
                 </div>
             </div>
+
+            {/* ✅ MODAL SLIDE-OVER DETAIL LAPORAN EVALUASI (Ditaruh di luar hierarki grid, aman dan terisolasi) */}
+{/* ✅ POP-UP WINDOW EVALUASI (CENTERED MODAL DENGAN PAGINATION & TAB FILTER) */}
+{showDetailEvaluasi && (() => {
+    // 1. Ambil list PML yang ditugaskan berdasarkan filter kecamatan saat ini
+    const petugasTerfilter = selectedKecamatan 
+        ? rawPetugas.filter(p => p.posisi_tugas === 'PML' && ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
+        : rawPetugas.filter(p => p.posisi_tugas === 'PML');
+
+    // Buat set data untuk memisahkan status pengiriman
+    const emailSudahKirimSet = new Set(dataEvaluasiTerpilih.listLaporan.map(l => l.pml_email.toLowerCase().trim()));
+
+    // 2. Pisahkan data PML yang SUDAH vs BELUM kirim
+    // 2. Pisahkan data PML yang SUDAH vs BELUM kirim
+const pmlSudahKirim = dataEvaluasiTerpilih.listLaporan.filter(l => 
+    petugasTerfilter.some(p => p.email.toLowerCase().trim() === l.pml_email.toLowerCase().trim())
+);
+
+// AMBIL DATA BELUM KIRIM
+const pmlBelumKirimRaw = petugasTerfilter.filter(p => !emailSudahKirimSet.has(p.email.toLowerCase().trim()));
+
+// 🔥 PERBAIKAN: Urutkan data PML Belum Lapor berdasarkan kecamatan_tugas secara alfanumerik (010, 011, dst)
+const pmlBelumKirim = pmlBelumKirimRaw.sort((a, b) => {
+    const kecA = a.kecamatan_tugas || '999 KOSONG';
+    const kecB = b.kecamatan_tugas || '999 KOSONG';
+    return kecA.localeCompare(kecB, 'id', { numeric: true });
+});
+
+    // 3. Filter berdasarkan Tab Aktif & Filter Pencarian Teks
+    const listSesuaiTab = evalActiveFilter === 'SUDAH' ? pmlSudahKirim : pmlBelumKirim;
+    const listTerfilterFinal = listSesuaiTab.filter(item => {
+        const emailToSearch = evalActiveFilter === 'SUDAH' ? item.pml_email : item.email;
+        const namaToSearch = evalActiveFilter === 'SUDAH' ? '' : (item.nama_petugas || '');
+        return emailToSearch.toLowerCase().includes(evalSearchTerm.toLowerCase()) || 
+               namaToSearch.toLowerCase().includes(evalSearchTerm.toLowerCase());
+    });
+
+    // 4. Kalkulasi Data Pagination
+    const totalItems = listTerfilterFinal.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+    const indexOfLastItem = evalCurrentPage * itemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+    const currentItems = listTerfilterFinal.slice(indexOfFirstItem, indexOfLastItem);
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+            {/* WINDOW BOX (Berada di tengah layar, responsif, maksimal tinggi 80% layar agar tidak amblas ke bawah) */}
+            <div className="bg-slate-50 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[85vh] flex flex-col animate-scaleIn">
+                
+                {/* 1. HEADER WINDOW */}
+                <div className="bg-white p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <div>
+                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                                Rekap Evaluasi Masalah & Solusi
+                            </h3>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Siklus Tanggal: {dataEvaluasiTerpilih.tanggal}</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => setShowDetailEvaluasi(false)}
+                        className="text-[10px] font-black bg-slate-100 hover:bg-rose-500 hover:text-white text-slate-500 w-6 h-6 rounded-xl transition-all flex items-center justify-center shadow-xs"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                {/* 2. STATS TAB BAR */}
+                <div className="grid grid-cols-2 gap-2 p-3 bg-white border-b border-slate-100 shrink-0">
+                    <button 
+                        type="button"
+                        onClick={() => { setEvalActiveFilter('SUDAH'); setEvalCurrentPage(1); }}
+                        className={`p-2 rounded-xl border text-center transition-all ${evalActiveFilter === 'SUDAH' ? 'bg-emerald-50 border-emerald-200 font-black text-emerald-700 shadow-xs ring-1 ring-emerald-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}
+                    >
+                        <div className="text-[8px] uppercase tracking-wider">Sudah Kirim</div>
+                        <div className="text-sm font-mono mt-0.5">{pmlSudahKirim.length} TIM</div>
+                    </button>
+                    <button 
+                        type="button"
+                        onClick={() => { setEvalActiveFilter('BELUM'); setEvalCurrentPage(1); }}
+                        className={`p-2 rounded-xl border text-center transition-all ${evalActiveFilter === 'BELUM' ? 'bg-rose-50 border-rose-200 font-black text-rose-700 shadow-xs ring-1 ring-rose-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}
+                    >
+                        <div className="text-[8px] uppercase tracking-wider">Belum Laporan</div>
+                        <div className="text-sm font-mono mt-0.5">{pmlBelumKirim.length} TIM</div>
+                    </button>
+                </div>
+
+                {/* 3. TOOLBAR PENCARIAN */}
+                <div className="p-3 bg-white border-b border-slate-200 shrink-0">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-slate-400" size={12} />
+                        <input 
+                            type="text" 
+                            placeholder={`Cari dari ${listSesuaiTab.length} petugas di tab ini...`}
+                            value={evalSearchTerm}
+                            onChange={(e) => { setEvalSearchTerm(e.target.value); setEvalCurrentPage(1); }}
+                            className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-shadow"
+                        />
+                    </div>
+                </div>
+
+                {/* 4. AREA KONTEN UTAMA (SCROLLABLE SCROLL BAR) */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50 scrollbar-thin">
+                    {loadingDetailEval ? (
+                        <div className="h-40 flex flex-col justify-center items-center gap-2 text-slate-400 text-xs font-bold uppercase tracking-widest">
+                            <RefreshCw className="animate-spin text-emerald-500" size={16} />
+                            <span>Membaca Tabel Database...</span>
+                        </div>
+                    ) : currentItems.length === 0 ? (
+                        <div className="text-center text-[10px] text-slate-400 font-bold py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
+                            Tidak ada data tim yang cocok dengan kata kunci pencarian.
+                        </div>
+                    ) : (
+                        currentItems.map((item, idx) => {
+                            if (evalActiveFilter === 'SUDAH') {
+    return (
+        <div key={idx} className="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-2xs space-y-3">
+            
+            {/* INFO LOG IDENTITAS PML & WILAYAH KECAMATAN */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center text-[9px] font-black uppercase font-mono">
+                        {item.nama_petugas.charAt(0)}
+                    </div>
+                    <div>
+                        <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide">{item.nama_petugas}</div>
+                        <div className="text-[9px] text-slate-400 font-mono tracking-tight">{item.pml_email}</div>
+                    </div>
+                </div>
+                
+                {/* Badge Indikator Kecamatan Tugas (e.g., 010 SELO) */}
+                <span className="self-start sm:self-center text-[9px] font-black uppercase bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-lg border border-indigo-100 flex items-center gap-1 font-mono">
+                    <MapPin size={10} className="text-indigo-400" />
+                    {item.kecamatan_tugas}
+                </span>
+            </div>
+
+            {/* AREA FORM KENDALA & SOLUSI */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px]">
+                <div className="bg-rose-50/50 border border-rose-100 p-2.5 rounded-xl space-y-0.5">
+                    <span className="text-[8px] font-black text-rose-700 uppercase tracking-tight block">⚠️ Kendala Lapangan:</span>
+                    <p className="font-semibold text-slate-700 leading-relaxed">{item.kendala_lapangan || '-'}</p>
+                </div>
+                <div className="bg-emerald-50/50 border border-emerald-100 p-2.5 rounded-xl space-y-0.5">
+                    <span className="text-[8px] font-black text-emerald-700 uppercase tracking-tight block">💡 Solusi:</span>
+                    <p className="font-semibold text-slate-700 leading-relaxed">{item.solusi_lapangan || '-'}</p>
+                </div>
+            </div>
+
+            {/* ATTACHMENT LINK FOTO BUKTI */}
+            {item.foto_evaluasi && item.foto_evaluasi !== "KOSONG_ATAU_OFFLINE" && (
+                <div className="pt-1 border-t border-slate-100 mt-1 flex justify-end">
+                    <a href={item.foto_evaluasi} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[9px] font-black text-indigo-600 bg-indigo-50/60 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-100 transition-all">
+                        Lihat Lampiran Foto Bukti Evaluasi ↗
+                    </a>
+                </div>
+            )}
+        </div>
+    );
+} else {
+    // 🔥 PERBAIKAN: RENDER UNTUK LIST YANG BELUM KIRIM LAPORAN (DENGAN KETERANGAN KECAMATAN TUGAS)
+    return (
+        <div key={idx} className="bg-white border border-rose-100 rounded-2xl p-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors hover:bg-rose-50/20">
+            
+            {/* SISI KIRI: IDENTITAS PML */}
+            <div className="flex items-center gap-2 overflow-hidden">
+                <div className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[9px] font-black uppercase font-mono shrink-0">
+                    {item.nama_petugas ? item.nama_petugas.charAt(0) : '👔'}
+                </div>
+                <div className="overflow-hidden">
+                    <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide truncate">
+                        {item.nama_petugas || 'Tanpa Nama'}
+                    </div>
+                    <div className="text-[9px] text-slate-400 font-mono truncate mt-0.5">
+                        {item.email}
+                    </div>
+                </div>
+            </div>
+
+            {/* SISI KANAN: BADGE KECAMATAN & STATUS BADGE */}
+            <div className="flex items-center gap-2 justify-between sm:justify-end shrink-0">
+                {/* Badge Keterangan Kecamatan Tugas PML */}
+                <span className="text-[8px] font-black uppercase bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200/60 font-mono flex items-center gap-0.5">
+                    <MapPin size={9} className="text-slate-400" />
+                    {item.kecamatan_tugas || 'Belum Diatur'}
+                </span>
+
+                <span className="text-[8px] font-black uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200/40 tracking-tight">
+                    Belum Lapor
+                </span>
+            </div>
+
+        </div>
+    );
+}
+                        })
+                    )}
+                </div>
+
+                {/* 5. FOOTER CONTROL PAGINATION WINDOW */}
+                <div className="bg-white p-3 border-t border-slate-200 flex items-center justify-between shrink-0 text-[10px]">
+                    <span className="font-bold text-slate-400 uppercase tracking-wider">
+                        Halaman {evalCurrentPage} / {totalPages} <span className="font-medium font-mono text-slate-300">({totalItems} data)</span>
+                    </span>
+                    <div className="flex gap-1.5">
+                        <button
+                            type="button"
+                            disabled={evalCurrentPage === 1}
+                            onClick={() => setEvalCurrentPage(prev => Math.max(prev - 1, 1))}
+                            className="bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none text-slate-700 font-black px-3 py-1.5 rounded-xl uppercase tracking-tight transition-all active:scale-95"
+                        >
+                            Sebelumnya
+                        </button>
+                        <button
+                            type="button"
+                            disabled={evalCurrentPage === totalPages}
+                            onClick={() => setEvalCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-30 disabled:pointer-events-none text-white font-black px-3 py-1.5 rounded-xl uppercase tracking-tight transition-all shadow-md active:scale-95"
+                        >
+                            Berikutnya
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    );
+})()}
+
+{/* ✅ POP-UP WINDOW PEMANTAUAN PETUGAS LAPANGAN (PPL) */}
+{showDetailLapangan && (() => {
+    // 1. Saring master PPL berdasarkan filter hirarki kecamatan yang sedang aktif di dashboard
+    const baseMasterPcl = selectedKecamatan
+        ? rawPetugas.filter(p => p.posisi_tugas === 'PCL' && ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
+        : rawPetugas.filter(p => p.posisi_tugas === 'PCL');
+
+    const setAktifHariIni = new Set(dataLapanganTerpilih.listPetugasAktif);
+
+    // 2. Belah PPL menjadi kelompok AKTIF (Jalan Lapangan) vs ABSEN (Belum Bergerak)
+    const listAktif = baseMasterPcl.filter(p => setAktifHariIni.has(p.email.toLowerCase().trim()));
+    const listAbsen = baseMasterPcl.filter(p => !setAktifHariIni.has(p.email.toLowerCase().trim()));
+
+    const currentTabList = lapActiveFilter === 'AKTIF' ? listAktif : listAbsen;
+
+    // 3. Eksekusi filter pencarian teks (Email / Nama / Kecamatan)
+    const filteredFinal = currentTabList.filter(p => {
+        const query = lapSearchTerm.toLowerCase();
+        return (p.nama_petugas || '').toLowerCase().includes(query) ||
+               p.email.toLowerCase().includes(query) ||
+               (p.kecamatan_tugas || '').toLowerCase().includes(query);
+    });
+
+    // 4. 🔥 PENGURUTAN ALFANUMERIK BERDASARKAN KECAMATAN TUGAS (010 SELO, 011 AMPEL...)
+    const sortedFinal = filteredFinal.sort((a, b) => {
+        const kecA = a.kecamatan_tugas || '999 KOSONG';
+        const kecB = b.kecamatan_tugas || '999 KOSONG';
+        return kecA.localeCompare(kecB, 'id', { numeric: true });
+    });
+
+    // 5. Rumus Hitung Navigasi Halaman Pagination
+    const totalItems = sortedFinal.length;
+    const totalPages = Math.ceil(totalItems / lapItemsPerPage) || 1;
+    const indexOfLastItem = lapCurrentPage * lapItemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - lapItemsPerPage;
+    const currentItems = sortedFinal.slice(indexOfFirstItem, indexOfLastItem);
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+            <div className="bg-slate-50 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[85vh] flex flex-col animate-scaleIn">
+                
+                {/* HEADER TABEL MODAL */}
+                <div className="bg-white p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></div>
+                        <div>
+                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                                Pemantauan Petugas Lapangan (PPL)
+                            </h3>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Tanggal Operasional: {dataLapanganTerpilih.tanggalLabel}</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => setShowDetailLapangan(false)}
+                        className="text-[10px] font-black bg-slate-100 hover:bg-rose-500 hover:text-white text-slate-500 w-6 h-6 rounded-xl transition-all flex items-center justify-center shadow-xs"
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                {/* DOUBLE ACTION BUTTON STATUS */}
+                <div className="grid grid-cols-2 gap-2 p-3 bg-white border-b border-slate-100 shrink-0">
+                    <button 
+                        type="button"
+                        onClick={() => { setLapActiveFilter('AKTIF'); setLapCurrentPage(1); }}
+                        className={`p-2 rounded-xl border text-center transition-all ${lapActiveFilter === 'AKTIF' ? 'bg-indigo-50 border-indigo-200 font-black text-indigo-700 shadow-xs ring-1 ring-indigo-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}
+                    >
+                        <div className="text-[8px] uppercase tracking-wider">Aktif Jalan Lapangan</div>
+                        <div className="text-sm font-mono mt-0.5">{listAktif.length} ORG</div>
+                    </button>
+                    <button 
+                        type="button"
+                        onClick={() => { setLapActiveFilter('ABSEN'); setLapCurrentPage(1); }}
+                        className={`p-2 rounded-xl border text-center transition-all ${lapActiveFilter === 'ABSEN' ? 'bg-rose-50 border-rose-200 font-black text-rose-700 shadow-xs ring-1 ring-rose-300' : 'bg-slate-50 border-slate-200/60 text-slate-400 font-bold'}`}
+                    >
+                        <div className="text-[8px] uppercase tracking-wider">Tidak Aktif (Belum Input)</div>
+                        <div className="text-sm font-mono mt-0.5">{listAbsen.length} ORG</div>
+                    </button>
+                </div>
+
+                {/* SEARCH INPUT FIELD BAR */}
+                <div className="p-3 bg-white border-b border-slate-200 shrink-0">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 text-slate-400" size={12} />
+                        <input 
+                            type="text" 
+                            placeholder={`Cari dari ${currentTabList.length} PPL di tab ini (Nama/Email/Kecamatan)...`}
+                            value={lapSearchTerm}
+                            onChange={(e) => { setLapSearchTerm(e.target.value); setLapCurrentPage(1); }}
+                            className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-slate-700 focus:outline-none focus:border-indigo-500"
+                        />
+                    </div>
+                </div>
+
+                {/* FEED RENDER AREA (SCROLLABLE LIST ITEM) */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/50 scrollbar-thin">
+                    {currentItems.length === 0 ? (
+                        <div className="text-center text-[10px] text-slate-400 font-bold py-12 bg-white rounded-2xl border border-dashed border-slate-200 shadow-2xs">
+                            Tidak ada data PPL yang sesuai dengan kriteria pencarian Anda.
+                        </div>
+                    ) : (
+                        currentItems.map((ppl, idx) => {
+                            const isPplAktif = lapActiveFilter === 'AKTIF';
+                            return (
+                                <div 
+                                    key={idx} 
+                                    className={`bg-white border rounded-2xl p-3.5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all ${
+                                        isPplAktif ? 'border-slate-200 hover:border-indigo-200' : 'border-rose-100 hover:bg-rose-50/10'
+                                    }`}
+                                >
+                                    {/* DATA PROFIL */}
+                                    <div className="flex items-center gap-2.5 overflow-hidden">
+                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black uppercase font-mono shrink-0 ${
+                                            isPplAktif ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'
+                                        }`}>
+                                            {ppl.nama_petugas ? ppl.nama_petugas.charAt(0) : '👥'}
+                                        </div>
+                                        <div className="overflow-hidden">
+                                            <div className="text-[11px] font-black text-slate-800 uppercase tracking-wide truncate">
+                                                {ppl.nama_petugas || 'PPL Tanpa Nama'}
+                                            </div>
+                                            <div className="text-[9px] text-slate-400 font-mono truncate mt-0.5">
+                                                {ppl.email}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* BADGE KECAMATAN & STATUS INDIKATOR */}
+                                    <div className="flex items-center gap-2 justify-between sm:justify-end shrink-0">
+                                        {/* Badge Kecamatan Urut (e.g., 010 SELO) */}
+                                        <span className="text-[9px] font-black uppercase bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-lg border border-slate-200/70 font-mono flex items-center gap-1">
+                                            <MapPin size={10} className="text-slate-400" />
+                                            {ppl.kecamatan_tugas || 'Belum Diatur'}
+                                        </span>
+
+                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md border tracking-tight ${
+                                            isPplAktif 
+                                                ? 'bg-emerald-50 border-emerald-200 text-emerald-600' 
+                                                : 'bg-rose-50 border-rose-200 text-rose-600'
+                                        }`}>
+                                            {isPplAktif ? 'Sudah Mulai' : 'Belum Jalan'}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+
+                {/* STICKY FOOTER NAVIGATION CONTROL */}
+                <div className="bg-white p-3 border-t border-slate-200 flex items-center justify-between shrink-0 text-[10px]">
+                    <span className="font-bold text-slate-400 uppercase tracking-wider">
+                        Halaman {lapCurrentPage} / {totalPages} <span className="font-medium font-mono text-slate-300">({totalItems} PPL)</span>
+                    </span>
+                    <div className="flex gap-1.5">
+                        <button
+                            type="button"
+                            disabled={lapCurrentPage === 1}
+                            onClick={() => setLapCurrentPage(prev => Math.max(prev - 1, 1))}
+                            className="bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none text-slate-700 font-black px-3 py-1.5 rounded-xl uppercase tracking-tight transition-all"
+                        >
+                            Sebelumnya
+                        </button>
+                        <button
+                            type="button"
+                            disabled={lapCurrentPage === totalPages}
+                            onClick={() => setLapCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-30 disabled:pointer-events-none text-white font-black px-3 py-1.5 rounded-xl uppercase tracking-tight transition-all shadow-md"
+                        >
+                            Berikutnya
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    );
+})()}
         </div>
     );
 }
