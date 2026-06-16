@@ -1,6 +1,7 @@
+// src/components/Layout.jsx
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Users, Map, BarChart3, Settings, LogOut, User, Menu, X, ShieldAlert, PieChart, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Map, BarChart3, Settings, LogOut, User, Menu, X, ShieldAlert, PieChart, ChevronDown, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Layout() {
@@ -9,7 +10,6 @@ export default function Layout() {
   const { profile, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
-  // Otomatis buka accordion hanya jika admin/pegawai sedang berada di dalam sub-menu alokasi
   const [isAlokasiOpen, setIsAlokasiOpen] = useState(
     ['/dashboard-alokasi', '/alokasi'].includes(location.pathname)
   );
@@ -20,20 +20,17 @@ export default function Layout() {
     }
   }, [location.pathname]);
 
+  // Menu Items disederhanakan karena khusus untuk Admin & Pegawai
   const allMenuItems = [
     { name: 'Pemantauan Lapangan', path: '/dashboard-lapangan', icon: BarChart3, roles: ['admin', 'pegawai'] },
     { name: 'Cek Selisih Muatan', path: '/cek-selisih-muatan', icon: AlertTriangle, roles: ['admin', 'pegawai'] },
     { name: 'Dashboard Alokasi', path: '/dashboard-alokasi', icon: PieChart, roles: ['admin', 'pegawai'] },
-    { name: 'Alokasi Petugas', path: '/alokasi', icon: Map, roles: ['admin', 'pegawai'] }, // 🔴 PML DIHAPUS DARI SINI
+    { name: 'Alokasi Petugas', path: '/alokasi', icon: Map, roles: ['admin', 'pegawai'] }, 
     { name: 'SLS Prioritas', path: '/prioritas', icon: ShieldAlert, roles: ['admin', 'pegawai'] },
     { name: 'Pengaturan', path: '/pengaturan', icon: Settings, roles: ['admin'] },
-    { name: 'PCL Assignment', path: '/PCL-Assignment', icon: Users, roles: ['pcl'] },
   ];
 
   const allowedMenuItems = allMenuItems.filter(item => profile?.role && item.roles.includes(profile.role));
-  const isPcl = profile?.role === 'pcl';
-
-  // Proteksi Accordion: Hanya render jika user adalah admin atau pegawai
   const isAdminOrPegawai = ['admin', 'pegawai'].includes(profile?.role);
 
   const handleLogout = async () => {
@@ -43,7 +40,6 @@ export default function Layout() {
     }
   };
 
-  // Komponen Sidebar
   const SidebarContent = ({ isMobile = false }) => (
     <div className="flex flex-col h-full bg-slate-900 text-white">
       <div className="p-5 border-b border-slate-800 flex justify-between items-center">
@@ -73,7 +69,7 @@ export default function Layout() {
             );
           })}
 
-        {/* 2. Menu Accordion Alokasi: Murni hanya untuk Manajemen Internal */}
+        {/* 2. Menu Accordion Alokasi */}
         {isAdminOrPegawai && (
           <div className="space-y-1">
             <button 
@@ -120,7 +116,7 @@ export default function Layout() {
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 bg-slate-800 rounded-lg"><User size={16} /></div>
           <div className="text-xs truncate min-w-0">
-            <p className="font-bold text-slate-200">{profile?.nama_pengguna || profile?.nama_petugas}</p>
+            <p className="font-bold text-slate-200">{profile?.nama_pengguna}</p>
             <p className="text-[10px] text-emerald-400 font-mono uppercase tracking-wider">{profile?.role}</p>
           </div>
         </div>
@@ -134,7 +130,7 @@ export default function Layout() {
   return (
     <div className="flex h-screen w-full bg-slate-50 overflow-hidden">
       {/* Mobile Drawer */}
-      {isMobileMenuOpen && !isPcl && (
+      {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onClick={() => setIsMobileMenuOpen(false)} />
           <div className="relative w-64 h-full animate-in slide-in-from-left duration-200">
@@ -144,27 +140,19 @@ export default function Layout() {
       )}
 
       {/* Desktop Sidebar */}
-      {!isPcl && <div className="hidden md:block w-64 shrink-0 h-full"><SidebarContent /></div>}
+      <div className="hidden md:block w-64 shrink-0 h-full"><SidebarContent /></div>
 
       {/* Main Content Content Canvas */}
       <div className="flex-1 flex flex-col overflow-hidden h-full">
         <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 shadow-xs shrink-0 z-20">
           <div className="flex items-center gap-3 min-w-0">
-            {!isPcl && (
-              <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-                <Menu size={20} />
-              </button>
-            )}
+            <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg">
+              <Menu size={20} />
+            </button>
             <h1 className="font-black text-slate-700 text-xs md:text-sm uppercase tracking-wider truncate">
-              {isPcl ? 'Sensus Ekonomi 2026' : 'MANAJEMEN SE2026 BPS KABUPATEN BOYOLALI'}
+              MANAJEMEN SE2026 BPS KABUPATEN BOYOLALI
             </h1>
           </div>
-          
-          {profile?.role === 'pml' && profile?.kecamatan_tugas && (
-            <div className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-black uppercase shrink-0 tracking-wide">
-              Kec: {profile.kecamatan_tugas}
-            </div>
-          )}
         </header>
 
         <main className="flex-1 overflow-auto p-4 sm:p-6 bg-slate-50/50">

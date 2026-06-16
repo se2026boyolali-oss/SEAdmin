@@ -1,4 +1,3 @@
-// src/pages/LoginPage.jsx
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
@@ -13,20 +12,20 @@ export default function LoginPage() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    let isMounted = true;
     setLoading(true);
 
     const inputEmail = email.toLowerCase().trim();
 
     try {
-      // Langkah A: Coba login biasa ke Supabase Auth (Untuk user yang sudah aktivasi)
+      // Langkah A: Coba login biasa ke Supabase Auth
       const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ 
         email: inputEmail, 
         password 
       });
 
-      // Langkah B: Jika akun auth belum ada atau password default dicoba pertama kali
+      // Langkah B: Aktivasi Pertama Kali / Password Default
       if (loginError) {
-        // 1. Ambil data pengecekan secara paralel (menghemat waktu & mengurangi beban traffic)
         const [checkUser, checkPetugas] = await Promise.all([
           supabase.from('app_users').select('*').eq('email', inputEmail).maybeSingle(),
           supabase.from('petugas').select('*').eq('email', inputEmail).eq('status', 'Diterima')
@@ -35,27 +34,21 @@ export default function LoginPage() {
         const registeredUser = checkUser.data;
         const allPetugasData = checkPetugas.data || [];
 
-        // Filter data petugas berdasarkan posisi tugas masing-masing
         const registeredPml = allPetugasData.find(p => p.posisi_tugas === 'PML') || null;
         const registeredPcl = allPetugasData.find(p => p.posisi_tugas === 'PCL') || null;
 
-        // KUNCI KEAMANAN MUTLAK: Jika email tidak terdata di kategori manapun, TOLAK langsung!
         if (!registeredUser && !registeredPml && !registeredPcl) {
           throw new Error('Email Anda belum didaftarkan di dalam sistem. Silakan hubungi Admin BPS Kabupaten Boyolali.');
         }
 
-        // 🛠️ PERBAIKAN LOGIKA UTAMA: Cek validitas password '123456' sebelum melempar error
         if (password !== '123456') {
-          // Skenario: Akun sudah aktif (ID tidak null) tapi murni SALAH memasukkan password barunya
           if (registeredUser && registeredUser.id !== null) {
             throw new Error('Email terdaftar, namun password yang Anda masukkan salah. Silakan coba lagi atau hubungi Admin untuk reset password.');
           } else {
-            // Skenario: Akun belum aktif / habis di-reset admin (ID null), tapi salah mengetikkan password '123456'
             throw new Error('Email terdaftar di basis data, namun password awal untuk aktivasi pertama kali salah (Gunakan: 123456).');
           }
         }
 
-        // --- PROSES AKTIVASI / RE-AKTIVASI AKUN LEGAL VIA SDK (Hanya dieksekusi jika password === '123456') ---
         let signUpData = null;
         let signUpError = null;
 
@@ -70,10 +63,8 @@ export default function LoginPage() {
           signUpError = signUpCatchErr;
         }
 
-        // 🛠️ ANTISIPASI ERROR 429 & USER ALREADY REGISTERED KARENA CACHE RUSAK
         if (signUpError) {
           if (signUpError.message?.toLowerCase().includes("already registered") || signUpError.status === 429) {
-            // Skenario penyelamatan: Coba langsung paksa masuk menggunakan kredensial default '123456'
             const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
               email: inputEmail,
               password: '123456'
@@ -90,15 +81,13 @@ export default function LoginPage() {
         if (sessionUser) {
           const newUid = sessionUser.id;
 
-          // Hapus sisa data duplikat/lama di app_users jika ada untuk mencegah error Primary Key berkali-kali
+          // 🛠️ FIX BUG: Ditambahkan AWAIT agar data lama dipastikan terhapus bersih sebelum melakukan insert profil baru
           await supabase.from('app_users').delete().eq('email', inputEmail);
 
-          // 🛠️ PENYELAMATAN DATA DATA LAMA: Gunakan fallback ke registeredUser jika data di tabel petugas tidak ada
           const finalNama = registeredPml?.nama_petugas || registeredPcl?.nama_petugas || registeredUser?.nama_pengguna;
           const finalRole = registeredPml ? 'pml' : (registeredPcl ? 'pcl' : (registeredUser?.role || 'pcl'));
           const finalKecamatan = registeredPml?.kecamatan_tugas || registeredPcl?.kecamatan_tugas || registeredUser?.kecamatan_tugas;
 
-          // Buat profil bersih di app_users dengan ID baru dari auth.users
           const { error: insertError } = await supabase
             .from('app_users')
             .insert({
@@ -112,15 +101,14 @@ export default function LoginPage() {
 
           if (insertError) throw insertError;
 
-          // Sukses melakukan aktivasi awal / ulang pasca-reset, alihkan ke halaman ubah password resmi
           navigate('/change-password');
           return;
         } else {
-          throw new Error('Gagal memproses pendaftaran otomatis. Pastikan status "Confirm Sign Up" di Dashboard Supabase Auth > Providers > Email sudah bernilai OFF.');
+          throw new Error('Gagal memproses pendaftaran otomatis. Pastikan status "Confirm Sign Up" di Dashboard Supabase Auth sudah bernilai OFF.');
         }
       }
 
-      // Langkah C: Jika login sukses tanpa error (User lama yang menggunakan password barunya)
+      // Langkah C: Login Berhasil (User Lama)
       const { data: profile, error: profileError } = await supabase
         .from('app_users')
         .select('is_first_login')
@@ -146,14 +134,11 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col justify-center py-8 px-4 sm:py-12 sm:px-6 lg:px-8">
-      
-      {/* Container Header */}
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">SENSUS EKONOMI 2026</h2>
         <p className="mt-2 text-sm text-slate-500 font-bold uppercase tracking-wider">BPS Kabupaten Boyolali</p>
       </div>
 
-      {/* Container Card Form */}
       <div className="mt-6 sm:mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-6 px-4 shadow-xl rounded-2xl sm:py-8 sm:px-10 border border-slate-200">
           <h3 className="text-xl font-bold text-slate-800 mb-6 text-center">Sign In</h3>
