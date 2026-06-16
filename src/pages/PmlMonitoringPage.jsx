@@ -769,11 +769,12 @@ export default function PmlMonitoringPage() {
         pmlCameraInputRef.current?.click();
     };
 
-    const submitPmlCheckIn = async () => {
+const submitPmlCheckIn = async () => {
         if (submitSiklusLoading) return; 
 
         const pmlEmail = user?.email || profile?.email;
         const tglHariIni = manualMode ? selectedManualDate : getTodayDateString();
+        const tglRealtimeHariIni = getTodayDateString(); // Kunci penentu realtime hari ini
 
         if (!pmlPhotoPreview) {
             alert("Wajib mengambil foto bukti pengawasan lapangan atau tunggu hingga sistem selesai memproses gambar!");
@@ -789,19 +790,28 @@ export default function PmlMonitoringPage() {
         const namaFileUnik = `SE26_PML_${idSlsClean}_${namaClean}_${tglClean}.jpg`;
         let finalFotoUrl = "OFFLINE_LINK";
 
+        // ==========================================
+        // BLOK KONDISI LURING / OFFLINE
+        // ==========================================
         if (!navigator.onLine) {
-            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
             localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
             
-            setPmlCheckedInToday(true);
+            // State dan cache utama hanya berubah jika tanggal yang dipilih adalah HARI INI
+            if (tglHariIni === tglRealtimeHariIni) {
+                localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+                setPmlCheckedInToday(true);
+            }
+            
             alert("💾 Absen Pendampingan PML disimpan offline di memori HP!");
             resetPmlForm();
             setSubmitSiklusLoading(false);
             return;
         }
 
+        // ==========================================
+        // BLOK KONDISI DARING / ONLINE
+        // ==========================================
         try {
-            // GENERATOR BASE64 SECARA ON-DEMAND DI SINI SAJA SEBELUM KIRIM HTTP POST (RAM SANGAT HEMAT & AMAN)
             const canvas = canvasRef.current;
             const livePhotoBase64 = canvas.toDataURL("image/jpeg", 0.6);
 
@@ -829,15 +839,25 @@ export default function PmlMonitoringPage() {
 
             if (error) throw error;
 
-            setPmlCheckedInToday(true);
-            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+            // State dan cache utama hanya berubah jika tanggal yang dipilih adalah HARI INI
+            if (tglHariIni === tglRealtimeHariIni) {
+                localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+                setPmlCheckedInToday(true);
+            }
+
             alert("Absen Pengawasan Lapangan Berhasil Tersimpan!");
             resetPmlForm();
         } catch (err) {
             alert("Gagal mengirim data online, absen disimpan lokal di HP: " + err.message);
-            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+            
             localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
-            setPmlCheckedInToday(true);
+            
+            // State dan cache utama hanya berubah jika tanggal yang dipilih adalah HARI INI
+            if (tglHariIni === tglRealtimeHariIni) {
+                localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+                setPmlCheckedInToday(true);
+            }
+
             resetPmlForm();
         } finally {
             setSubmitSiklusLoading(false);
@@ -1227,154 +1247,154 @@ export default function PmlMonitoringPage() {
                     </div>
 
                     {/* ABSEN PENGAWASAN */}
-                    <div className="mt-4 pt-4 border-t border-slate-800/60 space-y-3">
-                        {pmlCheckedInToday ? (
-                            <div className="w-full bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-2xl py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wide">
-                                <CheckCircle2 size={14} className="text-emerald-400" />
-                                Anda Sudah Melakukan Pengawasan Hari Ini
-                            </div>
-                        ) : (
-                            <>
-                                {!showPmlCameraCard ? (
-                                    <button
-                                        onClick={handleTriggerPmlLocation}
-                                        className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3 px-4 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all"
-                                    >
-                                        <Navigation size={14} className="fill-white" />
-                                        <span>Absen Pendampingan Lapangan</span>
-                                    </button>
-                                ) : (
-                                    <div className="bg-slate-800 border border-slate-700 p-3 rounded-2xl space-y-3 animate-fadeIn">
-                                        <span className="text-[9px] font-black uppercase text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded block text-center">
-                                            {manualMode ? "Form Input Pendampingan Manual" : "Rangkuman Foto & Deteksi Lokasi"}
-                                        </span>
+<div className="mt-4 pt-4 border-t border-slate-800/60 space-y-3">
+    {/* 1. Tampilkan Banner Sukses secara Mandiri (Hanya muncul jika sudah absen hari ini) */}
+    {pmlCheckedInToday && (
+        <div className="w-full bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-2xl py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wide">
+            <CheckCircle2 size={14} className="text-emerald-400" />
+            <span>Anda Sudah Melakukan Pengawasan Hari Ini</span>
+        </div>
+    )}
 
-                                        {pmlPhotoPreview ? (
-                                            <div className="relative rounded-xl overflow-hidden border border-slate-600">
-                                                <img src={pmlPhotoPreview} alt="PML Bukti" className="w-full h-32 object-cover" />
-                                                <div className="absolute bottom-2 right-2 flex gap-1.5">
-                                                    <button 
-                                                        onClick={() => {
-                                                            if(pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
-                                                            pmlCameraInputRef.current?.click();
-                                                        }} 
-                                                        className="bg-orange-500/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
-                                                    >
-                                                        <Camera size={10} /> Kamera
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => {
-                                                            if(pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
-                                                            pmlGalleryInputRef.current?.click();
-                                                        }} 
-                                                        className="bg-indigo-600/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
-                                                    >
-                                                        <Image size={10} /> Galeri
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ) : rawPmlPhotoFile ? (
-                                            <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
-                                                <RefreshCw className="animate-spin text-orange-500" size={14} />
-                                                <span>Membuat Watermark Spasial...</span>
-                                            </div>
-                                        ) : manualMode ? (
-                                            <div className="p-4 bg-slate-900 border border-slate-700 rounded-xl text-center space-y-2.5 animate-fadeIn">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Dokumen Bukti Diperlukan</p>
-                                                <div className="flex gap-2 justify-center">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            if(pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
-                                                            pmlCameraInputRef.current?.click();
-                                                        }}
-                                                        className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
-                                                    >
-                                                        <Camera size={14} />
-                                                        <span>Kamera</span>
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            if(pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
-                                                            pmlGalleryInputRef.current?.click();
-                                                        }}
-                                                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
-                                                    >
-                                                        <Image size={14} />
-                                                        <span>Galeri</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
-                                                <RefreshCw className="animate-spin text-orange-500" size={14} />
-                                                <span>{pmlCheckingIn ? "Mengunci Satelit..." : "Membuat Watermark Spasial..."}</span>
-                                            </div>
-                                        )}
+    {/* 2. Logika Alur Kamera / Form Manual & Tombol Utama (Sekarang terbuka bebas) */}
+    {!showPmlCameraCard ? (
+        <button
+            onClick={handleTriggerPmlLocation}
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3 px-4 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all"
+        >
+            <Navigation size={14} className="fill-white" />
+            <span>{pmlCheckedInToday ? "Tambah Lokasi / Absen Lagi" : "Absen Pendampingan Lapangan"}</span>
+        </button>
+    ) : (
+        <div className="bg-slate-800 border border-slate-700 p-3 rounded-2xl space-y-3 animate-fadeIn">
+            <span className="text-[9px] font-black uppercase text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded block text-center">
+                {manualMode ? "Form Input Pendampingan Manual" : "Rangkuman Foto & Deteksi Lokasi"}
+            </span>
 
-                                        {!pmlCheckingIn && pmlCoords && !manualMode && (
-                                            <div className="text-[10px] text-slate-300 font-bold px-1 space-y-0.5 text-left">
-                                                <p>SLS Terkunci: <span className="text-orange-400 font-black uppercase">{pmlCoords.nmsls}</span></p>
-                                            </div>
-                                        )}
-
-                                        {manualMode && (
-                                            <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 text-left space-y-2.5 animate-fadeIn">
-                                                <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Tanggal Pengawasan</label>
-                                                    <input 
-                                                        type="date"
-                                                        max={getTodayDateString()}
-                                                        className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
-                                                        value={selectedManualDate}
-                                                        onChange={(e) => setSelectedManualDate(e.target.value)}
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Target SLS Pendampingan</label>
-                                                    <select
-                                                        className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
-                                                        value={selectedManualSls}
-                                                        onChange={(e) => setSelectedManualSls(e.target.value)}
-                                                    >
-                                                        <option value="">-- Pilih SLS Binaan Anda --</option>
-                                                        {allSlsFlat.map(s => (
-                                                            <option key={s.idsubsls} value={s.idsubsls}>
-                                                                ({s.kdsls}) {s.nmsls} - {s.nmdesa}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <div className="flex gap-2">
-                                            <button 
-                                                disabled={submitSiklusLoading}
-                                                onClick={resetPmlForm} 
-                                                className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase disabled:opacity-40"
-                                            >
-                                                Batal
-                                            </button>
-                                            <button
-                                                disabled={(manualMode ? !selectedManualSls : !pmlCoords) || !pmlPhotoPreview || pmlCheckingIn || submitSiklusLoading}
-                                                onClick={submitPmlCheckIn}
-                                                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-xl text-xs uppercase disabled:bg-slate-700 disabled:text-slate-500 flex items-center justify-center gap-1"
-                                            >
-                                                {submitSiklusLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
-                                                <span>Kirim Absen</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                        )}
+            {pmlPhotoPreview ? (
+                <div className="relative rounded-xl overflow-hidden border border-slate-600">
+                    <img src={pmlPhotoPreview} alt="PML Bukti" className="w-full h-32 object-cover" />
+                    <div className="absolute bottom-2 right-2 flex gap-1.5">
+                        <button 
+                            onClick={() => {
+                                if(pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+                                pmlCameraInputRef.current?.click();
+                            }} 
+                            className="bg-orange-500/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
+                        >
+                            <Camera size={10} /> Kamera
+                        </button>
+                        <button 
+                            onClick={() => {
+                                if(pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+                                pmlGalleryInputRef.current?.click();
+                            }} 
+                            className="bg-indigo-600/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
+                        >
+                            <Image size={10} /> Galeri
+                        </button>
                     </div>
+                </div>
+            ) : rawPmlPhotoFile ? (
+                <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
+                    <RefreshCw className="animate-spin text-orange-500" size={14} />
+                    <span>Membuat Watermark Spasial...</span>
+                </div>
+            ) : manualMode ? (
+                <div className="p-4 bg-slate-900 border border-slate-700 rounded-xl text-center space-y-2.5 animate-fadeIn">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Dokumen Bukti Diperlukan</p>
+                    <div className="flex gap-2 justify-center">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if(pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+                                pmlCameraInputRef.current?.click();
+                            }}
+                            className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                            <Camera size={14} />
+                            <span>Kamera</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if(pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+                                pmlGalleryInputRef.current?.click();
+                            }}
+                            className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                            <Image size={14} />
+                            <span>Galeri</span>
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
+                    <RefreshCw className="animate-spin text-orange-500" size={14} />
+                    <span>{pmlCheckingIn ? "Mengunci Satelit..." : "Membuat Watermark Spasial..."}</span>
+                </div>
+            )}
+
+            {!pmlCheckingIn && pmlCoords && !manualMode && (
+                <div className="text-[10px] text-slate-300 font-bold px-1 space-y-0.5 text-left">
+                    <p>SLS Terkunci: <span className="text-orange-400 font-black uppercase">{pmlCoords.nmsls}</span></p>
+                </div>
+            )}
+
+            {manualMode && (
+                <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 text-left space-y-2.5 animate-fadeIn">
+                    <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Tanggal Pengawasan</label>
+                        <input 
+                            type="date"
+                            max={getTodayDateString()}
+                            className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
+                            value={selectedManualDate}
+                            onChange={(e) => setSelectedManualDate(e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Target SLS Pendampingan</label>
+                        <select
+                            className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
+                            value={selectedManualSls}
+                            onChange={(e) => setSelectedManualSls(e.target.value)}
+                        >
+                            <option value="">-- Pilih SLS Pengawasan Anda --</option>
+                            {allSlsFlat.map(s => (
+                                <option key={s.idsubsls} value={s.idsubsls}>
+                                    ({s.kdsls}) {s.nmsls} - {s.nmdesa}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+            )}
+
+            <div className="flex gap-2">
+                <button 
+                    disabled={submitSiklusLoading}
+                    onClick={resetPmlForm} 
+                    className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase disabled:opacity-40"
+                >
+                    Batal
+                </button>
+                <button
+                    disabled={(manualMode ? !selectedManualSls : !pmlCoords) || !pmlPhotoPreview || pmlCheckingIn || submitSiklusLoading}
+                    onClick={submitPmlCheckIn}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-xl text-xs uppercase disabled:bg-slate-700 disabled:text-slate-500 flex items-center justify-center gap-1"
+                >
+                    {submitSiklusLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
+                    <span>Kirim Absen</span>
+                </button>
+            </div>
+        </div>
+    )}
+</div>
                 </div>
 
                 {/* SAKELAR INTERAKTIF TOGGLE MODE MANUAL */}
-                {allowManualMode && !pmlCheckedInToday && (
+                {allowManualMode && (
                     <div 
                         onClick={() => {
                             const nextState = !manualMode;
