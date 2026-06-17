@@ -4,8 +4,9 @@ import {
     BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie
 } from 'recharts';
 import {
-    ShieldAlert, Search, ArrowRight, User, Calendar, X, AlertTriangle, CheckCircle2, Clock, MapPin, UserX, RefreshCw
+    ShieldAlert, Search, ArrowRight, User, Calendar, X, AlertTriangle, CheckCircle2, Clock, MapPin, UserX, RefreshCw, Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx'; // Menggunakan ikon download bawaan
 
 // 📸 Helper Taktis: Mengubah link biasa menjadi Link Embed Preview Google Drive
 const konversiLinkDrive = (urlDrive) => {
@@ -162,7 +163,154 @@ const [slsMap, setSlsMap] = useState(new Map());
             setViewModeTab("DESA");
         }
     }, [selectedKecTab]);
+const handleExportToExcel = (tipe) => {
+    let dataRaw = [];
+    let namaFile = "";
 
+    // 1. Saring data berdasarkan kecamatan aktif saat ini
+    const pclTerfilter = selectedKecamatan
+        ? masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
+        : masterPclList;
+
+    const pmlTerfilter = selectedKecamatan
+        ? masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
+        : masterPmlList;
+
+    // 2. Tentukan dataset, URUTKAN BERDASARKAN KECAMATAN TUGAS, & formatting kolom
+    if (tipe === 'PPL') {
+        namaFile = `REKAP_PPL_LAPANGAN_${selectedKecamatan || 'KABUPATEN'}`;
+        
+        // Diurutkan A-Z berdasarkan kecamatan_tugas
+        const pclSorted = [...pclTerfilter].sort((a, b) => 
+            (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
+        );
+
+        dataRaw = pclSorted.map(p => ({
+            'Kecamatan Tugas': p.kecamatan_tugas,
+            'Nama Petugas': p.nama_petugas,
+            'Email': p.email,
+            'Status Hari Ini': p.statusHariIni || 'ABSEN',
+            'SLS Terakhir': p.lastSls || '-'
+        }));
+
+    } else if (tipe === 'PML') {
+        namaFile = `REKAP_PML_LAPANGAN_${selectedKecamatan || 'KABUPATEN'}`;
+        
+        // Diurutkan A-Z berdasarkan kecamatan_tugas
+        const pmlSorted = [...pmlTerfilter].sort((a, b) => 
+            (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
+        );
+
+        dataRaw = pmlSorted.map(p => ({
+            'Kecamatan Tugas': p.kecamatan_tugas,
+            'Nama Pengawas': p.nama_pengguna || p.nama_petugas,
+            'Email': p.email,
+            'Status Hari Ini': p.statusHariIni || 'ABSEN'
+        }));
+
+    } else if (tipe === 'STAGNAN') {
+        namaFile = `DAFTAR_PETUGAS_STAGNAN_${selectedKecamatan || 'KABUPATEN'}`;
+        
+        const pclStagnan = pclTerfilter.filter(p => p.isStagnan).map(p => ({ 'Posisi': 'PPL', ...p }));
+        const pmlStagnan = pmlTerfilter.filter(p => p.isStagnan).map(p => ({ 'Posisi': 'PML', ...p }));
+        const gabunganStagnan = [...pclStagnan, ...pmlStagnan];
+
+        // Diurutkan A-Z berdasarkan kecamatan_tugas
+        gabunganStagnan.sort((a, b) => 
+            (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
+        );
+        
+        dataRaw = gabunganStagnan.map(p => ({
+            'Kecamatan Tugas': p.kecamatan_tugas,
+            'Role': p.Posisi,
+            'Nama Petugas': p.nama_petugas || p.nama_pengguna,
+            'Email': p.email,
+            'Keterangan': 'Tidak Kirim Absen >= 3 Hari'
+        }));
+    }
+
+    if (dataRaw.length === 0) {
+        alert("Tidak ada data untuk diekspor pada filter kecamatan ini.");
+        return;
+    }
+
+    // 3. Proses Engine SheetJS (Konversi JSON ke Excel)
+    const worksheet = XLSX.utils.json_to_sheet(dataRaw);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Data Monitoring");
+    
+    XLSX.writeFile(workbook, `${namaFile}.xlsx`);
+};
+
+const handleExportSiklusToExcel = (item) => {
+    const isLapangan = item.target === 'PENDATAAN';
+    const namaFile = `DETAIL_PETUGAS_${item.target}_TGL_${item.tanggal.replace(/-/g, '_')}`;
+    
+    let dataRaw = [];
+
+    if (isLapangan) {
+        // Ambil semua PPL, filter berdasarkan kecamatan aktif jika ada
+        const pplTerfilter = selectedKecamatan
+            ? masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
+            : masterPclList;
+
+        // Urutkan berdasarkan Kecamatan Tugas A-Z
+        const pplSorted = [...pplTerfilter].sort((a, b) => 
+            (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
+        );
+
+        // Map data detail per petugas PPL
+        dataRaw = pplSorted.map(p => {
+            // Cek apakah petugas ini masuk/absen pada tanggal siklus ini
+            // Sesuaikan properti history/log tanggal sesuai struktur data Anda (misal: p.history7Hari atau p.tanggalLogs)
+            const isAktifTanggalIni = p.history7Hari?.includes(item.tanggal) || p.statusHariIni === 'AKTIF'; 
+            
+            return {
+                'Kecamatan Tugas': p.kecamatan_tugas,
+                'Nama Petugas (PPL)': p.nama_petugas,
+                'Email': p.email,
+                'Status Pada Tanggal Ini': isAktifTanggalIni ? 'JALAN LAPANGAN (AKTIF)' : 'BELUM ABSEN (ABSEN)',
+                'SLS Terakhir': p.lastSls || '-',
+                'Tanggal Evaluasi': item.tanggal
+            };
+        });
+    } else {
+        // Ambil semua PML, filter berdasarkan kecamatan aktif jika ada
+        const pmlTerfilter = selectedKecamatan
+            ? masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
+            : masterPmlList;
+
+        // Urutkan berdasarkan Kecamatan Tugas A-Z
+        const pmlSorted = [...pmlTerfilter].sort((a, b) => 
+            (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
+        );
+
+        // Map data detail per petugas PML
+        dataRaw = pmlSorted.map(p => {
+            const isAktifTanggalIni = p.history7Hari?.includes(item.tanggal) || p.statusHariIni === 'AKTIF';
+
+            return {
+                'Kecamatan Tugas': p.kecamatan_tugas,
+                'Nama Pengawas (PML)': p.nama_pengguna || p.nama_petugas,
+                'Email': p.email,
+                'Status Evaluasi Tanggal Ini': isAktifTanggalIni ? 'SUDAH KIRIM EVALUASI' : 'BELUM KIRIM EVALUASI',
+                'Tanggal Siklus': item.tanggal
+            };
+        });
+    }
+
+    if (dataRaw.length === 0) {
+        alert("Tidak ada data petugas untuk diekspor.");
+        return;
+    }
+
+    // Jalankan engine SheetJS
+    const worksheet = XLSX.utils.json_to_sheet(dataRaw);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Detail Petugas Siklus");
+    
+    XLSX.writeFile(workbook, `${namaFile}.xlsx`);
+};
     // 💡 OPTIMALISASI: FETCH DATA OPERASIONAL BERBASIS SERVER-SIDE FILTERING (H-14 Rentang Waktu)
 const fetchOperationalData = useCallback(async () => {
     setIsRefreshing(true);
@@ -758,27 +906,43 @@ const kecamatanChartData = useMemo(() => {
             setModalMetrikSearch('');
             setShowModalMetrik(true);
         }}
-        className="bg-gradient-to-br from-white to-slate-50 p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all cursor-pointer select-none active:scale-98"
+        className="bg-gradient-to-br from-white to-slate-50 p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all cursor-pointer select-none active:scale-98 flex flex-col justify-between"
     >
-        <div className="flex items-center justify-between mb-1">
-            <div className="text-[10px] font-black text-slate-400 uppercase tracking-tight">PPL Jalan Lapangan</div>
-            <div className={`text-[8px] px-1.5 py-0.5 rounded-md font-bold border ${isHariIni ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
-                {labelTanggal}
+        <div>
+            <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-tight">PPL Jalan Lapangan</div>
+                <div className={`text-[8px] px-1.5 py-0.5 rounded-md font-bold border ${isHariIni ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+                    {labelTanggal}
+                </div>
+            </div>
+            <div className="flex items-baseline justify-between mt-1">
+                <div className="text-xl font-black text-slate-800">
+                    {filteredMetrics.pclAktifHariIni}
+                    <span className="text-xs font-normal text-slate-400 ml-1">/{filteredMetrics.totalPcl} PPL</span>
+                </div>
+                <div className="text-sm font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
+                    {filteredMetrics.totalPcl > 0 ? Math.round((filteredMetrics.pclAktifHariIni / filteredMetrics.totalPcl) * 100) : 0}%
+                </div>
+            </div>
+            <div className="w-full bg-slate-100 h-1.5 mt-3 rounded-full overflow-hidden">
+                <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-full transition-all" style={{ width: `${filteredMetrics.totalPcl > 0 ? (filteredMetrics.pclAktifHariIni / filteredMetrics.totalPcl) * 100 : 0}%` }}></div>
             </div>
         </div>
-        <div className="flex items-baseline justify-between mt-1">
-            <div className="text-xl font-black text-slate-800">
-                {filteredMetrics.pclAktifHariIni}
-                <span className="text-xs font-normal text-slate-400 ml-1">/{filteredMetrics.totalPcl} PPL</span>
-            </div>
-            <div className="text-sm font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
-                {filteredMetrics.totalPcl > 0 ? Math.round((filteredMetrics.pclAktifHariIni / filteredMetrics.totalPcl) * 100) : 0}%
-            </div>
+        
+        <div>
+            {/* TOMBOL EXCEL TAB PPL */}
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation(); // Mencegah modal terbuka
+                    if (typeof handleExportToExcel === 'function') handleExportToExcel('PPL');
+                }}
+                className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 text-white py-1 px-2 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 shadow-xs transition-colors cursor-pointer"
+            >
+                <Download size={10} /> Export Excel PPL
+            </button>
+            <div className="text-[7.5px] text-indigo-500 font-bold mt-1.5 text-right uppercase tracking-wider">Klik untuk Lihat Petugas ↗</div>
         </div>
-        <div className="w-full bg-slate-100 h-1.5 mt-3 rounded-full overflow-hidden">
-            <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-full transition-all" style={{ width: `${filteredMetrics.totalPcl > 0 ? (filteredMetrics.pclAktifHariIni / filteredMetrics.totalPcl) * 100 : 0}%` }}></div>
-        </div>
-        <div className="text-[7.5px] text-indigo-500 font-bold mt-1.5 text-right uppercase tracking-wider">Klik untuk Lihat Petugas ↗</div>
     </div>
 
     {/* 2. PANEL PML JALAN LAPANGAN */}
@@ -800,27 +964,43 @@ const kecamatanChartData = useMemo(() => {
             setModalMetrikSearch('');
             setShowModalMetrik(true);
         }}
-        className="bg-gradient-to-br from-white to-slate-50 p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all cursor-pointer select-none active:scale-98"
+        className="bg-gradient-to-br from-white to-slate-50 p-4 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all cursor-pointer select-none active:scale-98 flex flex-col justify-between"
     >
-        <div className="flex items-center justify-between mb-1">
-            <div className="text-[10px] font-bold text-slate-400 tracking-tight uppercase">PML Jalan Lapangan</div>
-            <div className={`text-[8px] px-1.5 py-0.5 rounded-md font-bold border ${isHariIni ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
-                {labelTanggal}
+        <div>
+            <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] font-bold text-slate-400 tracking-tight uppercase">PML Jalan Lapangan</div>
+                <div className={`text-[8px] px-1.5 py-0.5 rounded-md font-bold border ${isHariIni ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+                    {labelTanggal}
+                </div>
+            </div>
+            <div className="flex items-baseline justify-between mt-1">
+                <div className="text-xl font-black text-indigo-600">
+                    {filteredMetrics.pmlAktifHariIni}
+                    <span className="text-xs font-normal text-slate-400 ml-1">/{filteredMetrics.totalPml} PML</span>
+                </div>
+                <div className="text-sm font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
+                    {filteredMetrics.totalPml > 0 ? Math.round((filteredMetrics.pmlAktifHariIni / filteredMetrics.totalPml) * 100) : 0}%
+                </div>
+            </div>
+            <div className="w-full bg-slate-100 h-1.5 mt-3 rounded-full overflow-hidden">
+                <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-full transition-all" style={{ width: `${filteredMetrics.totalPml > 0 ? (filteredMetrics.pmlAktifHariIni / filteredMetrics.totalPml) * 100 : 0}%` }}></div>
             </div>
         </div>
-        <div className="flex items-baseline justify-between mt-1">
-            <div className="text-xl font-black text-indigo-600">
-                {filteredMetrics.pmlAktifHariIni}
-                <span className="text-xs font-normal text-slate-400 ml-1">/{filteredMetrics.totalPml} PML</span>
-            </div>
-            <div className="text-sm font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
-                {filteredMetrics.totalPml > 0 ? Math.round((filteredMetrics.pmlAktifHariIni / filteredMetrics.totalPml) * 100) : 0}%
-            </div>
+        
+        <div>
+            {/* TOMBOL EXCEL TAB PML */}
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation(); // Mencegah modal terbuka
+                    if (typeof handleExportToExcel === 'function') handleExportToExcel('PML');
+                }}
+                className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 text-white py-1 px-2 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 shadow-xs transition-colors cursor-pointer"
+            >
+                <Download size={10} /> Export Excel PML
+            </button>
+            <div className="text-[7.5px] text-indigo-500 font-bold mt-1.5 text-right uppercase tracking-wider">Klik untuk Lihat Petugas ↗</div>
         </div>
-        <div className="w-full bg-slate-100 h-1.5 mt-3 rounded-full overflow-hidden">
-            <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-full transition-all" style={{ width: `${filteredMetrics.totalPml > 0 ? (filteredMetrics.pmlAktifHariIni / filteredMetrics.totalPml) * 100 : 0}%` }}></div>
-        </div>
-        <div className="text-[7.5px] text-indigo-500 font-bold mt-1.5 text-right uppercase tracking-wider">Klik untuk Lihat Petugas ↗</div>
     </div>
 
     {/* 3. PANEL PETUGAS TIDAK AKTIF */}
@@ -844,22 +1024,38 @@ const kecamatanChartData = useMemo(() => {
             setModalMetrikSearch('');
             setShowModalMetrik(true);
         }}
-        className="bg-gradient-to-br from-rose-50/50 to-rose-50 p-4 rounded-2xl border border-rose-100 shadow-sm hover:shadow-md hover:border-rose-300 transition-all cursor-pointer select-none active:scale-98"
+        className="bg-gradient-to-br from-rose-50/50 to-rose-50 p-4 rounded-2xl border border-rose-100 shadow-sm hover:shadow-md hover:border-rose-300 transition-all cursor-pointer select-none active:scale-98 flex flex-col justify-between"
     >
-        <div className="text-[10px] font-bold text-rose-600 uppercase tracking-tight mb-1">Total Petugas Tidak Aktif</div>
-        <div className="flex items-baseline justify-between mt-1">
-            <div className="text-xl font-black text-rose-600">
-                {filteredMetrics.totalStagnan}
-                <span className="text-xs font-normal text-rose-400 ml-1"> Orang</span>
+        <div>
+            <div className="text-[10px] font-bold text-rose-600 uppercase tracking-tight mb-1">Total Petugas Tidak Aktif</div>
+            <div className="flex items-baseline justify-between mt-1">
+                <div className="text-xl font-black text-rose-600">
+                    {filteredMetrics.totalStagnan}
+                    <span className="text-xs font-normal text-rose-400 ml-1"> Orang</span>
+                </div>
+                <div className="text-xs font-bold text-rose-600 bg-rose-100/50 px-2 py-0.5 rounded-lg border border-rose-200">
+                    {((filteredMetrics.totalPcl + filteredMetrics.totalPml) > 0) ? Math.round((filteredMetrics.totalStagnan / (filteredMetrics.totalPcl + filteredMetrics.totalPml)) * 100) : 0}%
+                </div>
             </div>
-            <div className="text-xs font-bold text-rose-600 bg-rose-100/50 px-2 py-0.5 rounded-lg border border-rose-200">
-                {((filteredMetrics.totalPcl + filteredMetrics.totalPml) > 0) ? Math.round((filteredMetrics.totalStagnan / (filteredMetrics.totalPcl + filteredMetrics.totalPml)) * 100) : 0}%
+            <div className="text-[9px] text-rose-400 font-bold mt-2 flex items-center gap-1">
+                <AlertTriangle size={10} /> Tidak kirim absen lapangan &gt;= 3 hari.
             </div>
         </div>
-        <div className="text-[9px] text-rose-400 font-bold mt-2 flex items-center gap-1">
-            <AlertTriangle size={10} /> Tidak kirim absen lapangan &gt;= 3 hari.
+        
+        <div>
+            {/* TOMBOL EXCEL DAFTAR STAGNAN */}
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation(); // Mencegah modal terbuka
+                    if (typeof handleExportToExcel === 'function') handleExportToExcel('STAGNAN');
+                }}
+                className="mt-3 w-full bg-rose-600 hover:bg-rose-700 text-white py-1 px-2 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 shadow-xs transition-colors cursor-pointer"
+            >
+                <Download size={10} /> Export Daftar Stagnan
+            </button>
+            <div className="text-[7.5px] text-rose-500 font-bold mt-1.5 text-right uppercase tracking-wider">Lihat Petugas ↗</div>
         </div>
-        <div className="text-[7.5px] text-rose-500 font-bold mt-1 text-right uppercase tracking-wider">Lihat Petugas ↗</div>
     </div>
 
     {/* 4. FILTER KECAMATAN */}
@@ -887,6 +1083,7 @@ const kecamatanChartData = useMemo(() => {
 </div>
 
             {/* SIKLUS MONITORING GRID */}
+{/* SIKLUS MONITORING GRID */}
             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm mb-6">
                 <h3 className="text-xs font-black uppercase text-slate-800 mb-4 flex items-center gap-2">
                     <Calendar size={14} className="text-slate-400" />
@@ -953,9 +1150,26 @@ const kecamatanChartData = useMemo(() => {
                                         </>
                                     )}
                                 </div>
+                                
                                 <div className="w-full bg-white h-1.5 rounded-full mt-2.5 overflow-hidden border border-slate-100 shadow-inner">
                                     <div className={`h-full transition-all duration-500 ${isLapangan ? 'bg-indigo-500' : 'bg-emerald-500'}`} style={{ width: `${item.persentase}%` }}></div>
                                 </div>
+
+                                {/* TOMBOL DOWNLOAD EXCEL UNTUK KARTU SIKLUS INI */}
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation(); // Amankan alur modal agar tidak terpicu terbuka
+                                        handleExportSiklusToExcel(item);
+                                    }}
+                                    className={`mt-2.5 w-full py-1 px-2 rounded-lg text-[8.5px] font-black uppercase flex items-center justify-center gap-1 shadow-2xs transition-all active:scale-95 border cursor-pointer ${
+                                        isLapangan 
+                                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700' 
+                                            : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700'
+                                    }`}
+                                >
+                                    <Download size={9} /> Export Rekap
+                                </button>
                             </div>
                         );
                     })}
