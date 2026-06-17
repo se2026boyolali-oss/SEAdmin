@@ -503,139 +503,140 @@ export default function PmlMonitoringPage() {
     // =========================================================================
     // OPTIMALISASI 2: WATERMARK ENGINE RAMAH MEMORI (OBJECT URL PREVIEW BLOB)
     // =========================================================================
-    useEffect(() => {
-        if (!rawPmlPhotoFile || pmlCheckingIn) return;
+// =========================================================================
+// OPTIMALISASI LIVE WATERMARK ENGINE - LEAN OBJECT URL (ANTI-STUCK GALERI)
+// =========================================================================
+useEffect(() => {
+    if (!rawPmlPhotoFile || pmlCheckingIn) return;
 
-        const batalkanKarenaError = (pesan) => {
-            alert(pesan);
-            setRawPmlPhotoFile(null);
-            if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
-            setPmlPhotoPreview(null);
-            if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
-            if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+    const batalkanKarenaError = (pesan) => {
+        alert(pesan);
+        setRawPmlPhotoFile(null);
+        if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
+        setPmlPhotoPreview(null);
+        if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+        if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+    };
+
+    const generateLivePmlWatermark = () => {
+        // 🌟 PERBAIKAN UTAMA: Gunakan CreateObjectURL menggantikan FileReader raksasa
+        const blobObjectUrl = URL.createObjectURL(rawPmlPhotoFile);
+        const img = new window.Image();
+        
+        img.onerror = () => {
+            URL.revokeObjectURL(blobObjectUrl);
+            batalkanKarenaError("Berkas galeri tidak dapat didecode atau memori webview HP penuh. Silakan coba foto lain.");
         };
 
-        const generateLivePmlWatermark = () => {
-            const reader = new FileReader();
+        img.onload = () => {
+            try {
+                // Keamanan dimensi: Mencegah canvas 0x0 jika file korup
+                const MAX_WIDTH = 800;
+                let width = img.width || MAX_WIDTH;
+                let height = img.height || MAX_WIDTH;
 
-            reader.onerror = () => {
-                console.error("FileReader Error: Gagal membaca berkas foto.");
-            };
+                if (width > MAX_WIDTH) {
+                    height = Math.round((height * MAX_WIDTH) / width);
+                    width = MAX_WIDTH;
+                }
 
-            reader.onload = (event) => {
-                const img = new window.Image();
+                const canvas = canvasRef.current;
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
                 
-                img.onerror = () => {
-                    batalkanKarenaError("Format gambar tidak didukung atau memori HP penuh. Silakan coba lagi.");
-                };
+                if (!ctx) {
+                    URL.revokeObjectURL(blobObjectUrl);
+                    batalkanKarenaError("Gagal menginisialisasi sistem rendering grafis canvas.");
+                    return; 
+                }
+                
+                ctx.drawImage(img, 0, 0, width, height);
 
-                img.onload = () => {
-                    try {
-                        const MAX_WIDTH = 800;
-                        let width = img.width;
-                        let height = img.height;
+                // Setelah berhasil digambar ke canvas, langsung bebaskan pointer memori blob
+                URL.revokeObjectURL(blobObjectUrl);
 
-                        if (width > MAX_WIDTH) {
-                            height = Math.round((height * MAX_WIDTH) / width);
-                            width = MAX_WIDTH;
-                        }
+                let nmsls = pmlCoords?.nmsls || "";
+                let nmdesa = pmlCoords?.nmdesa || "";
+                let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
 
-                        const canvas = canvasRef.current;
-                        canvas.width = width;
-                        canvas.height = height;
-                        const ctx = canvas.getContext('2d');
-                        
-                        if (!ctx) return; 
-                        
-                        ctx.drawImage(img, 0, 0, width, height);
-
-                        let nmsls = pmlCoords?.nmsls || "";
-                        let nmdesa = pmlCoords?.nmdesa || "";
-                        // 🌟 Perbaikan regex pemotongan nama kecamatan agar dinamis
-                        let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
-
-                        if (manualMode && selectedManualSls) {
-                            const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(selectedManualSls).trim());
-                            if (match) {
-                                nmsls = match.nmsls;
-                                nmdesa = match.nmdesa;
-                            } else {
-                                nmsls = "PENGAWASAN MANUAL";
-                            }
-                        } else if (pmlCoords?.idsubsls && pmlCoords.idsubsls !== 'WILAYAH-PML') {
-                            const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(pmlCoords.idsubsls).trim());
-                            if (match) {
-                                if (!nmsls) nmsls = match.nmsls;
-                                if (!nmdesa) nmdesa = match.nmdesa;
-                            }
-                        }
-
-                        let wilayahTeks = "MEMINDAI WILAYAH...";
-                        if (manualMode) {
-                            wilayahTeks = nmsls;
-                            if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
-                            if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                        } else if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
-                            wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
-                            if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
-                            if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                        } else if (nmsls) {
-                            wilayahTeks = nmsls;
-                            if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
-                            if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                        }
-
-                        const tglTeks = manualMode 
-                            ? `${selectedManualDate} (UPLOAD MANUAL)` 
-                            : new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-
-                        const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
-                        const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
-                                
-                        const panelHeight = 135;
-                        ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
-                        ctx.fillRect(0, height - panelHeight, width, panelHeight);
-                        ctx.fillStyle = "#f97316"; 
-                        ctx.fillRect(0, height - panelHeight, width, 4);
-
-                        ctx.fillStyle = "#ffffff";
-                        ctx.font = "bold 15px sans-serif";
-                        ctx.fillText(`PENGAWASAN SENSUS EKONOMI 2026`, 20, height - 105);
-
-                        ctx.fillStyle = "#38bdf8"; 
-                        ctx.font = "bold 12px sans-serif";
-                        ctx.fillText(`NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`, 20, height - 82);
-
-                        ctx.fillStyle = "#fbbf24"; 
-                        ctx.font = "bold 12px sans-serif";
-                        ctx.fillText(`LOKASI    : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
-
-                        ctx.fillStyle = "#cbd5e1"; 
-                        ctx.font = "11px monospace";
-                        ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
-                        ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
-
-                        canvas.toBlob((blob) => {
-                            if (blob) {
-                                if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
-                                const previewUrl = URL.createObjectURL(blob);
-                                setPmlPhotoPreview(previewUrl);
-                            }
-                        }, "image/jpeg", 0.6);
-
-                    } catch (canvasErr) {
-                        console.error("Canvas Crash:", canvasErr);
+                if (manualMode && selectedManualSls) {
+                    const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(selectedManualSls).trim());
+                    if (match) {
+                        nmsls = match.nmsls;
+                        nmdesa = match.nmdesa;
+                    } else {
+                        nmsls = "PENGAWASAN MANUAL";
                     }
-                };
+                }
 
-                img.src = event.target.result;
-            };
+                // Antisipasi jika user upload foto di awal sebelum memilih dropdown SLS manual
+                let wilayahTeks = "MEMINDAI WILAYAH...";
+                if (manualMode) {
+                    wilayahTeks = nmsls || "PENGAWASAN MANUAL (SLS BELUM DIPILIH)";
+                    if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                } else if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
+                    wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
+                    if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
+                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                } else if (nmsls) {
+                    wilayahTeks = nmsls;
+                    if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                }
 
-            reader.readAsDataURL(rawPmlPhotoFile);
+                const tglTeks = manualMode 
+                    ? `${selectedManualDate} (UPLOAD MANUAL)` 
+                    : new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+
+                const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
+                const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
+                                
+                const panelHeight = 135;
+                ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
+                ctx.fillRect(0, height - panelHeight, width, panelHeight);
+                ctx.fillStyle = "#f97316"; 
+                ctx.fillRect(0, height - panelHeight, width, 4);
+
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 15px sans-serif";
+                ctx.fillText(`PENGAWASAN SENSUS EKONOMI 2026`, 20, height - 105);
+
+                ctx.fillStyle = "#38bdf8"; 
+                ctx.font = "bold 12px sans-serif";
+                ctx.fillText(`NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`, 20, height - 82);
+
+                ctx.fillStyle = "#fbbf24"; 
+                ctx.font = "bold 12px sans-serif";
+                ctx.fillText(`LOKASI    : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
+
+                ctx.fillStyle = "#cbd5e1"; 
+                ctx.font = "11px monospace";
+                ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
+                ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
+                        const previewUrl = URL.createObjectURL(blob);
+                        setPmlPhotoPreview(previewUrl);
+                    }
+                }, "image/jpeg", 0.6);
+
+            } catch (canvasErr) {
+                URL.revokeObjectURL(blobObjectUrl);
+                console.error("Canvas Crash:", canvasErr);
+                batalkanKarenaError("Gagal menempelkan watermark karena batasan memori HP.");
+            }
         };
 
-        generateLivePmlWatermark();
-    }, [rawPmlPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder, manualMode, selectedManualSls, selectedManualDate]);
+        // Pasang pointer virtual langsung ke src objek image
+        img.src = blobObjectUrl;
+    };
+
+    generateLivePmlWatermark();
+}, [rawPmlPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder, manualMode, selectedManualSls, selectedManualDate]);
 
     const isPointInPolygon = (point, vs) => {
         const x = point[0], y = point[1];

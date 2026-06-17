@@ -94,6 +94,8 @@ export default function DashboardPusat() {
     // 🛡️ Kunci Sinkronisasi Spasial & Tampilan
     const [selectedKecamatan, setSelectedKecamatan] = useState(null);
     const [selectedKecTab, setSelectedKecTab] = useState("SEMUA");
+    const [selectedDesaCode, setSelectedDesaCode] = useState(null);
+const [selectedDesaName, setSelectedDesaName] = useState("");
     const [viewModeTab, setViewModeTab] = useState("DESA"); 
     const [daftarKecamatan, setDaftarKecamatan] = useState([]);
 
@@ -242,6 +244,64 @@ const handleExportToExcel = (tipe) => {
     XLSX.writeFile(workbook, `${namaFile}.xlsx`);
 };
 
+
+const handleDownloadSlsExcel = () => {
+    // 1. Filter data berdasarkan tab kecamatan yang aktif saat ini
+    const targetSls = selectedKecTab === "SEMUA"
+        ? rawMasterSls
+        : rawMasterSls.filter(sls => String(sls.kdkec).trim() === selectedKecTab);
+
+    if (targetSls.length === 0) {
+        alert("Tidak ada data SLS untuk diunduh!");
+        return;
+    }
+
+    // 2. Prosedur Pengurutan (Sorting) Bertingkat: Kec -> Desa -> SLS
+// 2. Prosedur Pengurutan (Sorting) Berdasarkan ID Sub-SLS
+const sortedSls = [...targetSls].sort((a, b) => {
+    return String(a.idsubsls || "").localeCompare(String(b.idsubsls || ""), 'id', { numeric: true });
+});
+
+    // 3. Petakan data ke dalam struktur kolom Excel (Ditambahkan Email Petugas)
+    const formatSlsData = (list) => list.map(sls => ({
+        "Kode Kecamatan": sls.kdkec,
+        "Nama Kecamatan": sls.nmkec,
+        "Kode Desa": sls.kddesa,
+        "Nama Desa/Kelurahan": sls.nmdesa,
+        "Kode SLS": sls.kdsls,
+        "Nama SLS": sls.nmsls,
+        "ID Sub-SLS": sls.idsubsls,
+        "Nama Petugas (PCL)": sls.petugas?.nama_petugas || sls.petugas_id?.nama_petugas || "Belum Ada Petugas",
+        "Email Petugas": sls.petugas_id ? String(sls.petugas_id).toLowerCase().trim() : "-", // 🌟 Kolom Email Petugas
+        "Target Muatan Awal": parseInt(sls.jml_muatan) || 0,
+        "Realisasi Pencacahan": parseInt(sls.realisasi_pencacahan) || 0,
+        "Status Validasi": sls.is_selesai ? "SELESAI" : (parseInt(sls.realisasi_pencacahan) > 0 ? "SEDANG DIDATA" : "BELUM MULAI")
+    }));
+
+    // 4. Pisahkan kelompok data yang sudah diurutkan (Sudah Didata vs Belum Mulai)
+    const sudahDidataRaw = sortedSls.filter(sls => sls.is_selesai === true || (parseInt(sls.realisasi_pencacahan) || 0) > 0);
+    const belumDidataRaw = sortedSls.filter(sls => !sls.is_selesai && (parseInt(sls.realisasi_pencacahan) || 0) === 0);
+
+    // 5. Konversi objek array menjadi lembar kerja (Worksheet) Excel
+    const worksheetSudah = XLSX.utils.json_to_sheet(formatSlsData(sudahDidataRaw));
+    const worksheetBelum = XLSX.utils.json_to_sheet(formatSlsData(belumDidataRaw));
+
+    // 6. Inisialisasi Buku Dokumen (Workbook) Excel baru
+    const workbook = XLSX.utils.book_new();
+    
+    // Masukkan lembar kerja ke workbook dengan sheet terpisah
+    XLSX.utils.book_append_sheet(workbook, worksheetSudah, "SUDAH DIDATA");
+    XLSX.utils.book_append_sheet(workbook, worksheetBelum, "BELUM DIDATA");
+
+    // 7. Buat penamaan file dinamis berdasarkan filter kecamatan saat ini
+    const namaKecLabel = selectedKecTab === "SEMUA" ? "KABUPATEN" : `KEC_${selectedKecTab}`;
+    const tanggalUnduh = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const namaFileFinal = `MONITORING_SLS_SE26_${namaKecLabel}_${tanggalUnduh}.xlsx`;
+
+    // 8. Unduh file langsung ke penyimpanan perangkat
+    XLSX.writeFile(workbook, namaFileFinal);
+};
+
 const handleExportSiklusToExcel = (item) => {
     const isLapangan = item.target === 'PENDATAAN';
     const namaFile = `DETAIL_PETUGAS_${item.target}_TGL_${item.tanggal.replace(/ /g, '_')}`;
@@ -344,7 +404,7 @@ const fetchOperationalData = useCallback(async () => {
         supabase.from('petugas').select('email, nama_petugas, posisi_tugas, status, kecamatan_tugas').eq('status', 'Diterima'),
         supabase.from('log_checkin_pcl').select('idsubsls, tanggal, petugas_email, foto_bukti').gte('tanggal', batasBawahStr),
         supabase.from('log_checkin_pml').select('pml_email, tanggal, idsubsls, foto_bukti').gte('tanggal', batasBawahStr),
-        supabase.from('muatan_sls').select('idsubsls, kdkec, nmkec, kddesa, nmdesa, nmsls, jml_muatan, realisasi_pencacahan, is_selesai, petugas_id, petugas(nama_petugas)'),
+        supabase.from('muatan_sls').select('idsubsls, kdkec, nmkec, kddesa, nmdesa, kdsls, nmsls, jml_muatan, realisasi_pencacahan, is_selesai, petugas_id, petugas(nama_petugas)'),
         supabase.from('log_realisasi_pml').select('tanggal, pml_email, kendala_lapangan, solusi_lapangan').gte('tanggal', batasBawahStr)
     ]);
 
@@ -476,138 +536,163 @@ setSlsMap(pembuatanMap);
     }, [fetchOperationalData]);
 
     // 1. ENGINE AGREGASI SENSUS (Dioptimasi)
-    const dataMonitoringWilayah = useMemo(() => {
-        const rekapKecamatan = {};
-        const rekapDesa = {};
-        const rekapPetugas = {};
+const dataMonitoringWilayah = useMemo(() => {
+    const rekapKecamatan = {};
+    const rekapDesa = {};
+    const rekapPetugas = {};
+    const rekapSls = {}; // 🚀 TAMBAHKAN INI: Penampung rekap data level SLS
 
-        rawMasterSls.forEach(sls => {
-            const kodeKec = sls.kdkec ? String(sls.kdkec).trim() : "";
-            const kodeDesa = sls.kddesa ? String(sls.kddesa).trim() : "";
+    rawMasterSls.forEach(sls => {
+        const kodeKec = sls.kdkec ? String(sls.kdkec).trim() : "";
+        const kodeDesa = sls.kddesa ? String(sls.kddesa).trim() : "";
+        const kodeSls = sls.kdsls ? String(sls.kdsls).trim() : "";
+        const idSubSls = sls.idsubsls ? String(sls.idsubsls).trim() : "";
 
-            const idPetugas = sls.petugas_id ? String(sls.petugas_id).trim() : "";
-            const namaDariJoin = sls.petugas?.nama_petugas || sls.petugas_id?.nama_petugas;
-            const namaMentah = namaDariJoin || (idPetugas ? idPetugas.split('@')[0] : "Tanpa Petugas");
-            const namaPetugas = String(namaMentah).toUpperCase();
+        const idPetugas = sls.petugas_id ? String(sls.petugas_id).trim() : "";
+        const namaDariJoin = sls.petugas?.nama_petugas || sls.petugas_id?.nama_petugas;
+        const namaMentah = namaDariJoin || (idPetugas ? idPetugas.split('@')[0] : "Tanpa Petugas");
+        const namaPetugas = String(namaMentah).toUpperCase();
 
-            if (!kodeKec || !kodeDesa) return;
+        if (!kodeKec || !kodeDesa) return;
 
-            const namaKec = sls.nmkec || `Kec. ${kodeKec}`;
-            const namaDesa = sls.nmdesa || `Desa ${kodeDesa}`;
+        const namaKec = sls.nmkec || `Kec. ${kodeKec}`;
+        const namaDesa = sls.nmdesa || `Desa ${kodeDesa}`;
+        const namaSls = sls.nmsls || `SLS ${kodeSls}`;
 
-            const muatanAwal = parseInt(sls.jml_muatan) || 0;
-            const realisasi = parseInt(sls.realisasi_pencacahan) || 0;
-            const isSelesai = sls.is_selesai === true;
+        const muatanAwal = parseInt(sls.jml_muatan) || 0;
+        const realisasi = parseInt(sls.realisasi_pencacahan) || 0;
+        const isSelesai = sls.is_selesai === true;
 
-            const targetDinamis = (isSelesai || realisasi > muatanAwal) ? realisasi : muatanAwal;
+        const targetDinamis = (isSelesai || realisasi > muatanAwal) ? realisasi : muatanAwal;
 
-            let muatanSelesai = 0;
-            let muatanSedang = 0;
-            let muatanBelum = 0;
+        let muatanSelesai = 0;
+        let muatanSedang = 0;
+        let muatanBelum = 0;
 
-            if (isSelesai) {
-                muatanSelesai = realisasi;
-            } else if (realisasi > 0) {
-                muatanSedang = realisasi;
-                muatanBelum = Math.max(0, targetDinamis - realisasi);
-            } else {
-                muatanBelum = targetDinamis;
-            }
+        if (isSelesai) {
+            muatanSelesai = realisasi;
+        } else if (realisasi > 0) {
+            muatanSedang = realisasi;
+            muatanBelum = Math.max(0, targetDinamis - realisasi);
+        } else {
+            muatanBelum = targetDinamis;
+        }
 
-            if (!rekapKecamatan[kodeKec]) {
-                rekapKecamatan[kodeKec] = {
-                    kode: kodeKec, nama_asli: namaKec, nama: `[${kodeKec}] ${namaKec}`,
+        // --- AGREGASI KECAMATAN ---
+        if (!rekapKecamatan[kodeKec]) {
+            rekapKecamatan[kodeKec] = {
+                kode: kodeKec, nama_asli: namaKec, nama: `[${kodeKec}] ${namaKec}`,
+                total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
+                muatan_selesai: 0, muatan_sedang: 0, muatan_belum: 0
+            };
+        }
+        rekapKecamatan[kodeKec].total_target += targetDinamis;
+        rekapKecamatan[kodeKec].total_realisasi += realisasi;
+        rekapKecamatan[kodeKec].jml_sls += 1;
+        rekapKecamatan[kodeKec].muatan_selesai += muatanSelesai;
+        rekapKecamatan[kodeKec].muatan_sedang += muatanSedang;
+        rekapKecamatan[kodeKec].muatan_belum += muatanBelum;
+        if (isSelesai) rekapKecamatan[kodeKec].sls_selesai += 1;
+
+        // --- AGREGASI DESA ---
+        const keyDesa = `${kodeKec}-${kodeDesa}`;
+        if (!rekapDesa[keyDesa]) {
+            rekapDesa[keyDesa] = {
+                kode: kodeDesa, kodeKec: kodeKec, kodeDesa: kodeDesa, nama_asli: namaDesa, nama: `[${kodeDesa}] ${namaDesa}`,
+                total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
+                muatan_selesai: 0, muatan_sedang: 0, muatan_belum: 0
+            };
+        }
+        rekapDesa[keyDesa].total_target += targetDinamis;
+        rekapDesa[keyDesa].total_realisasi += realisasi;
+        rekapDesa[keyDesa].jml_sls += 1;
+        rekapDesa[keyDesa].muatan_selesai += muatanSelesai;
+        rekapDesa[keyDesa].muatan_sedang += muatanSedang;
+        rekapDesa[keyDesa].muatan_belum += muatanBelum;
+        if (isSelesai) rekapDesa[keyDesa].sls_selesai += 1;
+
+        // --- 🚀 AGREGASI LEVEL SLS (BARU) ---
+        // Menggunakan idsubsls sebagai unique key, jika kosong fallback ke kombinasi kode wilayah
+        const keySls = idSubSls || `${kodeKec}-${kodeDesa}-${kodeSls}`;
+        if (!rekapSls[keySls]) {
+            rekapSls[keySls] = {
+                kode: kodeSls, kodeKec: kodeKec, kodeDesa: kodeDesa, nama_asli: namaSls, nama: namaSls,
+                total_target: 0, total_realisasi: 0,
+                muatan_selesai: 0, muatan_sedang: 0, muatan_belum: 0
+            };
+        }
+        rekapSls[keySls].total_target += targetDinamis;
+        rekapSls[keySls].total_realisasi += realisasi;
+        rekapSls[keySls].muatan_selesai += muatanSelesai;
+        rekapSls[keySls].muatan_sedang += muatanSedang;
+        rekapSls[keySls].muatan_belum += muatanBelum;
+
+        // --- AGREGASI PETUGAS ---
+        if (idPetugas) {
+            const keyPetugas = `${kodeKec}-${idPetugas}`;
+            if (!rekapPetugas[keyPetugas]) {
+                rekapPetugas[keyPetugas] = {
+                    kode: idPetugas, kodeKec: kodeKec, nama_asli: namaPetugas, nama: namaPetugas,
                     total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
                     muatan_selesai: 0, muatan_sedang: 0, muatan_belum: 0
                 };
             }
-            rekapKecamatan[kodeKec].total_target += targetDinamis;
-            rekapKecamatan[kodeKec].total_realisasi += realisasi;
-            rekapKecamatan[kodeKec].jml_sls += 1;
-            rekapKecamatan[kodeKec].muatan_selesai += muatanSelesai;
-            rekapKecamatan[kodeKec].muatan_sedang += muatanSedang;
-            rekapKecamatan[kodeKec].muatan_belum += muatanBelum;
-            if (isSelesai) rekapKecamatan[kodeKec].sls_selesai += 1;
+            rekapPetugas[keyPetugas].total_target += targetDinamis;
+            rekapPetugas[keyPetugas].total_realisasi += realisasi;
+            rekapPetugas[keyPetugas].jml_sls += 1;
+            rekapPetugas[keyPetugas].muatan_selesai += muatanSelesai;
+            rekapPetugas[keyPetugas].muatan_sedang += muatanSedang;
+            rekapPetugas[keyPetugas].muatan_belum += muatanBelum;
+            if (isSelesai) rekapPetugas[keyPetugas].sls_selesai += 1;
+        }
+    });
 
-            const keyDesa = `${kodeKec}-${kodeDesa}`;
-            if (!rekapDesa[keyDesa]) {
-                rekapDesa[keyDesa] = {
-                    kode: kodeDesa, kodeKec: kodeKec, nama_asli: namaDesa, nama: `[${kodeDesa}] ${namaDesa}`,
-                    total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
-                    muatan_selesai: 0, muatan_sedang: 0, muatan_belum: 0
-                };
-            }
-            rekapDesa[keyDesa].total_target += targetDinamis;
-            rekapDesa[keyDesa].total_realisasi += realisasi;
-            rekapDesa[keyDesa].jml_sls += 1;
-            rekapDesa[keyDesa].muatan_selesai += muatanSelesai;
-            rekapDesa[keyDesa].muatan_sedang += muatanSedang;
-            rekapDesa[keyDesa].muatan_belum += muatanBelum;
-            if (isSelesai) rekapDesa[keyDesa].sls_selesai += 1;
+    const targetSlsTerfilter = selectedKecTab === "SEMUA"
+        ? rawMasterSls
+        : rawMasterSls.filter(sls => String(sls.kdkec).trim() === selectedKecTab);
 
-            if (idPetugas) {
-                const keyPetugas = `${kodeKec}-${idPetugas}`;
-                if (!rekapPetugas[keyPetugas]) {
-                    rekapPetugas[keyPetugas] = {
-                        kode: idPetugas, kodeKec: kodeKec, nama_asli: namaPetugas, nama: namaPetugas,
-                        total_target: 0, total_realisasi: 0, jml_sls: 0, sls_selesai: 0,
-                        muatan_selesai: 0, muatan_sedang: 0, muatan_belum: 0
-                    };
-                }
-                rekapPetugas[keyPetugas].total_target += targetDinamis;
-                rekapPetugas[keyPetugas].total_realisasi += realisasi;
-                rekapPetugas[keyPetugas].jml_sls += 1;
-                rekapPetugas[keyPetugas].muatan_selesai += muatanSelesai;
-                rekapPetugas[keyPetugas].muatan_sedang += muatanSedang;
-                rekapPetugas[keyPetugas].muatan_belum += muatanBelum;
-                if (isSelesai) rekapPetugas[keyPetugas].sls_selesai += 1;
-            }
-        });
+    const rekapStatusSls = { selesai: 0, sedang: 0, belum: 0, total: targetSlsTerfilter.length };
+    const muatanStatus = { selesai: 0, proses: 0, belum: 0 };
 
-        const targetSlsTerfilter = selectedKecTab === "SEMUA"
-            ? rawMasterSls
-            : rawMasterSls.filter(sls => String(sls.kdkec).trim() === selectedKecTab);
+    targetSlsTerfilter.forEach(sls => {
+        const muatanAwal = parseInt(sls.jml_muatan) || 0;
+        const realisasi = parseInt(sls.realisasi_pencacahan) || 0;
+        const isSelesai = sls.is_selesai === true;
+        const targetDinamis = (isSelesai || realisasi > muatanAwal) ? realisasi : muatanAwal;
 
-        const rekapStatusSls = { selesai: 0, sedang: 0, belum: 0, total: targetSlsTerfilter.length };
-        const muatanStatus = { selesai: 0, proses: 0, belum: 0 };
+        if (isSelesai) rekapStatusSls.selesai++;
+        else if (realisasi > 0) rekapStatusSls.sedang++;
+        else rekapStatusSls.belum++;
 
-        targetSlsTerfilter.forEach(sls => {
-            const muatanAwal = parseInt(sls.jml_muatan) || 0;
-            const realisasi = parseInt(sls.realisasi_pencacahan) || 0;
-            const isSelesai = sls.is_selesai === true;
-            const targetDinamis = (isSelesai || realisasi > muatanAwal) ? realisasi : muatanAwal;
+        if (isSelesai) {
+            muatanStatus.selesai += realisasi;
+        } else if (realisasi > 0) {
+            muatanStatus.proses += realisasi;
+            muatanStatus.belum += Math.max(0, targetDinamis - realisasi);
+        } else {
+            muatanStatus.belum += targetDinamis;
+        }
+    });
 
-            if (isSelesai) rekapStatusSls.selesai++;
-            else if (realisasi > 0) rekapStatusSls.sedang++;
-            else rekapStatusSls.belum++;
+    const calculateStatus = (item) => {
+        const totalTargetWilayah = item.total_target || 1;
+        const selesai = Math.round((item.muatan_selesai / totalTargetWilayah) * 100);
+        const sedang = Math.round((item.muatan_sedang / totalTargetWilayah) * 100);
+        const belum = Math.max(0, 100 - selesai - sedang);
+        const persen = totalTargetWilayah > 0 ? Math.min(Math.round((item.total_realisasi / totalTargetWilayah) * 100), 100) : 0;
+        return { selesai, sedang, belum, persen };
+    };
 
-            if (isSelesai) {
-                muatanStatus.selesai += realisasi;
-            } else if (realisasi > 0) {
-                muatanStatus.proses += realisasi;
-                muatanStatus.belum += Math.max(0, targetDinamis - realisasi);
-            } else {
-                muatanStatus.belum += targetDinamis;
-            }
-        });
-
-        const calculateStatus = (item) => {
-            const totalTargetWilayah = item.total_target || 1;
-            const selesai = Math.round((item.muatan_selesai / totalTargetWilayah) * 100);
-            const sedang = Math.round((item.muatan_sedang / totalTargetWilayah) * 100);
-            const belum = Math.max(0, 100 - selesai - sedang);
-            const persen = totalTargetWilayah > 0 ? Math.min(Math.round((item.total_realisasi / totalTargetWilayah) * 100), 100) : 0;
-            return { selesai, sedang, belum, persen };
-        };
-
-        return {
-            kecamatan: Object.values(rekapKecamatan).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true })),
-            desa: Object.values(rekapDesa).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true })),
-            petugas: Object.values(rekapPetugas).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => b.persen - a.persen),
-            statusSls: rekapStatusSls,
-            muatanStatus: muatanStatus
-        };
-    }, [rawMasterSls, selectedKecTab]);
+    return {
+        kecamatan: Object.values(rekapKecamatan).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true })),
+        desa: Object.values(rekapDesa).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true })),
+        // 🚀 SELESAI: Masukkan data sls yang telah dihitung status persentasenya ke dalam hasil return objek
+        sls: Object.values(rekapSls).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => a.kode.localeCompare(b.kode, 'id', { numeric: true })),
+        petugas: Object.values(rekapPetugas).map(item => ({ ...item, ...calculateStatus(item) })).sort((a, b) => b.persen - a.persen),
+        statusSls: rekapStatusSls,
+        muatanStatus: muatanStatus
+    };
+}, [rawMasterSls, selectedKecTab]);
 
     const namaKecamatanTerpilihText = useMemo(() => {
         if (!selectedKecamatan) return null;
@@ -1190,25 +1275,45 @@ const kecamatanChartData = useMemo(() => {
             </div>
 
             {/* ASSIGNMENT REALISASI CHART PANEL */}
-            <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm mb-6">
+<div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm mb-6">
                 <div className="flex justify-between items-center mb-6">
                     <div>
                         <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                            {selectedKecTab === "SEMUA" ? "Capaian Realisasi Lapangan Kabupaten (Per Kecamatan)" : `Capaian Realisasi Lapangan Kec. ${namaKecamatanTerpilihText} (Per ${viewModeTab})`}
+                            {selectedKecTab === "SEMUA" 
+                                ? "Capaian Realisasi Lapangan Kabupaten (Per Kecamatan)" 
+                                : `Capaian Realisasi Lapangan Kec. ${namaKecamatanTerpilihText} (${viewModeTab === "DESA" ? "Per Desa" : viewModeTab === "PETUGAS" ? "Per Petugas" : `Desa ${selectedDesaName || ''} - Per SLS`})`}
                         </h3>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-1">
-                            Visualisasi Progress Muatan Yang Sudah Didata Lapangan Berdasarkan {selectedKecTab === "SEMUA" ? "Kecamatan" : (viewModeTab === "DESA" ? "Desa" : "Petugas")}
+                        {/* 💡 KETERANGAN INFORMASI KLIK DINAMIS UNTUK PENGGUNA */}
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 flex items-center gap-1.5 flex-wrap">
+                            <span>Visualisasi Progress Muatan Yang Sudah Didata Lapangan Berdasarkan {selectedKecTab === "SEMUA" ? "Kecamatan" : (viewModeTab === "DESA" ? "Desa" : viewModeTab === "PETUGAS" ? "Petugas" : "Satuan Lingkungan Setempat (SLS)")}</span>
+                            {viewModeTab !== "PETUGAS" && viewModeTab !== "SLS" && (
+                                <span className="bg-amber-50 text-amber-600 border border-amber-200/60 px-1.5 py-0.5 rounded-md text-[8px] animate-pulse normal-case font-extrabold tracking-wide">
+                                    💡 Klik batang grafik untuk melihat detail {selectedKecTab === "SEMUA" ? "Desa" : "SLS"}
+                                </span>
+                            )}
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
                         {selectedKecTab !== "SEMUA" && (
                             <div className="bg-slate-100 p-1 rounded-xl flex gap-1 border border-slate-200/60 shadow-inner">
-                                <button onClick={() => setViewModeTab("DESA")} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "DESA" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>📍 Per Desa</button>
+                                <button onClick={() => { setViewModeTab("DESA"); setSelectedDesaCode(null); }} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "DESA" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>📍 Per Desa</button>
                                 <button onClick={() => setViewModeTab("PETUGAS")} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "PETUGAS" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>🏃‍♂️ Per Petugas</button>
                             </div>
                         )}
                         {selectedKecTab !== "SEMUA" && (
-                            <button onClick={() => { setSelectedKecTab("SEMUA"); setSelectedKecamatan(null); }} className="bg-slate-800 hover:bg-slate-900 text-white text-[9px] font-black px-4 py-1.5 rounded-xl transition-all uppercase tracking-wider shadow-sm flex items-center gap-1">
+                            <button 
+                                onClick={() => { 
+                                    if (viewModeTab === "SLS") {
+                                        setViewModeTab("DESA");
+                                        setSelectedDesaCode(null);
+                                    } else {
+                                        setSelectedKecTab("SEMUA"); 
+                                        setSelectedKecamatan(null); 
+                                        setSelectedPetugas(null); 
+                                    }
+                                }} 
+                                className="bg-slate-800 hover:bg-slate-900 text-white text-[9px] font-black px-4 py-1.5 rounded-xl transition-all uppercase tracking-wider shadow-sm flex items-center gap-1"
+                            >
                                 ← Kembali
                             </button>
                         )}
@@ -1220,19 +1325,17 @@ const kecamatanChartData = useMemo(() => {
                         <div className="h-72 w-full min-w-[500px] md:min-w-0">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart
-                                    data={selectedKecTab === "SEMUA" ? dataMonitoringWilayah.kecamatan : viewModeTab === "DESA" ? dataMonitoringWilayah.desa.filter(d => d.kodeKec === selectedKecTab) : dataMonitoringWilayah.petugas.filter(p => p.kodeKec === selectedKecTab)}
+                                    data={
+                                        selectedKecTab === "SEMUA" 
+                                            ? dataMonitoringWilayah.kecamatan 
+                                            : viewModeTab === "DESA" 
+                                                ? dataMonitoringWilayah.desa.filter(d => d.kodeKec === selectedKecTab) 
+                                                : viewModeTab === "PETUGAS"
+                                                    ? dataMonitoringWilayah.petugas.filter(p => p.kodeKec === selectedKecTab)
+                                                    : dataMonitoringWilayah.sls.filter(s => s.kodeKec === selectedKecTab && s.kodeDesa === selectedDesaCode)
+                                    }
                                     margin={{ bottom: 40, left: -15, right: 10, top: 10 }}
                                     barCategoryGap="25%"
-                                    onClick={(state) => {
-                                        if (selectedKecTab === "SEMUA" && state && state.activeLabel) {
-                                            const matchKode = state.activeLabel.match(/\d+/);
-                                            if (matchKode && matchKode[0]) {
-                                                setSelectedKecTab(matchKode[0]);
-                                                setSelectedKecamatan(matchKode[0]);
-                                                setSelectedPetugas(null);
-                                            }
-                                        }
-                                    }}
                                 >
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="nama" stroke="#94a3b8" fontSize={8} tickLine={false} angle={-45} textAnchor="end" interval={0} height={50} tick={{ fontWeight: 700 }} />
@@ -1245,7 +1348,7 @@ const kecamatanChartData = useMemo(() => {
                                                 return (
                                                     <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xl text-[11px] space-y-1.5 font-sans min-w-[170px] z-50">
                                                         <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1.5 mb-1 flex items-center gap-1">
-                                                            {viewModeTab === "PETUGAS" && selectedKecTab !== "SEMUA" ? "🏃‍♂️" : "📍"} {data.nama_asli}
+                                                            {viewModeTab === "PETUGAS" ? "🏃‍♂️" : viewModeTab === "SLS" ? "🏠" : "📍"} {data.nama_asli}
                                                         </div>
                                                         <div className="space-y-1 font-medium text-slate-500">
                                                             <div className="flex justify-between"><span>Realisasi:</span><strong className="text-emerald-600 font-mono">{data.total_realisasi.toLocaleString('id-ID')} / {data.total_target.toLocaleString('id-ID')}</strong></div>
@@ -1253,160 +1356,185 @@ const kecamatanChartData = useMemo(() => {
                                                             <div className="flex justify-between"><span>Sedang:</span><strong className="text-indigo-600 font-mono">{data.sedang}%</strong></div>
                                                             <div className="flex justify-between"><span>Belum:</span><strong className="text-slate-400 font-mono">{data.belum}%</strong></div>
                                                         </div>
-                                                        <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-slate-400 font-bold text-[9px] uppercase flex justify-between"><span>SLS Selesai:</span><span>{data.sls_selesai} / {data.jml_sls} SLS</span></div>
+                                                        {viewModeTab !== "SLS" && (
+                                                            <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-slate-400 font-bold text-[9px] uppercase flex justify-between"><span>SLS Selesai:</span><span>{data.sls_selesai} / {data.jml_sls} SLS</span></div>
+                                                        )}
+                                                        {viewModeTab !== "PETUGAS" && viewModeTab !== "SLS" && (
+                                                            <div className="text-[8px] font-extrabold text-amber-500 uppercase pt-1 text-center border-t border-dashed border-slate-100 mt-1">🖱️ Klik untuk rincian data</div>
+                                                        )}
                                                     </div>
                                                 );
                                             }
                                             return null;
                                         }}
                                     />
-                                    <Bar dataKey="selesai" stackId="a" fill="#10b981" maxBarSize={30} />
-                                    <Bar dataKey="sedang" stackId="a" fill="#6366f1" maxBarSize={30} />
-                                    <Bar dataKey="belum" stackId="a" fill="#e2e8f0" maxBarSize={30} radius={[4, 4, 0, 0]} />
+                                    
+                                    {/* 🚀 SOLUSI: Fungsi onClick dipindahkan langsung ke masing-masing komponen Bar */}
+                                    {/* Serta ditambahkan properti style cursor agar pengguna tahu elemen tersebut bisa di-klik */}
+                                    {[
+                                        { key: "selesai", fill: "#10b981", radius: undefined },
+                                        { key: "sedang", fill: "#6366f1", radius: undefined },
+                                        { key: "belum", fill: "#e2e8f0", radius: [4, 4, 0, 0] }
+                                    ].map((b) => (
+                                        <Bar 
+                                            key={b.key}
+                                            dataKey={b.key} 
+                                            stackId="a" 
+                                            fill={b.fill} 
+                                            maxBarSize={30} 
+                                            radius={b.radius}
+                                            style={{ cursor: (viewModeTab !== 'PETUGAS' && viewModeTab !== 'SLS') ? 'pointer' : 'default' }}
+                                            onClick={(clickedItem) => {
+                                                if (!clickedItem) return;
+                                                
+                                                // 1. Level Kabupaten -> Masuk ke detail Kecamatan
+                                                if (selectedKecTab === "SEMUA") {
+                                                    // Mengambil kode dari nama (misal: "010 - SELO" diambil "010")
+                                                    const matchKode = clickedItem.nama ? clickedItem.nama.match(/\d+/) : null;
+                                                    if (matchKode && matchKode[0]) {
+                                                        setSelectedKecTab(matchKode[0]);
+                                                        setSelectedKecamatan(matchKode[0]);
+                                                        setSelectedPetugas(null);
+                                                        setViewModeTab("DESA");
+                                                    }
+                                                } 
+                                                // 2. Level Kecamatan -> Masuk ke detail SLS Desa
+                                                else if (viewModeTab === "DESA") {
+                                                    if (clickedItem.kodeDesa) {
+                                                        setSelectedDesaCode(clickedItem.kodeDesa);
+                                                        setSelectedDesaName(clickedItem.nama_asli);
+                                                        setViewModeTab("SLS");
+                                                    }
+                                                }
+                                            }}
+                                        />
+                                    ))}
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
                     </div>
 
-<div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4">
-    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center lg:text-left">Progres Lapangan</div>
-    <div className="h-44 w-full relative group"> {/* 💡 Tingginya sedikit dinaikkan ke h-44 agar memberi ruang bagi legend di bawah */}
-        <ResponsiveContainer width="100%" height="100%">
-            <PieChart margin={{ top: 0, right: 0, bottom: 5, left: 0 }}>
-                <Pie 
-                    data={[
-                        { name: 'Selesai', value: dataMonitoringWilayah.muatanStatus.selesai }, 
-                        { name: 'Proses', value: dataMonitoringWilayah.muatanStatus.proses }, 
-                        { name: 'Belum', value: dataMonitoringWilayah.muatanStatus.belum }
-                    ]} 
-                    cx="50%" 
-                    cy="45%" // 💡 Sumbu Y diturunkan sedikit ke 45% agar lingkaran pas di tengah area atas, sebelum kepotong legend bawah
-                    innerRadius={42} 
-                    outerRadius={55} 
-                    paddingAngle={3} 
-                    dataKey="value" 
-                    stroke="none"
-                >
-                    <Cell fill="#10b981" /><Cell fill="#6366f1" /><Cell fill="#e2e8f0" />
-                </Pie>
-                
-                {/* 🎯 KOORDINAT TEKS TENGAH (Disesuaikan dengan cy="45%") */}
-                <text 
-                    x="50%" 
-                    y="35%" 
-                    textAnchor="middle" 
-                    dominantBaseline="middle" 
-                    className="fill-slate-800 font-mono font-black text-[14px] pointer-events-none select-none"
-                >
-                    {(dataMonitoringWilayah.muatanStatus.selesai + dataMonitoringWilayah.muatanStatus.proses + dataMonitoringWilayah.muatanStatus.belum).toLocaleString('id-ID')}
-                </text>
-                <text 
-                    x="50%" 
-                    y="42%" 
-                    textAnchor="middle" 
-                    dominantBaseline="middle" 
-                    className="fill-slate-400 font-sans font-bold uppercase text-[7px] tracking-wider pointer-events-none select-none"
-                >
-                    Assignment
-                </text>
+                    {/* Sisi Kanan (Pie Chart & SLS Status) */}
+                    <div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4">
+                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center lg:text-left">Progres Lapangan</div>
+                        <div className="h-44 w-full relative group">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart margin={{ top: 0, right: 0, bottom: 5, left: 0 }}>
+                                    <Pie 
+                                        data={[
+                                            { name: 'Selesai', value: dataMonitoringWilayah.muatanStatus.selesai }, 
+                                            { name: 'Proses', value: dataMonitoringWilayah.muatanStatus.proses }, 
+                                            { name: 'Belum', value: dataMonitoringWilayah.muatanStatus.belum }
+                                        ]} 
+                                        cx="50%" 
+                                        cy="45%" 
+                                        innerRadius={42} 
+                                        outerRadius={55} 
+                                        paddingAngle={3} 
+                                        dataKey="value" 
+                                        stroke="none"
+                                    >
+                                        <Cell fill="#10b981" /><Cell fill="#6366f1" /><Cell fill="#e2e8f0" />
+                                    </Pie>
+                                    
+                                    <text x="50%" y="35%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-800 font-mono font-black text-[14px] pointer-events-none select-none">
+                                        {(dataMonitoringWilayah.muatanStatus.selesai + dataMonitoringWilayah.muatanStatus.proses + dataMonitoringWilayah.muatanStatus.belum).toLocaleString('id-ID')}
+                                    </text>
+                                    <text x="50%" y="42%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-400 font-sans font-bold uppercase text-[7px] tracking-wider pointer-events-none select-none">
+                                        Assignment
+                                    </text>
 
-                {/* Tooltip Melayang Saat Hover */}
-                <Tooltip
-                    wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
-                    content={({ active }) => {
-                        if (active) {
-                            const muatan = dataMonitoringWilayah.muatanStatus;
-                            const totalTarget = muatan.selesai + muatan.proses + muatan.belum;
-                            const pctSelesai = totalTarget > 0 ? ((muatan.selesai / totalTarget) * 100).toFixed(2) : "0.00";
-                            const pctProses = totalTarget > 0 ? ((muatan.proses / totalTarget) * 100).toFixed(2) : "0.00";
-                            const pctBelum = totalTarget > 0 ? ((muatan.belum / totalTarget) * 100).toFixed(2) : "0.00";
-                            return (
-                                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xl text-[11px] space-y-2 font-sans min-w-[190px]">
-                                    <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1.5 mb-1 flex items-center gap-1">📊 Rekap Assignment</div>
-                                    <div className="space-y-1 font-medium text-slate-500">
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Selesai:</span></div>
-                                            <strong className="text-emerald-600 font-mono">{muatan.selesai.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctSelesai}%)</span></strong>
+                                    <Tooltip
+                                        wrapperStyle={{ zIndex: 50, pointerEvents: 'none' }}
+                                        content={({ active }) => {
+                                            if (active) {
+                                                const muatan = dataMonitoringWilayah.muatanStatus;
+                                                const totalTarget = muatan.selesai + muatan.proses + muatan.belum;
+                                                const pctSelesai = totalTarget > 0 ? ((muatan.selesai / totalTarget) * 100).toFixed(2) : "0.00";
+                                                const pctProses = totalTarget > 0 ? ((muatan.proses / totalTarget) * 100).toFixed(2) : "0.00";
+                                                const pctBelum = totalTarget > 0 ? ((muatan.belum / totalTarget) * 100).toFixed(2) : "0.00";
+                                                return (
+                                                    <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xl text-[11px] space-y-2 font-sans min-w-[190px]">
+                                                        <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1.5 mb-1 flex items-center gap-1">📊 Rekap Assignment</div>
+                                                        <div className="space-y-1 font-medium text-slate-500">
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span>Selesai:</span></div>
+                                                                <strong className="text-emerald-600 font-mono">{muatan.selesai.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctSelesai}%)</span></strong>
+                                                            </div>
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span><span>Proses:</span></div>
+                                                                <strong className="text-indigo-600 font-mono">{muatan.proses.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctProses}%)</span></strong>
+                                                            </div>
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span><span>Belum:</span></div>
+                                                                <strong className="text-slate-500 font-mono">{muatan.belum.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctBelum}%)</span></strong>
+                                                            </div>
+                                                        </div>
+                                                        <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-slate-700 font-black text-[10px] uppercase flex justify-between font-mono"><span>Total:</span><span>{totalTarget.toLocaleString('id-ID')}</span></div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        }}
+                                    />
+                                    <Legend 
+                                        verticalAlign="bottom" 
+                                        align="center" 
+                                        iconType="circle"
+                                        iconSize={7}
+                                        wrapperStyle={{ fontSize: '9px', fontWeight: 'bold', textTransform: 'uppercase', color: '#64748b', paddingTop: '12px' }}
+                                        formatter={(value) => {
+                                            const muatan = dataMonitoringWilayah.muatanStatus;
+                                            const total = muatan.selesai + muatan.proses + muatan.belum || 1;
+                                            let count = 0;
+                                            if (value === 'Selesai') count = muatan.selesai;
+                                            if (value === 'Proses') count = muatan.proses;
+                                            if (value === 'Belum') count = muatan.belum;
+                                            const pct = ((count / total) * 100).toFixed(1);
+                                            return (
+                                                <span className="text-slate-600 font-sans tracking-tight">
+                                                    {value} <span className="font-mono text-slate-800 ml-1">{count.toLocaleString('id-ID')}</span> <span className="text-slate-400 font-normal font-mono text-[8px]">({pct}%)</span>
+                                                </span>
+                                            );
+                                        }}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+
+                        <div className="space-y-2 mt-4">
+                            {[
+                                { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
+                                { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
+                                { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
+                            ].map((item) => {
+                                const totalSls = dataMonitoringWilayah.statusSls.total || 1;
+                                const pctSls = ((item.count / totalSls) * 100).toFixed(1);
+                                return (
+                                    <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px] hover:bg-slate-100 transition-colors">
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-1.5 h-1.5 rounded-full ${item.color}`}></div>
+                                            <span className="font-bold text-slate-500 uppercase tracking-wide">{item.label}</span>
                                         </div>
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span><span>Proses:</span></div>
-                                            <strong className="text-indigo-600 font-mono">{muatan.proses.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctProses}%)</span></strong>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span><span>Belum:</span></div>
-                                            <strong className="text-slate-500 font-mono">{muatan.belum.toLocaleString('id-ID')} <span className="text-[9px] text-slate-400 font-normal">({pctBelum}%)</span></strong>
+                                        <div className="flex items-center font-mono font-black text-slate-700">
+                                            <div className="w-14 text-right pr-2">{item.count} <span className="text-[8px] text-slate-400 font-bold uppercase">SLS</span></div>
+                                            <span className="text-slate-300 font-normal">|</span>
+                                            <div className="w-12 text-right text-slate-600 text-[9px] pl-2">{pctSls}%</div>
                                         </div>
                                     </div>
-                                    <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-slate-700 font-black text-[10px] uppercase flex justify-between font-mono"><span>Total:</span><span>{totalTarget.toLocaleString('id-ID')}</span></div>
-                                </div>
-                            );
-                        }
-                        return null;
-                    }}
-                />
+                                );
+                            })}
 
-                {/* 🔥 MENAMPILKAN LEGENDA BAWAAN DI BAWAH PIECHART */}
-{/* 🔥 PERBAIKAN: Legend sekarang dilengkapi dengan Formatter Angka dan Persentase */}
-<Legend 
-    verticalAlign="bottom" 
-    align="center" 
-    iconType="circle"
-    iconSize={7}
-    wrapperStyle={{ 
-        fontSize: '9px', 
-        fontWeight: 'bold', 
-        textTransform: 'uppercase', 
-        color: '#64748b', 
-        paddingTop: '12px' 
-    }}
-    formatter={(value) => {
-        const muatan = dataMonitoringWilayah.muatanStatus;
-        const total = muatan.selesai + muatan.proses + muatan.belum || 1;
-        
-        let count = 0;
-        if (value === 'Selesai') count = muatan.selesai;
-        if (value === 'Proses') count = muatan.proses;
-        if (value === 'Belum') count = muatan.belum;
-        
-        const pct = ((count / total) * 100).toFixed(1);
-        
-        // Mengembalikan format teks: NAMA (JUMLAH | PERSENTASE%)
-        return (
-            <span className="text-slate-600 font-sans tracking-tight">
-                {value} <span className="font-mono text-slate-800 ml-1">{count.toLocaleString('id-ID')}</span> <span className="text-slate-400 font-normal font-mono text-[8px]">({pct}%)</span>
-            </span>
-        );
-    }}
-/>
-            </PieChart>
-        </ResponsiveContainer>
-    </div>
-
-    {/* Daftar Detail SLS Terbawah */}
-    <div className="space-y-2 mt-4">
-        {[
-            { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
-            { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
-            { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
-        ].map((item) => {
-            const totalSls = dataMonitoringWilayah.statusSls.total || 1;
-            const pctSls = ((item.count / totalSls) * 100).toFixed(1);
-            return (
-                <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px] hover:bg-slate-100 transition-colors">
-                    <div className="flex items-center gap-2">
-                        <div className={`w-1.5 h-1.5 rounded-full ${item.color}`}></div>
-                        <span className="font-bold text-slate-500 uppercase tracking-wide">{item.label}</span>
+                            <div className="pt-2">
+                                <button onClick={handleDownloadSlsExcel} className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs transition-all">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} className="w-3.5 h-3.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    <span>Export Status SLS</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <div className="flex items-center font-mono font-black text-slate-700">
-                        <div className="w-14 text-right pr-2">{item.count} <span className="text-[8px] text-slate-400 font-bold uppercase">SLS</span></div>
-                        <span className="text-slate-300 font-normal">|</span>
-                        <div className="w-12 text-right text-slate-600 text-[9px] pl-2">{pctSls}%</div>
-                    </div>
-                </div>
-            );
-        })}
-    </div>
-</div>
                 </div>
             </div>
 
