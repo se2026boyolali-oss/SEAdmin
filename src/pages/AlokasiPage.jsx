@@ -507,6 +507,109 @@ const fetchLockedKecamatan = async () => {
         } catch (error) { alert("Gagal mengekspor data"); }
     };
 
+const handleExportExcelKabupaten = async () => {
+    setLoading(true);
+    try {
+        // 1. Ambil semua data petugas se-kabupaten
+        const { data: allPetugas, error: errPetugas } = await supabase
+            .from('petugas')
+            .select('email, nama_petugas, id_pml_atasan, posisi_tugas');
+        
+        if (errPetugas) throw errPetugas;
+
+        // 2. Ambil semua data SLS se-kabupaten dengan teknik Chunking (mengatasi limit 1000 baris Supabase)
+        let allSlsRows = [];
+        let from = 0;
+        let to = 999;
+        let hasMore = true;
+
+        while (hasMore) {
+            const { data: chunkData, error: errSls } = await supabase
+                .from('muatan_sls')
+                .select('idsubsls, kdkec, nmkec, kddesa, nmdesa, kdsls, kdsubsls, nmsls, petugas_id')
+                .range(from, to)
+                .order('kdkec', { ascending: true })
+                .order('kddesa', { ascending: true })
+                .order('kdsls', { ascending: true });
+
+            if (errSls) throw errSls;
+
+            if (!chunkData || chunkData.length === 0) {
+                hasMore = false;
+            } else {
+                allSlsRows = [...allSlsRows, ...chunkData];
+                from += 1000;
+                to += 1000;
+            }
+        }
+
+        if (allSlsRows.length === 0) {
+            alert("Tidak ada data SLS ditemukan di database.");
+            return;
+        }
+
+        // 3. Mapping data gabungan SLS dan Petugas (PPL & PML)
+        const dataToExport = allSlsRows.map(s => {
+            const petugasPpl = allPetugas.find(p => p.email === s.petugas_id);
+            const emailPpl = s.petugas_id || "-";
+            const namaPpl = petugasPpl ? petugasPpl.nama_petugas : "-";
+            
+            let emailPml = "-";
+            let namaPml = "-";
+            
+            if (petugasPpl && petugasPpl.id_pml_atasan && petugasPpl.id_pml_atasan !== "-") {
+                emailPml = petugasPpl.id_pml_atasan;
+                const petugasPml = allPetugas.find(p => p.email === emailPml);
+                namaPml = petugasPml ? petugasPml.nama_petugas : "-";
+            }
+
+            return {
+                "Kode Kecamatan": String(s.kdkec || ''),
+                "Nama Kecamatan": s.nmkec || '',
+                "Kode Desa": String(s.kddesa || ''),
+                "Nama Desa": s.nmdesa || '',
+                "Kode SLS": String(s.kdsls || ''),
+                "Kode Sub SLS": String(s.kdsubsls || '00'),
+                "Nama SLS": s.nmsls || '',
+                "ID Sub SLS": String(s.idsubsls || ''),
+                "Email PPL": emailPpl,
+                "Nama PPL": namaPpl,
+                "Email PML": emailPml,
+                "Nama PML": namaPml
+            };
+        });
+
+        // 4. Generate File Excel
+        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+        
+        // Atur lebar kolom agar rapi
+        worksheet['!cols'] = [
+            { wch: 15 }, { wch: 20 }, { wch: 12 }, { wch: 20 }, 
+            { wch: 10 }, { wch: 12 }, { wch: 25 }, { wch: 18 }, 
+            { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 25 }
+        ];
+        
+        // Pastikan format cell kode berupa TEXT agar angka '0' di depan tidak hilang
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+        const textColumnIndices = [0, 2, 4, 5, 7]; // Index kolom kode & ID
+        for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+            textColumnIndices.forEach(C => {
+                const cell_ref = XLSX.utils.encode_cell({ c: C, r: R });
+                if (worksheet[cell_ref]) worksheet[cell_ref].t = 's';
+            });
+        }
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Master Alokasi Kabupaten");
+        XLSX.writeFile(workbook, `Rekap_Alokasi_Lengkap_Kabupaten.xlsx`);
+
+    } catch (error) {
+        alert("Gagal mengunduh data kabupaten: " + error.message);
+    } finally {
+        setLoading(false);
+    }
+};
+
     // CARI BARIS INI SEBELUM RETURN UTAMA (~Baris 380):
 const isCurrentKecamatanLocked = selectedKec && lockedKecamatan.includes(selectedKec.toLowerCase().trim());
 
@@ -543,26 +646,35 @@ const isCurrentKecamatanLocked = selectedKec && lockedKecamatan.includes(selecte
                         </>
                     )}
 
-                    {currentLevel === 'kecamatan' && (
-                        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-                            <button
-                                onClick={handleExportWilayahTugas}
-                                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-amber-100 text-amber-700 px-4 py-2 rounded-xl border border-amber-200 hover:bg-amber-600 hover:text-white transition-all font-bold text-sm shadow-sm cursor-pointer"
-                            >
-                                <Database size={18} /> Export Wilayah Tugas
-                            </button>
+{currentLevel === 'kecamatan' && (
+    <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+        
+        {/* TOMBOL BARU UNTUK 1 KABUPATEN */}
+        <button
+            onClick={handleExportExcelKabupaten}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl border border-indigo-700 hover:bg-indigo-700 transition-all font-bold text-sm shadow-sm cursor-pointer"
+        >
+            <Database size={18} /> Export Alokasi 1 Kabupaten
+        </button>
 
-                            <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                                <Database className="text-indigo-500" size={20} />
-                                <div className="text-right">
-                                    <div className="text-[10px] uppercase font-bold text-slate-400">Total SLS</div>
-                                    <div className="font-bold text-slate-800">
-                                        {kecamatanSummary.reduce((a, b) => a + b.total, 0)}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+        <button
+            onClick={handleExportWilayahTugas}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-amber-100 text-amber-700 px-4 py-2 rounded-xl border border-amber-200 hover:bg-amber-600 hover:text-white transition-all font-bold text-sm shadow-sm cursor-pointer"
+        >
+            <Database size={18} /> Export Wilayah Tugas
+        </button>
+
+        <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+            <Database className="text-indigo-500" size={20} />
+            <div className="text-right">
+                <div className="text-[10px] uppercase font-bold text-slate-400">Total SLS</div>
+                <div className="font-bold text-slate-800">
+                    {kecamatanSummary.reduce((a, b) => a + b.total, 0)}
+                </div>
+            </div>
+        </div>
+    </div>
+)}
                 </div>
             </div>
 
