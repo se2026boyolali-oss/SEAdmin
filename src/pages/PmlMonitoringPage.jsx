@@ -1797,18 +1797,22 @@ const submitPmlCheckIn = async () => {
                                 3. Foto Kegiatan Evaluasi (Pendampingan Lapangan/Diskusi dengan Petugas) <span className="text-rose-500">*</span>
                             </label>
                             
-                            {fotoEvaluasiBase64 ? (
-                                <div className="relative rounded-xl overflow-hidden border border-slate-200 h-28 bg-slate-100">
-                                    <img src={fotoEvaluasiBase64} alt="Preview Evaluasi" className="w-full h-full object-cover" />
-                                    <button
-                                        type="button"
-                                        onClick={() => setFotoEvaluasiBase64(null)}
-                                        className="absolute top-2 right-2 bg-rose-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase tracking-wider shadow-xs"
-                                    >
-                                        Hapus
-                                    </button>
-                                </div>
-                            ) : (
+{fotoEvaluasiBase64 ? (
+    <div className="relative rounded-xl overflow-hidden border border-slate-200 h-28 bg-slate-100">
+        <img src={fotoEvaluasiBase64} alt="Preview Evaluasi" className="w-full h-full object-cover" />
+        <button
+            type="button"
+            onClick={() => {
+                setFotoEvaluasiBase64(null);
+                // FIX: Bersihkan juga value input HTML-nya agar bisa langsung jepret ulang tanpa tutup modal
+                if (evaluasiCameraRef.current) evaluasiCameraRef.current.value = "";
+            }}
+            className="absolute top-2 right-2 bg-rose-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase tracking-wider shadow-xs"
+        >
+            Hapus
+        </button>
+    </div>
+) : (
                                 <button
                                     type="button"
                                     disabled={uploadFotoEvaluasiLoading}
@@ -1828,20 +1832,24 @@ const submitPmlCheckIn = async () => {
                         </div>
 
                         {/* AKSI MODAL */}
-                        <div className="flex gap-2 pt-2 border-t border-slate-100 mt-1">
-                            <button
-                                type="button"
-                                disabled={submitSiklusLoading}
-                                onClick={() => {
-                                    setShowEvaluasiModal(false);
-                                    setKendalaLapangan("");
-                                    setSolusiLapangan("");
-                                    setFotoEvaluasiBase64(null);
-                                }}
-                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
-                            >
-                                Kembali
-                            </button>
+<div className="flex gap-2 pt-2 border-t border-slate-100 mt-1">
+    <button
+        type="button"
+        disabled={submitSiklusLoading}
+        onClick={() => {
+            // FIX UTAMA: Reset elemen input HTML kamera evaluasi agar cache filenya kosong kembali
+            if (evaluasiCameraRef.current) evaluasiCameraRef.current.value = "";
+            
+            // Reset state modal seperti biasa
+            setShowEvaluasiModal(false);
+            setKendalaLapangan("");
+            setSolusiLapangan("");
+            setFotoEvaluasiBase64(null);
+        }}
+        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
+    >
+        Kembali
+    </button>
                             <button
                                 type="button"
                                 disabled={submitSiklusLoading || uploadFotoEvaluasiLoading}
