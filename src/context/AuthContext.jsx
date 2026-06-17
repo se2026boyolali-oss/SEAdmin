@@ -89,32 +89,44 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  useEffect(() => {
-    fetchSettings();
+useEffect(() => {
+  // Ambil pengaturan global sekali di awal
+  fetchSettings();
 
-    // 1. Cek sesi login aktif pertama kali (Supabase Auth otomatis menyimpan token di LocalStorage secara default)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user?.email) {
-        fetchUserProfile(session.user.email);
-      } else {
-        setLoading(false);
-      }
-    });
+  // 1. Cek sesi login aktif pertama kali
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    const currentUser = session?.user ?? null;
+    setUser(currentUser);
+    if (currentUser?.email) {
+      fetchUserProfile(currentUser.email);
+    } else {
+      setLoading(false);
+    }
+  });
 
-    // 2. Dengarkan perubahan status auth
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user?.email) {
-        fetchUserProfile(session.user.email);
-      } else {
-        setProfile(null);
-        setLoading(false);
-      }
-    });
+  // 2. Dengarkan perubahan status auth (Hanya dipasang 1x)
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const currentUser = session?.user ?? null;
+    
+    // Optimasi: Hanya fetch profil jika user-nya memang berubah/baru login
+    setUser((prevUser) => {
+      if (currentUser?.email !== prevUser?.email) {
+        if (currentUser?.email) {
+          fetchUserProfile(currentUser.email);
+        } else {
+          setProfile(null);
+          setLoading(false);
+        }
+      } else {
+        // Jika user sama (misal hanya refresh token token), matikan loading langsung
+        setLoading(false);
+      }
+      return currentUser;
+    });
+  });
 
-    return () => subscription.unsubscribe();
-  }, [user?.email]);
+  return () => subscription.unsubscribe();
+}, []); // <-- DIKOSONGKAN agar berjalan sekali saja saat aplikasi dimuat
 
   const logout = async () => {
     // Bersihkan cache spesifik user saat logout agar tidak bertumpuk di HP orang lain

@@ -382,68 +382,77 @@ export default function PclAssignmentPage() {
         }
 
         try {
-            const { data: slsData } = await supabase
-                .from('muatan_sls')
-                .select('*')
-                .eq('petugas_id', cleanEmail);
+const { data: slsData } = await supabase
+    .from('muatan_sls')
+    .select('idsubsls, kdsls, nmsls, nmdesa, nmkec') // Ambil yang dipakai saja
+    .eq('petugas_id', cleanEmail);
 
             const currentMySls = slsData || [];
             setAllMySls(currentMySls);
             localStorage.setItem(`cache_sls_beban_${cleanEmail}`, JSON.stringify(currentMySls));
 
-            const { data: allLogs } = await supabase
-                .from('log_checkin_pcl')
-                .select('tanggal, idsubsls')
-                .eq('petugas_email', cleanEmail);
+// JALUR 1: Hanya ambil log absen Khusus HARI INI (Sangat Hemat Egress)
+const { data: todayLogsRaw } = await supabase
+    .from('log_checkin_pcl')
+    .select('tanggal, idsubsls')
+    .eq('petugas_email', cleanEmail)
+    .eq('tanggal', tglHariIni); // Kunci di level server!
 
-            if (allLogs) {
-                const uniqueDates = [...new Set(allLogs.map(log => log.tanggal))];
-                setHistoryDates(uniqueDates);
-                localStorage.setItem(`cache_history_dates_${cleanEmail}`, JSON.stringify(uniqueDates));
+// JALUR 2: Mengambil tanggal unik untuk kalender (Gunakan RPC kustom jika bisa, atau ambil tanggalnya saja)
+const { data: dateLogs } = await supabase
+    .from('log_checkin_pcl')
+    .select('tanggal')
+    .eq('petugas_email', cleanEmail);
 
-                const todayLogsRaw = allLogs.filter(log => log.tanggal === tglHariIni);
+if (dateLogs) {
+            const uniqueDates = [...new Set(dateLogs.map(log => log.tanggal))];
+            setHistoryDates(uniqueDates);
+            localStorage.setItem(`cache_history_dates_${cleanEmail}`, JSON.stringify(uniqueDates));
+        }
 
-                const missingIds = [];
-                todayLogsRaw.forEach(log => {
-                    const idString = String(log.idsubsls).trim();
-                    const localMatch = currentMySls.find(s => String(s.idsubsls).trim() === idString);
-                    if (!localMatch) missingIds.push(idString);
-                });
+        // Memproses data log hari ini yang didapat dari JALUR 1 (Sudah difilter di server)
+        const currentTodayLogs = todayLogsRaw || [];
 
-                const globalSlsMap = new Map();
-                if (missingIds.length > 0) {
-                    const { data: globalSlsData } = await supabase
-                        .from('muatan_sls')
-                        .select('idsubsls, nmsls, nmdesa, kdsls')
-                        .in('idsubsls', missingIds);
+        const missingIds = [];
+        currentTodayLogs.forEach(log => {
+            const idString = String(log.idsubsls).trim();
+            const localMatch = currentMySls.find(s => String(s.idsubsls).trim() === idString);
+            if (!localMatch) missingIds.push(idString);
+        });
 
-                    if (globalSlsData) {
-                        globalSlsData.forEach(s => globalSlsMap.set(String(s.idsubsls).trim(), s));
-                    }
-                }
+        const globalSlsMap = new Map();
+        if (missingIds.length > 0) {
+            const { data: globalSlsData } = await supabase
+                .from('muatan_sls')
+                .select('idsubsls, nmsls, nmdesa, kdsls')
+                .in('idsubsls', missingIds);
 
-                const formatHistoriHariIni = todayLogsRaw.map(log => {
-                    const idString = String(log.idsubsls).trim();
-                    let matchSls = currentMySls.find(s => String(s.idsubsls).trim() === idString);
-                    let isLuarTugas = false;
-
-                    if (!matchSls) {
-                        isLuarTugas = true;
-                        matchSls = globalSlsMap.get(idString);
-                    }
-
-                    return {
-                        idsubsls: idString,
-                        nmsls: matchSls?.nmsls || "SLS Tidak Dikenal Sistem",
-                        nmdesa: matchSls?.nmdesa || "-",
-                        kdsls: matchSls?.kdsls || "0000",
-                        isLuarWilayah: isLuarTugas
-                    };
-                });
-
-                setTodayCheckIns(formatHistoriHariIni);
-                localStorage.setItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`, JSON.stringify(formatHistoriHariIni));
+            if (globalSlsData) {
+                globalSlsData.forEach(s => globalSlsMap.set(String(s.idsubsls).trim(), s));
             }
+        }
+
+        const formatHistoriHariIni = currentTodayLogs.map(log => {
+            const idString = String(log.idsubsls).trim();
+            let matchSls = currentMySls.find(s => String(s.idsubsls).trim() === idString);
+            let isLuarTugas = false;
+
+            if (!matchSls) {
+                isLuarTugas = true;
+                matchSls = globalSlsMap.get(idString);
+            }
+
+            return {
+                idsubsls: idString,
+                nmsls: matchSls?.nmsls || "SLS Tidak Dikenal Sistem",
+                nmdesa: matchSls?.nmdesa || "-",
+                kdsls: matchSls?.kdsls || "0000",
+                isLuarWilayah: isLuarTugas
+            };
+        });
+
+        setTodayCheckIns(formatHistoriHariIni);
+        localStorage.setItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`, JSON.stringify(formatHistoriHariIni));
         } catch (err) {
             console.error("Gagal memuat histori absensi:", err.message);
             const cachedSls = localStorage.getItem(`cache_sls_beban_${cleanEmail}`);
@@ -453,11 +462,15 @@ export default function PclAssignmentPage() {
         }
     };
 
-    useEffect(() => {
-        if (!authLoading && (user?.email || profile?.email)) {
-            initPclPage();
-        }
-    }, [profile, authLoading, user]);
+useEffect(() => {
+    if (!authLoading && (user?.email || profile?.email)) {
+        initPclPage();
+    }
+    // Tambahkan cleanup function saat unmount komponen:
+    return () => {
+        if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    };
+}, [profile, authLoading, user]);
 
     useEffect(() => {
         const handleSignalToggle = () => checkOfflineQueueCount();
