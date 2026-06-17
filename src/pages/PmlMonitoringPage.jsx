@@ -500,6 +500,9 @@ export default function PmlMonitoringPage() {
     // =========================================================================
     // OPTIMALISASI 2: WATERMARK ENGINE RAMAH MEMORI (OBJECT URL PREVIEW BLOB)
     // =========================================================================
+    // =========================================================================
+    // OPTIMALISASI 2: WATERMARK ENGINE RAMAH MEMORI (OBJECT URL PREVIEW BLOB)
+    // =========================================================================
     useEffect(() => {
         if (!rawPmlPhotoFile || pmlCheckingIn) return;
 
@@ -517,14 +520,12 @@ export default function PmlMonitoringPage() {
 
             reader.onerror = () => {
                 console.error("FileReader Error: Gagal membaca berkas foto.");
-                batalkanKarenaError("Gagal membaca file gambar. Silakan ambil foto ulang.");
             };
 
             reader.onload = (event) => {
                 const img = new window.Image();
                 
                 img.onerror = () => {
-                    console.error("Image Load Error: Gambar tidak valid.");
                     batalkanKarenaError("Format gambar tidak didukung atau memori HP penuh. Silakan coba lagi.");
                 };
 
@@ -539,21 +540,18 @@ export default function PmlMonitoringPage() {
                             width = MAX_WIDTH;
                         }
 
-                        // Menggunakan objek canvas persisten di luar state agar hemat memori RAM
                         const canvas = canvasRef.current;
                         canvas.width = width;
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         
-                        if (!ctx) {
-                            batalkanKarenaError("Gagal menginisialisasi sistem rendering gambar di HP Anda.");
-                            return; 
-                        }
+                        if (!ctx) return; 
                         
                         ctx.drawImage(img, 0, 0, width, height);
 
                         let nmsls = pmlCoords?.nmsls || "";
                         let nmdesa = pmlCoords?.nmdesa || "";
+                        // 🌟 Perbaikan regex pemotongan nama kecamatan agar dinamis
                         let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
 
                         if (manualMode && selectedManualSls) {
@@ -593,7 +591,7 @@ export default function PmlMonitoringPage() {
 
                         const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
                         const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
-                        
+                                
                         const panelHeight = 135;
                         ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
                         ctx.fillRect(0, height - panelHeight, width, panelHeight);
@@ -617,7 +615,6 @@ export default function PmlMonitoringPage() {
                         ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
                         ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
 
-                        // MENGGANTI DATAURL BASE64 YANG BERAT DENGAN FILE BLOB URL OBJECT YANG RINGAN (ANTI-CRASH)
                         canvas.toBlob((blob) => {
                             if (blob) {
                                 if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
@@ -628,7 +625,6 @@ export default function PmlMonitoringPage() {
 
                     } catch (canvasErr) {
                         console.error("Canvas Crash:", canvasErr);
-                        batalkanKarenaError("Gagal menggambar watermark karena keterbatasan memori HP.");
                     }
                 };
 
@@ -657,6 +653,9 @@ export default function PmlMonitoringPage() {
     // =========================================================================
     // OPTIMALISASI 1: FUNGSIONAL PROSES GEOJSON DENGAN INTERNAL IN-MEMORY CACHE
     // =========================================================================
+ // =========================================================================
+    // OPTIMALISASI 1: FUNGSIONAL PROSES GEOJSON DENGAN INTERNAL IN-MEMORY CACHE
+    // =========================================================================
     const prosesPencarianGeojson = async (latitude, longitude) => {
         const kodeKec = getKecamatanCode();
         if (!kodeKec) return null;
@@ -675,25 +674,26 @@ export default function PmlMonitoringPage() {
             // Loop linear pencarian poligon wilayah SLS BPS
             for (let feature of geojsonData.features) {
                 const geometri = feature.geometry;
+                const props = feature.properties;
+
+                // Helper format agar seragam menampung properti kdkec
+                const formatOutput = (p) => ({
+                    idsubsls: p.idsubsls || p.IDSUBSLS,
+                    nmsls: p.nmsls || p.NMSLS || "SLS Terdeteksi",
+                    nmdesa: p.nmdesa || p.NMDESA || "Desa Terdeteksi",
+                    kdkec: p.kdkec || p.KDKEC // 🌟 Menangkap kode kecamatan murni (ex: "010")
+                });
 
                 if (geometri.type === "Polygon") {
                     const koordinatPoligon = geometri.coordinates[0];
                     if (isPointInPolygon([longitude, latitude], koordinatPoligon)) {
-                        return {
-                            idsubsls: feature.properties.idsubsls || feature.properties.IDSUBSLS,
-                            nmsls: feature.properties.nmsls || feature.properties.NMSLS || "SLS Terdeteksi",
-                            nmdesa: feature.properties.nmdesa || feature.properties.NMDESA || "Desa Terdeteksi"
-                        };
+                        return formatOutput(props);
                     }
                 } 
                 else if (geometri.type === "MultiPolygon") {
                     for (let polygon of geometri.coordinates) {
                         if (isPointInPolygon([longitude, latitude], polygon[0])) {
-                            return {
-                                idsubsls: feature.properties.idsubsls || feature.properties.IDSUBSLS,
-                                nmsls: feature.properties.nmsls || feature.properties.NMSLS,
-                                nmdesa: feature.properties.nmdesa || feature.properties.NMDESA
-                            };
+                            return formatOutput(props);
                         }
                     }
                 }
@@ -704,7 +704,7 @@ export default function PmlMonitoringPage() {
         return null;
     };
 
-    const handleTriggerPmlLocation = () => {
+const handleTriggerPmlLocation = () => {
         if (!navigator.geolocation) {
             alert("HP Anda memblokir fitur lokasi.");
             return;
@@ -735,14 +735,20 @@ export default function PmlMonitoringPage() {
                         longitude,
                         idsubsls: hasilSlsMandiri.idsubsls,
                         nmsls: hasilSlsMandiri.nmsls,
-                        nmdesa: hasilSlsMandiri.nmdesa 
+                        nmdesa: hasilSlsMandiri.nmdesa,
+                        kdkec: hasilSlsMandiri.kdkec // Simpan ke state koordinat pml
                     });
 
-                    const kecTerdeteksi = String(hasilSlsMandiri.idsubsls).substring(0, 6);
+                    // 🌟 PERBAIKAN UTAMA: Bandingkan kode kecamatan murni ("010" === "010")
+                    const kecTerdeteksi = String(hasilSlsMandiri.kdkec).trim();
+                    const kecTugasClean = String(kodeKecTugas).trim();
 
-                    if (kecTerdeteksi !== kodeKecTugas) {
+                    if (kecTerdeteksi !== kecTugasClean) {
                         setIsPmlOutsideBorder(true);
                         setShowPmlValidationDialog(true); 
+                    } else {
+                        setIsPmlOutsideBorder(false);
+                        setShowPmlValidationDialog(false);
                     }
                 } else {
                     setPmlCoords({
