@@ -244,26 +244,27 @@ const handleExportToExcel = (tipe) => {
 
 const handleExportSiklusToExcel = (item) => {
     const isLapangan = item.target === 'PENDATAAN';
-    const namaFile = `DETAIL_PETUGAS_${item.target}_TGL_${item.tanggal.replace(/-/g, '_')}`;
+    const namaFile = `DETAIL_PETUGAS_${item.target}_TGL_${item.tanggal.replace(/ /g, '_')}`;
+    
+    // Konversi label tanggal sirkulasi "17 Juni 2026" -> "2026-06-17"
+    const dayPart = item.tanggal.split(' ')[0].padStart(2, '0');
+    const dbDateFormatted = `2026-06-${dayPart}`;
     
     let dataRaw = [];
 
     if (isLapangan) {
-        // Ambil semua PPL, filter berdasarkan kecamatan aktif jika ada
+        // --- BLOK PENDATAAN (PPL) ---
         const pplTerfilter = selectedKecamatan
             ? masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
             : masterPclList;
 
-        // Urutkan berdasarkan Kecamatan Tugas A-Z
         const pplSorted = [...pplTerfilter].sort((a, b) => 
             (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
         );
 
-        // Map data detail per petugas PPL
         dataRaw = pplSorted.map(p => {
-            // Cek apakah petugas ini masuk/absen pada tanggal siklus ini
-            // Sesuaikan properti history/log tanggal sesuai struktur data Anda (misal: p.history7Hari atau p.tanggalLogs)
-            const isAktifTanggalIni = p.history7Hari?.includes(item.tanggal) || p.statusHariIni === 'AKTIF'; 
+            // Deteksi keaktifan berdasarkan kecocokan tanggal log PCL
+            const isAktifTanggalIni = (p.rawLogs || []).some(l => l.tanggal === dbDateFormatted);
             
             return {
                 'Kecamatan Tugas': p.kecamatan_tugas,
@@ -271,30 +272,42 @@ const handleExportSiklusToExcel = (item) => {
                 'Email': p.email,
                 'Status Pada Tanggal Ini': isAktifTanggalIni ? 'JALAN LAPANGAN (AKTIF)' : 'BELUM ABSEN (ABSEN)',
                 'SLS Terakhir': p.lastSls || '-',
-                'Tanggal Evaluasi': item.tanggal
+                'Tanggal Kegiatan': dbDateFormatted
             };
         });
     } else {
-        // Ambil semua PML, filter berdasarkan kecamatan aktif jika ada
+        // --- BLOK EVALUASI (PML) - FIXED SOLUTION ---
+        // 1. Saring master pengawas berdasarkan spasial filter kecamatan
         const pmlTerfilter = selectedKecamatan
             ? masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
             : masterPmlList;
 
-        // Urutkan berdasarkan Kecamatan Tugas A-Z
+        // 2. Buat map data log realisasi PML khusus pada tanggal target agar pencarian O(1) lambat di loop
+        const realisasiMap = new Map(
+            rawRealisasiPml
+                .filter(r => r.tanggal === dbDateFormatted)
+                .map(r => [r.pml_email.toLowerCase().trim(), r])
+        );
+
         const pmlSorted = [...pmlTerfilter].sort((a, b) => 
             (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
         );
 
-        // Map data detail per petugas PML
+        // 3. Mapping data dengan menyertakan isian kendala dan solusi dari database riil
         dataRaw = pmlSorted.map(p => {
-            const isAktifTanggalIni = p.history7Hari?.includes(item.tanggal) || p.statusHariIni === 'AKTIF';
+            const emailKey = p.email.toLowerCase().trim();
+            const logRealisasi = realisasiMap.get(emailKey);
+            const sudahKirim = !!logRealisasi;
 
             return {
                 'Kecamatan Tugas': p.kecamatan_tugas,
                 'Nama Pengawas (PML)': p.nama_pengguna || p.nama_petugas,
                 'Email': p.email,
-                'Status Evaluasi Tanggal Ini': isAktifTanggalIni ? 'SUDAH KIRIM EVALUASI' : 'BELUM KIRIM EVALUASI',
-                'Tanggal Siklus': item.tanggal
+                'Status Evaluasi': sudahKirim ? 'SUDAH KIRIM EVALUASI' : 'BELUM KIRIM EVALUASI',
+                'Kendala Lapangan': sudahKirim ? (logRealisasi.kendala_lapangan || 'Tidak Ada Kendala') : '-',
+                'Solusi Lapangan': sudahKirim ? (logRealisasi.solusi_lapangan || 'Tidak Ada Solusi') : '-',
+                'Link Foto Evaluasi': sudahKirim ? (logRealisasi.foto_evaluasi || '-') : '-',
+                'Tanggal Siklus': dbDateFormatted
             };
         });
     }
@@ -332,7 +345,7 @@ const fetchOperationalData = useCallback(async () => {
         supabase.from('log_checkin_pcl').select('idsubsls, tanggal, petugas_email, foto_bukti').gte('tanggal', batasBawahStr),
         supabase.from('log_checkin_pml').select('pml_email, tanggal, idsubsls, foto_bukti').gte('tanggal', batasBawahStr),
         supabase.from('muatan_sls').select('idsubsls, kdkec, nmkec, kddesa, nmdesa, nmsls, jml_muatan, realisasi_pencacahan, is_selesai, petugas_id, petugas(nama_petugas)'),
-        supabase.from('log_realisasi_pml').select('tanggal, pml_email').gte('tanggal', batasBawahStr)
+        supabase.from('log_realisasi_pml').select('tanggal, pml_email, kendala_lapangan, solusi_lapangan').gte('tanggal', batasBawahStr)
     ]);
 
     if (petugasRes.error || logsPclRes.error || logsPmlRes.error || masterSlsRes.error || realisasiPmlRes.error) {
