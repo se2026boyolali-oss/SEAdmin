@@ -36,7 +36,7 @@ export default function OrangPentingPage() {
     const [isKecamatanLainnya, setIsKecamatanLainnya] = useState(false);
     const [kecamatanKustom, setKecamatanKustom] = useState('');
     
-    // 💡 State Baru untuk Teks Box Nama Dinas (Kepala Dinas)
+    // State untuk Teks Box Nama Dinas (Kepala Dinas)
     const [dinasKustom, setDinasKustom] = useState('');
 
     // Master list Jabatan & Konfigurasi Target BPS Boyolali
@@ -82,13 +82,15 @@ export default function OrangPentingPage() {
         hasil: 'Respon'
     });
 
+    // 💡 FIX PERMANEN: Menggunakan Endpoint Resmi Thumbnail Google Drive (Aman dari 429 & CORS)
     const dapatkanLinkThumbnail = (url) => {
         if (!url) return '';
         if (url.includes('drive.google.com')) {
             const regExp = /\/d\/([a-zA-Z0-9-_]+)/;
             const match = url.match(regExp);
             if (match && match[1]) {
-                return `https://lh3.googleusercontent.com/d/${match[1]}`;
+                // Menggunakan parameter &sz=w120 agar Google merender gambar berukuran 120px secara instan
+                return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w120`;
             }
         }
         return url; 
@@ -125,13 +127,11 @@ export default function OrangPentingPage() {
                 setJabatanKustom('');
             }
             
-            // Bersihkan pilihan kecamatan jika bukan Camat
             if (value !== 'Camat') {
                 setIsKecamatanLainnya(false);
                 setKecamatanKustom('');
             }
             
-            // Bersihkan pilihan dinas jika bukan Kepala Dinas
             if (value !== 'Kepala Dinas') {
                 setDinasKustom('');
             }
@@ -195,12 +195,11 @@ export default function OrangPentingPage() {
 
         const jabatanFinal = isJabatanLainnya ? jabatanKustom : formData.jabatan;
         
-        // 💡 LOGIKA PENGGABUNGAN DATA KE SATU KOLOM KECAMATAN
         let kecamatanFinal = null;
         if (formData.jabatan === 'Camat') {
             kecamatanFinal = isKecamatanLainnya ? kecamatanKustom : formData.kecamatan;
         } else if (formData.jabatan === 'Kepala Dinas') {
-            kecamatanFinal = dinasKustom; // Nama Dinas masuk ke kolom kecamatan di Supabase
+            kecamatanFinal = dinasKustom; 
         }
 
         try {
@@ -228,7 +227,7 @@ export default function OrangPentingPage() {
                 .insert([{
                     nama_orang_penting: String(formData.nama_tokoh),
                     jabatan: String(jabatanFinal),
-                    kecamatan: kecamatanFinal, // Data dinas atau kecamatan masuk kesini
+                    kecamatan: kecamatanFinal, 
                     alamat: String(formData.alamat),
                     tgl_hr_pendataan: String(formData.tgl_pendataan),
                     nama_petugas_pendata: String(formData.petugas_nama),
@@ -259,7 +258,8 @@ export default function OrangPentingPage() {
         } catch (err) {
             console.error(err);
             alert("Gagal memproses data: " + err.message);
-        } finally {
+        } finally { 
+            // 💡 FIX: Sudah berganti dari fillAll ke finally
             setSubmitting(false);
         }
     };
@@ -284,7 +284,7 @@ export default function OrangPentingPage() {
                 <div>
                     <h1 className="text-xl md:text-2xl font-black text-slate-950 tracking-tight flex items-center gap-2">
                         <Shield className="text-indigo-600" size={26} />
-                        Pemantauan Pendataan Tokoh Penting
+                        Dashboard Monitoring VVIP Sensus Ekonomi 2026
                     </h1>
                     <p className="text-xs text-slate-500 font-semibold mt-1 uppercase tracking-wide">
                         BPS Kabupaten Boyolali • Rekap Laporan Pendataan Orang Penting & Tokoh Daerah
@@ -326,7 +326,7 @@ export default function OrangPentingPage() {
                                         <span className="text-lg font-black text-slate-800">{realisasi}</span>
                                         {target !== null ? (
                                             <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${isSelesai ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                                                {isSelesai ? "Lunas" : "Kurang"}
+                                                {isSelesai ? "Sudah" : ""}
                                             </span>
                                         ) : (
                                             <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-md">Aktif</span>
@@ -415,7 +415,6 @@ export default function OrangPentingPage() {
                                             <div className="text-slate-500 font-medium flex items-center gap-1 mt-0.5"><Briefcase size={12}/>{d.jabatan}</div>
                                         </td>
                                         
-                                        {/* 💡 SINKRONISASI BADGE VISUAL DENGAN ONE-COLUMN STRATEGY */}
                                         <td className="px-6 py-3 font-bold">
                                             {d.kecamatan ? (
                                                 d.jabatan === 'Camat' ? (
@@ -462,7 +461,7 @@ export default function OrangPentingPage() {
                 )}
             </div>
 
-            {/* MODAL FORM INPUT MOBILE SYNC */}
+            {/* MODAL FORM DASHBOARD */}
             {showForm && (
                 <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs z-50 flex justify-end">
                     <div className="w-full sm:w-[480px] bg-white h-full shadow-2xl flex flex-col p-6 overflow-y-auto animate-in slide-in-from-right duration-200">
@@ -498,7 +497,6 @@ export default function OrangPentingPage() {
                                 </div>
                             )}
 
-                            {/* 💡 TEXTBOX KHUSUS KEPALA DINAS (MASUK KE KOLOM KECAMATAN DI SUPABASE) */}
                             {formData.jabatan === 'Kepala Dinas' && (
                                 <div className="animate-in fade-in duration-200">
                                     <label className="block mb-1 text-slate-400">Nama Dinas / Instansi Pemerintah</label>
@@ -513,7 +511,6 @@ export default function OrangPentingPage() {
                                 </div>
                             )}
 
-                            {/* DROPDOWN KECAMATAN (HANYA MUNCUL JIKA JABATAN == CAMAT) */}
                             {formData.jabatan === 'Camat' && (
                                 <div className="flex flex-col gap-4 animate-in fade-in duration-200">
                                     <div>
@@ -576,7 +573,7 @@ export default function OrangPentingPage() {
                                     />
                                     <Upload className="mx-auto text-slate-400 mb-1" size={18} />
                                     <span className="text-[11px] text-slate-500 font-bold block truncate">
-                                        {uploadingFotoLoading ? "Mengompres Gambar..." : fotoBase64 ? "📸 Foto Siap Diunggah" : "Klik untuk unggah atau potret dokumen"}
+                                        {uploadingFotoLoading ? "Mengompres Gambar..." : fotoBase64 ? "📸 Foto Siap Diunggah" : "Klik untuk unggah dokumen"}
                                     </span>
                                 </div>
                                 

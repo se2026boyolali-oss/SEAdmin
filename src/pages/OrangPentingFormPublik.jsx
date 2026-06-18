@@ -18,7 +18,7 @@ export default function OrangPentingFormPublik() {
     const [isKecamatanLainnya, setIsKecamatanLainnya] = useState(false);
     const [kecamatanKustom, setKecamatanKustom] = useState('');
 
-    // 💡 State Baru untuk Input Nama Dinas (Kepala Dinas)
+    // State Baru untuk Input Nama Dinas (Kepala Dinas)
     const [dinasKustom, setDinasKustom] = useState('');
 
     const dapatkanTanggalHariIni = () => {
@@ -64,13 +64,11 @@ export default function OrangPentingFormPublik() {
                 setJabatanKustom('');
             }
             
-            // Bersihkan pilihan kecamatan jika bukan Camat
             if (value !== 'Camat') {
                 setIsKecamatanLainnya(false);
                 setKecamatanKustom('');
             }
 
-            // 💡 Bersihkan ketikan dinas jika bukan Kepala Dinas
             if (value !== 'Kepala Dinas') {
                 setDinasKustom('');
             }
@@ -135,12 +133,11 @@ export default function OrangPentingFormPublik() {
 
         const jabatanFinal = isJabatanLainnya ? jabatanKustom : formData.jabatan;
         
-        // 💡 LOGIKA PENGGABUNGAN DATA KE SATU KOLOM KECAMATAN
         let kecamatanFinal = null;
         if (formData.jabatan === 'Camat') {
             kecamatanFinal = isKecamatanLainnya ? kecamatanKustom : formData.kecamatan;
         } else if (formData.jabatan === 'Kepala Dinas') {
-            kecamatanFinal = dinasKustom; // Masuk ke kolom kecamatan di Supabase
+            kecamatanFinal = dinasKustom; 
         }
 
         try {
@@ -223,8 +220,9 @@ export default function OrangPentingFormPublik() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-950 flex flex-col justify-between p-4 font-sans text-slate-800">
-            <div className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl mx-auto my-auto border border-slate-100">
+        <div className="min-h-screen bg-slate-950 flex flex-col justify-between p-2 sm:p-4 font-sans text-slate-800">
+            {/* 💡 MODIFIKASI: max-w-xl membuat card jauh lebih lebar dan luas di layar HP maupun desktop */}
+            <div className="w-full sm:max-w-xl bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl mx-auto my-auto border border-slate-100">
                 <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-4">
                     <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl"><Shield size={22} /></div>
                     <div>
@@ -252,12 +250,12 @@ export default function OrangPentingFormPublik() {
 
                     {isJabatanLainnya && (
                         <div className="animate-in fade-in duration-200">
-                            <label className="block mb-1 text-slate-400">Ketik Jabatan Spesifik / Tokoh</label>
+                            <label className="block mb-1 text-indigo-600">Ketik Jabatan Spesifik / Tokoh</label>
                             <input type="text" required placeholder="Misal: CEO PT Suka Maju / Tokoh Agama" value={jabatanKustom} onChange={(e) => setJabatanKustom(e.target.value)} className="w-full p-3 border-2 border-indigo-200 focus:border-indigo-500 rounded-xl outline-none font-semibold text-slate-800 bg-white text-xs" />
                         </div>
                     )}
 
-                    {/* 💡 TEXTBOX KHUSUS KEPALA DINAS (MASUK KE KOLOM KECAMATAN DI SUPABASE) */}
+                    {/* TEXTBOX KHUSUS KEPALA DINAS */}
                     {formData.jabatan === 'Kepala Dinas' && (
                         <div className="animate-in fade-in duration-200">
                             <label className="block mb-1 text-slate-400">Nama Dinas / Instansi Pemerintah</label>
@@ -272,7 +270,7 @@ export default function OrangPentingFormPublik() {
                         </div>
                     )}
 
-                    {/* DROPDOWN KECAMATAN (HANYA MUNCUL JIKA JABATAN == CAMAT) */}
+                    {/* DROPDOWN KECAMATAN (JABATAN == CAMAT) */}
                     {formData.jabatan === 'Camat' && (
                         <div className="flex flex-col gap-3.5 animate-in fade-in duration-200">
                             <div>
@@ -327,16 +325,16 @@ export default function OrangPentingFormPublik() {
                     <div>
                         <label className="block mb-1 text-slate-400">Ambil Foto Dokumentasi Lapangan</label>
                         <div className="border border-dashed border-slate-200 hover:border-indigo-400 rounded-xl p-3.5 text-center relative bg-slate-50/60 transition-colors">
+                            {/* 💡 MODIFIKASI: Menghapus capture="environment" agar bisa memilih file dari Galeri HP / File Manager */}
                             <input 
                                 type="file" 
                                 accept="image/*"
-                                capture="environment" 
                                 onChange={handleCaptureFotoVvip}
                                 className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                             />
                             <Upload className="mx-auto text-slate-400 mb-1" size={18} />
                             <span className="text-[11px] text-slate-500 font-bold block truncate">
-                                {uploadingFotoLoading ? "Mengompres Berkas..." : fotoBase64 ? "📸 Foto Siap Diunggah" : "Klik untuk Potret Kamera HP"}
+                                {uploadingFotoLoading ? "Mengompres Berkas..." : fotoBase64 ? "📸 Foto Siap Diunggah" : "Klik untuk Unggah dari Galeri / Kamera HP"}
                             </span>
                         </div>
                         
