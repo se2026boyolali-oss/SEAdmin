@@ -3,381 +3,422 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { 
     ShieldAlert, 
-    Users, 
     Layers, 
-    ArrowLeft, 
     CheckCircle2, 
     AlertTriangle, 
     Building2,
-    SlidersHorizontal
+    SlidersHorizontal,
+    Search,
+    Download,
+    UserCheck,
+    MapPin,
+    Radio,
+    UserX,
+    Filter,
+    Activity
 } from 'lucide-react';
 
 export default function PrioritasPage() {
     const { profile } = useAuth();
     const [loading, setLoading] = useState(false);
-    const [viewMode, setViewMode] = useState('sls-centric'); // 'sls-centric' atau 'pcl-centric'
+    const [viewMode, setViewMode] = useState('pcl-centric'); 
     
-    // Data Master dari Supabase
+    // State Data Master
+    const [auditPetugasList, setAuditPetugasList] = useState([]);
     const [prioritasSlsList, setPrioritasSlsList] = useState([]);
-    const [pcls, setPcls] = useState([]);
     
-    // Filter State
+    // State Filter & Pencarian
     const [selectedKec, setSelectedKec] = useState("SEMUA");
+    const [selectedStatus, setSelectedStatus] = useState("SEMUA"); 
     const [searchQuery, setSearchQuery] = useState("");
 
     useEffect(() => {
-        fetchPrioritasData();
+        loadDashboardData();
     }, []);
 
-    const fetchPrioritasData = async () => {
+    const loadDashboardData = async () => {
         setLoading(true);
         try {
-            // 1. Ambil seluruh data SLS yang ditandai sebagai prioritas
+            const { data: auditData, error: auditError } = await supabase
+                .from('view_audit_prioritas_petugas')
+                .select('*');
+            if (auditError) throw auditError;
+            setAuditPetugasList(auditData || []);
+
             const { data: slsData, error: slsError } = await supabase
                 .from('muatan_sls')
-                .select('*')
-                .eq('is_prioritas', true)
-                .order('nmkec', { ascending: true })
-                .order('nmdesa', { ascending: true })
-                .order('kdsls', { ascending: true });
-
+                .select('idsubsls, nmkec, nmdesa, kdsls, kdsubsls, nmsls, petugas_id, target_kk_prioritas, perkiraan_jumlah_beban, realisasi_pencacahan, is_selesai')
+                .eq('is_prioritas', true);
             if (slsError) throw slsError;
             setPrioritasSlsList(slsData || []);
 
-            // 2. Ambil master data petugas untuk mapping nama/tim
-            const { data: petugasData, error: petugasError } = await supabase
-                .from('petugas')
-                .select('*');
-
-            if (petugasError) throw petugasError;
-            setPcls(petugasData || []);
-
         } catch (err) {
-            console.error("Gagal mengambil data prioritas:", err.message);
-            alert("Gagal memuat data monitoring prioritas: " + err.message);
+            console.error("Gagal memuat mesin audit:", err.message);
+            alert("Gagal sinkronisasi data: " + err.message);
         } finally {
             setLoading(false);
         }
     };
 
-    // --- PROSES LOGIKA ANALISIS (METRIK UTAMA) ---
+    // --- 📊 AGREGASI STATISTIK RINGKASAN ---
     const totalSlsPrioritas = prioritasSlsList.length;
-    const teralokasiSlsPrioritas = prioritasSlsList.filter(s => s.petugas_id).length;
-    const sisaSlsPrioritas = totalSlsPrioritas - teralokasiSlsPrioritas;
-    const allocationRate = totalSlsPrioritas > 0 ? Math.round((teralokasiSlsPrioritas / totalSlsPrioritas) * 100) : 0;
-    const totalKkPrioritas = prioritasSlsList.reduce((sum, curr) => sum + (curr.target_kk_prioritas || 0), 0);
+    const teralokasiCount = prioritasSlsList.filter(s => s.petugas_id).length;
+    const allocationRate = totalSlsPrioritas > 0 ? Math.round((teralokasiCount / totalSlsPrioritas) * 100) : 0;
+    const petugasMelencengCount = auditPetugasList.filter(p => p.sls_lain_dikerjakan > 0 && p.prioritas_terjamah < p.jumlah_sls_prioritas).length;
 
-    // Filter daftar kecamatan unik untuk dropdown filter
-    const listKecamatan = ["SEMUA", ...new Set(prioritasSlsList.map(s => s.nmkec))];
+    // 🎯 LOGIKA PERSENTASE SLS PRIORITAS YANG SUDAH DIKERJAKAN (BAGIAN BARU)
+    const totalSlsTerjamah = auditPetugasList.reduce((sum, p) => sum + (p.prioritas_terjamah || 0), 0);
+    const prsSlsDikerjakan = totalSlsPrioritas > 0 ? Math.round((totalSlsTerjamah / totalSlsPrioritas) * 100) : 0;
 
-    // Filter list SLS berdasarkan pilihan user
-    const filteredSls = prioritasSlsList.filter(s => {
-        const matchesKec = selectedKec === "SEMUA" || s.nmkec === selectedKec;
-        const matchesSearch = s.nmsls.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                              s.nmdesa.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                              (s.petugas_id && s.petugas_id.toLowerCase().includes(searchQuery.toLowerCase()));
-        return matchesKec && matchesSearch;
-    });
+    const listKecamatan = ["SEMUA", ...new Set(prioritasSlsList.map(s => s.nmkec).filter(Boolean))];
 
-    // --- LOGIKA UTAMA: HITUNG BEBAN PER PETUGAS (PCL-CENTRIC) ---
-    const petugasAnalysis = pcls.filter(p => p.posisi_tugas === 'PCL').map(pcl => {
-        // Cari SLS prioritas yang dipegang oleh PCL ini
-        const slsPrioritasPcl = prioritasSlsList.filter(s => s.petugas_id === pcl.email);
-        const pmlAtasan = pcls.find(p => p.email === pcl.id_pml_atasan);
+    // --- 🛡️ LOGIKA FILTER + URUT DATA ---
+    const dapatkanStatusKepatuhan = (p) => {
+        if (p.sls_lain_dikerjakan > 0 && p.prioritas_terjamah === 0) return "DIABAIKAN";
+        if (p.sls_lain_dikerjakan > 0 && p.prioritas_terjamah > 0 && p.prioritas_terjamah < p.jumlah_sls_prioritas) return "DEVIASI";
+        if (p.prioritas_terjamah === p.jumlah_sls_prioritas) return "TAAT";
+        return "PROGRES";
+    };
 
-        return {
-            email: pcl.email,
-            nama_petugas: pcl.nama_petugas,
-            nama_pml: pmlAtasan ? pmlAtasan.nama_petugas : "-",
-            kecamatan: pcl.kecamatan_tugas || "-",
-            jumlah_sls_prioritas: slsPrioritasPcl.length,
-            total_kk_prioritas: slsPrioritasPcl.reduce((sum, curr) => sum + (curr.target_kk_prioritas || 0), 0),
-            total_muatan_usaha: slsPrioritasPcl.reduce((sum, curr) => sum + (curr.perkiraan_jumlah_beban || 0), 0),
-            detail_sls: slsPrioritasPcl
-        };
+// --- 🛡️ LOGIKA FILTER + URUT DATA BERHASIL SINKRON ---
+
+// 1. Filter & Urut Data Petugas PCL (Tab 1)
+// --- 🛡️ LOGIKA FILTER + URUT DATA (PERBAIKAN KODE KECAMATAN) ---
+
+// 1. Filter & Urut Data Petugas PCL (Tab 1)
+const filteredPetugas = auditPetugasList
+    .filter(p => {
+        const kecPetugas = p.kecamatan_tugas ? String(p.kecamatan_tugas).toLowerCase() : "";
+        const kecSelected = selectedKec ? String(selectedKec).toLowerCase() : "SEMUA";
+        
+        // 🚀 KUNCI PERBAIKAN: Menggunakan .includes() agar "020 ampel" bisa cocok dengan "ampel"
+        const matchesKec = kecSelected === "semua" || kecPetugas.includes(kecSelected) || kecSelected.includes(kecPetugas);
+        
+        const statusPcl = dapatkanStatusKepatuhan(p);
+        const matchesStatus = selectedStatus === "SEMUA" || statusPcl === selectedStatus;
+        const matchesSearch = searchQuery === "" || 
+            p.nama_petugas.toLowerCase().includes(searchQuery.toLowerCase()) || 
+            p.petugas_email.toLowerCase().includes(searchQuery.toLowerCase());
+        
+        return matchesKec && matchesStatus && matchesSearch;
     })
-    // Hanya tampilkan petugas yang mengemban minimal 1 SLS prioritas
-    .filter(p => p.jumlah_sls_prioritas > 0)
-    // Urutkan dari beban SLS prioritas terbanyak ke terdikit
-    .sort((a, b) => b.jumlah_sls_prioritas - a.jumlah_sls_prioritas);
+    .sort((a, b) => (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || ""));
 
-    // Hitung berapa banyak petugas yang mengalami konsentrasi beban berlebih (> 2 SLS Prioritas)
-    const petugasOverloadedCount = petugasAnalysis.filter(p => p.jumlah_sls_prioritas > 2).length;
+// 2. Filter & Urut Data SLS (Tab 2)
+const filteredSls = prioritasSlsList
+    .filter(s => {
+        const kecSls = s.nmkec ? String(s.nmkec).toLowerCase() : "";
+        const kecSelected = selectedKec ? String(selectedKec).toLowerCase() : "SEMUA";
+        
+        // 🚀 KUNCI PERBAIKAN: Berlaku sama untuk internal data list SLS
+        const matchesKec = kecSelected === "semua" || kecSls.includes(kecSelected) || kecSelected.includes(kecSls);
+        
+        const matchesSearch = searchQuery === "" || 
+            s.nmsls.toLowerCase().includes(searchQuery.toLowerCase()) || 
+            s.nmdesa.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            String(s.petugas_id).toLowerCase().includes(searchQuery.toLowerCase());
+            
+        return matchesKec && matchesSearch;
+    })
+    .sort((a, b) => String(a.idsubsls).localeCompare(String(b.idsubsls)));
+
+    const handleExportExcel = () => {
+        if (filteredPetugas.length === 0) return alert("Tidak ada data untuk diekspor");
+        let csvContent = "\uFEFF"; 
+        csvContent += "Nama Petugas PCL,Email Petugas,Kecamatan Tugas,Total Alokasi SLS Prioritas (Beban),Jumlah SLS Prioritas Terjamah,Jumlah SLS Non-Prioritas Dikerjakan (Melenceng),Lokasi Absen Terakhir Petugas,Hasil Status Audit Kepatuhan Lapangan,Nama PML Pengawas\n";
+        
+        filteredPetugas.forEach(p => {
+            const statusTeks = dapatkanStatusKepatuhan(p) === "DIABAIKAN" ? "🚨 DIABAIKAN" :
+                               dapatkanStatusKepatuhan(p) === "DEVIASI" ? "⚠️ DEVIASI WILAYAH" :
+                               dapatkanStatusKepatuhan(p) === "TAAT" ? "✅ TAAT TARGET" : "🏃 IN PROGRES";
+            
+            const row = [
+                `"${p.nama_petugas}"`, `"${p.petugas_email}"`, `"${p.kecamatan_tugas}"`,
+                p.jumlah_sls_prioritas, p.prioritas_terjamah, p.sls_lain_dikerjakan,
+                `"${p.sedang_mengerjakan_sls || '-'}"`, `"${statusTeks}"`, `"${p.nama_pml || '-'}"`
+            ].join(",");
+            csvContent += row + "\n";
+        });
+
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const link = document.createElement("a");
+        link.setAttribute("href", URL.createObjectURL(blob));
+        link.setAttribute("download", `AUDIT_KEPATUHAN_PCL_PRIORITAS_${selectedKec}_${selectedStatus}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     return (
-        <div className="h-full flex flex-col gap-6 p-4 md:p-6 bg-slate-50/50 min-h-screen">
+        <div className="h-full flex flex-col gap-6 p-4 md:p-6 bg-slate-50/50 min-h-screen font-sans">
             
-            {/* 1. HEADER HALAMAN */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            {/* 1. SECTION HEADER VIEW */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-200 pb-5">
                 <div>
-                    <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                        <ShieldAlert className="text-amber-500" size={32} />
+                    <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                        <ShieldAlert className="text-red-500 animate-pulse" size={28} />
                         Monitoring SLS Prioritas
                     </h1>
-                    <p className="text-sm text-slate-500 font-medium">
-                        Manajemen sebaran beban kerja SLS Prioritas Sensus Ekonomi 2026
+                    <p className="text-xs text-slate-500 font-bold mt-1 uppercase tracking-wide">
+                        Sensus Ekonomi 2026 • Pengecekan Progres Petugas PCL di Lapangan untuk SLS Prioritas
                     </p>
                 </div>
-                <button 
-                    onClick={fetchPrioritasData}
-                    className="px-4 py-2 bg-white border border-slate-200 hover:border-indigo-300 rounded-xl text-xs font-bold text-slate-700 transition-all shadow-sm cursor-pointer"
-                >
-                    🔄 Refresh Data
-                </button>
+                <div className="flex items-center gap-2 w-full lg:w-auto">
+                    <button onClick={handleExportExcel} className="flex-1 lg:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer">
+                        <Download size={14} /> Export Rekap (.CSV)
+                    </button>
+                    <button onClick={loadDashboardData} className="flex-1 lg:flex-none px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-bold text-slate-700 transition-all shadow-sm cursor-pointer">
+                        🔄 Sinkronisasi Log View
+                    </button>
+                </div>
             </div>
 
-            {/* 2. PANEL WIDGET RINGKASAN DATA (METRICS CARD) */}
+            {/* 2. STATISTIK RINGKASAN WIDGET */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Card 1: Total SLS */}
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl"><Layers size={24} /></div>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4">
+                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl"><Layers size={22} /></div>
                     <div>
-                        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total SLS Prioritas</div>
-                        <div className="text-2xl font-black text-slate-800">{totalSlsPrioritas} <span className="text-xs text-slate-400 font-normal">SLS</span></div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total SLS Prioritas</div>
+                        <div className="text-xl font-black text-slate-800">{totalSlsPrioritas} <span className="text-xs text-slate-400 font-normal">SLS</span></div>
+                    </div>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4">
+                    <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><CheckCircle2 size={22} /></div>
+                    <div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Alokasi Petugas</div>
+                        <div className="text-xl font-black text-slate-800">{allocationRate}%</div>
+                        <div className="text-[9px] text-slate-400 font-medium">{teralokasiCount} Ter-plot Petugas</div>
                     </div>
                 </div>
 
-                {/* Card 2: Progres Alokasi */}
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-                    <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><CheckCircle2 size={24} /></div>
-                    <div className="w-full">
-                        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Teralokasi</div>
-                        <div className="text-2xl font-black text-slate-800">{allocationRate}%</div>
-                        <div className="text-[10px] text-slate-400 mt-0.5 font-medium">{teralokasiSlsPrioritas} dari {totalSlsPrioritas} wilayah</div>
+                {/* 🌟 CARD KE-3: SEKARANG MENAMPILKAN PERSENTASE PROGRESS KERJA SLS PRIORITAS */}
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4">
+                    <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><Activity size={22} /></div>
+                    <div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">SLS Prioritas Dikerjakan</div>
+                        <div className="text-xl font-black text-slate-800">{prsSlsDikerjakan}%</div>
+                        <div className="text-[9px] text-slate-400 font-medium">{totalSlsTerjamah} dari {totalSlsPrioritas} SLS sudah ada log absen petugas</div>
                     </div>
                 </div>
 
-                {/* Card 3: Target KK Prioritas */}
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-                    <div className="p-3 bg-amber-50 text-amber-600 rounded-xl"><Building2 size={24} /></div>
+                <div className={`p-4 rounded-2xl border shadow-xs flex items-center gap-4 transition-all ${petugasMelencengCount > 0 ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
+                    <div className={`p-3 rounded-xl ${petugasMelencengCount > 0 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-500'}`}><AlertTriangle size={22} /></div>
                     <div>
-                        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Target KK</div>
-                        <div className="text-2xl font-black text-slate-800">{totalKkPrioritas.toLocaleString('id-ID')}</div>
-                        <div className="text-[10px] text-slate-400 font-medium">Keluarga harus selesai awal</div>
-                    </div>
-                </div>
-
-                {/* Card 4: Peringatan Penumpukan */}
-                <div className={`p-4 rounded-2xl border shadow-sm flex items-center gap-4 transition-all ${
-                    petugasOverloadedCount > 0 ? 'bg-rose-50/50 border-rose-200' : 'bg-white border-slate-200'
-                }`}>
-                    <div className={`p-3 rounded-xl ${petugasOverloadedCount > 0 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
-                        <AlertTriangle size={24} />
-                    </div>
-                    <div>
-                        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Petugas Overloaded</div>
-                        <div className={`text-2xl font-black ${petugasOverloadedCount > 0 ? 'text-rose-600' : 'text-slate-800'}`}>
-                            {petugasOverloadedCount} <span className="text-xs text-slate-400 font-normal">PCL</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-medium">Memegang &gt; 2 SLS Prioritas</div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">PCL Mengerjakan Selain SLS Prioritas</div>
+                        <div className={`text-xl font-black ${petugasMelencengCount > 0 ? 'text-rose-600' : 'text-slate-800'}`}>{petugasMelencengCount} <span className="text-xs text-slate-400 font-normal">Orang</span></div>
                     </div>
                 </div>
             </div>
 
-            {/* 3. BAR FILTER & KONTROL VIEW TAB */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
-                {/* Switcher Tab View */}
+            {/* 3. CONTROL FILTER & TAB BAR PANEL */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col lg:flex-row gap-4 justify-between items-stretch lg:items-center">
                 <div className="bg-slate-100 p-1 rounded-xl flex gap-1 self-start">
-                    <button
-                        onClick={() => setViewMode('sls-centric')}
-                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                            viewMode === 'sls-centric' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                    >
-                        🗺️ Tampilan SLS ({filteredSls.length})
+                    <button onClick={() => setViewMode('pcl-centric')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1 cursor-pointer ${viewMode === 'pcl-centric' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+                        👥 Ringkasan Petugas PCL ({filteredPetugas.length})
                     </button>
-                    <button
-                        onClick={() => setViewMode('pcl-centric')}
-                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                            viewMode === 'pcl-centric' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                    >
-                        👥 Sebaran Petugas ({petugasAnalysis.length})
+                    <button onClick={() => setViewMode('sls-centric')} className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1 cursor-pointer ${viewMode === 'sls-centric' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+                        🗺️ Wilayah SLS Terurut ({filteredSls.length})
                     </button>
                 </div>
-
-                {/* Input Filter Kontrol */}
+                
                 <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
                     <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50">
-                        <SlidersHorizontal size={14} className="text-slate-400" />
-                        <select
-                            value={selectedKec}
-                            onChange={(e) => setSelectedKec(e.target.value)}
-                            className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer"
-                        >
-                            {listKecamatan.map(kec => (
-                                <option key={kec} value={kec}>{kec === "SEMUA" ? "Semua Kecamatan" : kec}</option>
-                            ))}
+                        <SlidersHorizontal size={13} className="text-slate-400" />
+                        <select value={selectedKec} onChange={(e) => setSelectedKec(e.target.value)} className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer">
+                            {listKecamatan.map(kec => <option key={kec} value={kec}>{kec === "SEMUA" ? "Semua Kecamatan" : `Kec. ${kec}`}</option>)}
                         </select>
                     </div>
 
-                    <input
-                        type="text"
-                        placeholder="Cari desa, SLS, atau nama petugas..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="px-4 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 w-full sm:w-60 font-medium"
-                    />
+                    {viewMode === 'pcl-centric' && (
+                        <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50">
+                            <Filter size={13} className="text-slate-400" />
+                            <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer">
+                                <option value="SEMUA">Semua Status</option>
+                                <option value="DIABAIKAN">🚨 DIABAIKAN</option>
+                                <option value="DEVIASI">⚠️ DEVIASI WILAYAH</option>
+                                <option value="TAAT">✅ TAAT TARGET</option>
+                                <option value="PROGRES">🏃 IN PROGRES</option>
+                            </select>
+                        </div>
+                    )}
+
+                    <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-1.5 bg-white focus-within:border-indigo-500 transition-colors">
+                        <Search size={14} className="text-slate-400" />
+                        <input type="text" placeholder="Cari nama, email, SLS..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent text-xs outline-none w-full sm:w-56 font-bold text-slate-700" />
+                    </div>
                 </div>
             </div>
 
-            {/* 4. MAIN LAYOUT DATA DISPLAY */}
-{/* 4. MAIN LAYOUT DATA DISPLAY */}
-{/* FIX: Ditambahkan flex flex-col h-[calc(100vh-280px)] md:h-[60vh] agar kontainer memiliki tinggi statis yang bisa di-scroll */}
-<div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[400px] h-[calc(100vh-280px)] md:h-[58vh]">
-    
-    {loading ? (
-        <div className="p-20 text-center font-bold text-slate-500 my-auto">Memproses Data Analisis Wilayah...</div>
-    ) : viewMode === 'sls-centric' ? (
-        
-        /* TAMPILAN GRID A: SUDUT PANDANG SLS (FIXED SCROLL) */
-        /* FIX: Ditambahkan flex-1 overflow-y-auto agar isi tabel bisa di-scroll lancar tanpa merusak layout header halaman */
-        <div className="flex-1 overflow-auto">
-            <table className="w-full text-left border-collapse min-w-[900px]">
-                <thead className="bg-slate-50/90 border-b border-slate-200 sticky top-0 z-10 backdrop-blur-sm">
-                    <tr>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Wilayah Tugas</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Kode SLS</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Nama SLS</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Target KK Prioritas</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Perkiraan Muatan</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Petugas Alokasi (PCL)</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Pengawas (PML)</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                    {filteredSls.length === 0 ? (
-                        <tr>
-                            <td colSpan="7" className="text-center py-10 font-medium text-slate-400 italic">Tidak ditemukan daftar SLS prioritas yang cocok.</td>
-                        </tr>
-                    ) : filteredSls.map(sls => {
-                        const petugasPcl = pcls.find(p => p.email === sls.petugas_id);
-                        const petugasPml = petugasPcl ? pcls.find(p => p.email === petugasPcl.id_pml_atasan) : null;
-
-                        return (
-                            <tr key={sls.idsubsls} className="hover:bg-slate-50/60 transition-colors">
-                                <td className="px-6 py-4">
-                                    <div className="text-sm font-bold text-slate-800">{sls.nmdesa}</div>
-                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{sls.nmkec}</div>
-                                </td>
-                                <td className="px-6 py-4 font-mono text-xs text-slate-600 font-bold">
-                                    [{sls.kdsls} {sls.kdsubsls}]
-                                </td>
-                                <td className="px-6 py-4">
-                                    <div className="text-sm font-extrabold text-slate-700 flex items-center gap-1.5">
-                                        {sls.nmsls}
-                                        <span className="text-[9px] bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded-md font-black">PRIORITAS</span>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                    <span className="text-sm font-black text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-xl border border-indigo-100">
-                                        {sls.target_kk_prioritas || 0} KK
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                    <span className="text-sm font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                                        {sls.perkiraan_jumlah_beban || 0}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4">
-                                    {sls.petugas_id ? (
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-black text-emerald-800 uppercase leading-none mb-1">{petugasPcl?.nama_petugas}</span>
-                                            <span className="text-[10px] text-slate-400 font-medium">{sls.petugas_id}</span>
-                                        </div>
-                                    ) : (
-                                        <span className="text-xs bg-rose-50 text-rose-600 border border-rose-200 px-2 py-1 rounded-lg font-bold animate-pulse inline-block">
-                                            ⚠️ Belum Ada Petugas
-                                        </span>
-                                    )}
-                                </td>
-                                <td className="px-6 py-4">
-                                    <span className="text-sm font-bold text-slate-700 uppercase">
-                                        {petGrid(petugasPml)}
-                                    </span>
-                                </td>
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
-        </div>
-    ) : (
-        
-        /* TAMPILAN GRID B: SUDUT PANDANG SEBARAN PETUGAS (FIXED SCROLL) */
-        /* FIX: Ditambahkan flex-1 overflow-y-auto agar isi tabel sebaran petugas juga bisa di-scroll mandiri */
-        <div className="flex-1 overflow-auto">
-            <table className="w-full text-left border-collapse min-w-[900px]">
-                <thead className="bg-slate-50/80 border-b border-slate-200 sticky top-0 z-10 backdrop-blur-sm">
-                    <tr>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Nama Petugas PCL</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Kecamatan Tugas</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Jumlah SLS Prioritas</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Total KK Prioritas</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Total Perkiraan Muatan</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">Status Risiko</th>
-                        <th className="px-6 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">PML Pengawas</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                    {petugasAnalysis.length === 0 ? (
-                        <tr>
-                            <td colSpan="7" className="text-center py-10 font-medium text-slate-400 italic">Belum ada petugas yang mengemban SLS prioritas.</td>
-                        </tr>
-                    ) : petugasAnalysis
-                        .filter(p => selectedKec === "SEMUA" || p.kecamatan.toLowerCase().includes(selectedKec.toLowerCase()))
-                        .map(pPcl => {
-                            const isOver = pPcl.jumlah_sls_prioritas > 2;
-                            return (
-                                <tr key={pPcl.email} className={`hover:bg-slate-50/60 transition-colors ${isOver ? 'bg-rose-50/20' : ''}`}>
-                                    <td className="px-6 py-4">
-                                        <div className="text-sm font-black text-slate-800 uppercase">{pPcl.nama_petugas}</div>
-                                        <div className="text-[10px] text-slate-400 font-medium">{pPcl.email}</div>
-                                    </td>
-                                    <td className="px-6 py-4 font-bold text-xs text-slate-600 uppercase">
-                                        {pPcl.kecamatan}
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <span className={`text-base font-black px-3 py-1 rounded-xl border ${
-                                            isOver ? 'bg-rose-100 text-rose-700 border-rose-300' : 'bg-slate-100 text-slate-700 border-slate-200'
-                                        }`}>
-                                            {pPcl.jumlah_sls_prioritas} SLS
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-center font-bold text-indigo-600 text-sm">
-                                        {pPcl.total_kk_prioritas.toLocaleString('id-ID')} KK
-                                    </td>
-                                    <td className="px-6 py-4 text-center font-black text-slate-700 text-sm">
-                                        {pPcl.total_muatan_usaha.toLocaleString('id-ID')}
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        {isOver ? (
-                                            <span className="text-[10px] bg-rose-100 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1 w-fit">
-                                                ⚠️ KONSENTRASI TINGGI
-                                            </span>
-                                        ) : (
-                                            <span className="text-[10px] bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1 w-fit">
-                                                ✅ DISTRIBUSI IDEAL
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm font-extrabold text-slate-600 uppercase">
-                                        {pPcl.nama_pml}
-                                    </td>
+            {/* 4. MAIN DATA SHEET PRESENTATION */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs flex flex-col min-h-[420px] h-[60vh]">
+                {loading ? (
+                    <div className="p-20 text-center font-bold text-slate-400 text-xs my-auto flex flex-col items-center gap-2 animate-pulse">
+                        <Radio className="text-indigo-600 animate-spin" size={24} /> Mengambil Data Absen Lapangan...
+                    </div>
+                ) : viewMode === 'pcl-centric' ? (
+                    
+                    /* ================= TAB 1: RINGKASAN PETUGAS PCL ================= */
+                    <div className="flex-1 overflow-auto scrollbar-thin">
+                        <table className="w-full text-left border-collapse min-w-[1150px]">
+                            <thead className="bg-slate-50/90 border-b border-slate-200 sticky top-0 z-10 backdrop-blur-xs">
+                                <tr className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                    <th className="px-6 py-4">Nama Petugas PCL</th>
+                                    <th className="px-6 py-4">Kecamatan</th>
+                                    <th className="px-6 py-4" style={{ width: '280px' }}>Alokasi SLS Prioritas (Monitoring)</th>
+                                    <th className="px-6 py-4">Progress SLS Prioritas</th>
+                                    <th className="px-4 py-4 text-center">SLS Lain Dikerjakan</th>
+                                    <th className="px-6 py-4">SLS Absen Terakhir (Live)</th>
+                                    <th className="px-6 py-4 text-center">Cek Status</th>
+                                    <th className="px-6 py-4">Nama Pengawas</th>
                                 </tr>
-                            );
-                        })}
-                </tbody>
-            </table>
-        </div>
-    )}
-</div>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white text-xs">
+                                {filteredPetugas.length === 0 ? (
+                                    <tr><td colSpan="8" className="text-center py-12 font-medium text-slate-400 italic">Tidak ditemukan data petugas aktif pada filter status ini.</td></tr>
+                                ) : filteredPetugas.map(p => {
+                                    const statusKunci = dapatkanStatusKepatuhan(p);
+                                    const isAbaiTotal = statusKunci === "DIABAIKAN";
+                                    const isBercabang = statusKunci === "DEVIASI";
+                                    const isTaat = statusKunci === "TAAT";
+                                    const pctProgress = p.jumlah_sls_prioritas > 0 ? Math.round((p.prioritas_terjamah / p.jumlah_sls_prioritas) * 100) : 0;
+
+                                    const alokasiSlsPrioritasArray = p.daftar_target_prioritas_spesifik 
+                                        ? p.daftar_target_prioritas_spesifik.split(',').map(s => s.trim()) 
+                                        : [];
+
+                                    const riwayatKunjunganArray = p.daftar_sls_dikerjakan 
+                                        ? p.daftar_sls_dikerjakan.split(',').map(s => s.trim()) 
+                                        : [];
+
+                                    return (
+                                        <tr key={p.petugas_email} className={`hover:bg-slate-50/50 transition-colors ${isAbaiTotal ? 'bg-rose-50/30' : isBercabang ? 'bg-amber-50/10' : ''}`}>
+                                            <td className="px-6 py-4">
+                                                <div className="font-extrabold text-slate-800 uppercase">{p.nama_petugas}</div>
+                                                <div className="text-[10px] text-slate-400 font-mono font-medium mt-0.5">{p.petugas_email}</div>
+                                            </td>
+                                            <td className="px-6 py-4 font-bold text-slate-600 uppercase">{p.kecamatan_tugas}</td>
+                                            
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-wrap gap-1.5 max-w-[280px]">
+                                                    {alokasiSlsPrioritasArray.length === 0 ? (
+                                                        <span className="text-slate-400 italic text-[11px]">Tidak ada plot prioritas</span>
+                                                    ) : (
+                                                        alokasiSlsPrioritasArray.map((namaSls, index) => {
+                                                            const sudahPernahCheckin = riwayatKunjunganArray.includes(namaSls);
+                                                            return (
+                                                                <span 
+                                                                    key={index} 
+                                                                    className={`px-2 py-0.5 rounded-md text-[10px] font-black border transition-all uppercase tracking-wider ${
+                                                                        sudahPernahCheckin 
+                                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-3xs' 
+                                                                            : 'bg-slate-50 text-slate-500 border-slate-200/80'
+                                                                    }`}
+                                                                >
+                                                                    {sudahPernahCheckin ? '✅ ' : '⚪ '}
+                                                                    {namaSls}
+                                                                </span>
+                                                            );
+                                                        })
+                                                    )}
+                                                </div>
+                                            </td>
+                                            
+                                            <td className="px-6 py-4 min-w-[180px]">
+                                                <div className="flex items-center justify-between font-mono font-black text-[10px] text-slate-500 mb-1">
+                                                    <span>{p.prioritas_terjamah} / {p.jumlah_sls_prioritas} SLS</span>
+                                                    <span>{pctProgress}%</span>
+                                                </div>
+                                                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200/50">
+                                                    <div className={`h-full rounded-full transition-all duration-500 ${pctProgress === 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${pctProgress}%` }}></div>
+                                                </div>
+                                            </td>
+                                            
+                                            <td className="px-4 py-4 text-center">
+                                                {p.sls_lain_dikerjakan > 0 ? (
+                                                    <span className="px-2.5 py-1 bg-red-50 text-red-700 border border-red-200/60 font-black font-mono rounded-xl text-[11px] inline-flex items-center gap-1 shadow-2xs">
+                                                        ⚠️ {p.sls_lain_dikerjakan} SLS
+                                                    </span>
+                                                ) : <span className="text-slate-300 font-bold">-</span>}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-1 font-bold text-slate-700 max-w-[160px] truncate" title={p.sedang_mengerjakan_sls}>
+                                                    <MapPin size={12} className={p.sedang_mengerjakan_sls !== '-' ? 'text-indigo-500 animate-bounce' : 'text-slate-300'} />
+                                                    {p.sedang_mengerjakan_sls}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 text-center">
+                                                {isAbaiTotal ? (
+                                                    <span className="bg-red-600 text-white px-2.5 py-1 rounded-md font-black text-[9px] tracking-wider uppercase block w-full text-center shadow-xs">🚨 DIABAIKAN</span>
+                                                ) : isBercabang ? (
+                                                    <span className="bg-amber-500 text-white px-2.5 py-1 rounded-md font-black text-[9px] tracking-wider uppercase block w-full text-center shadow-xs">⚠️ DEVIASI WILAYAH</span>
+                                                ) : isTaat ? (
+                                                    <span className="bg-emerald-600 text-white px-2.5 py-1 rounded-md font-black text-[9px] tracking-wider uppercase block w-full text-center shadow-xs">✅ TAAT TARGET</span>
+                                                ) : (
+                                                    <span className="bg-blue-500 text-white px-2.5 py-1 rounded-md font-black text-[9px] tracking-wider uppercase block w-full text-center shadow-xs">🏃 IN PROGRES</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 font-extrabold text-slate-500 uppercase">{p.nama_pml}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    
+                    /* ================= TAB 2: SEBARAN WILAYAH SLS TERURUT ================= */
+                    <div className="flex-1 overflow-auto scrollbar-thin">
+                        <table className="w-full text-left border-collapse min-w-[900px]">
+                            <thead className="bg-slate-50/90 border-b border-slate-200 sticky top-0 z-10 backdrop-blur-xs">
+                                <tr className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                                    <th className="px-6 py-4">Kode Wilayah (BPS)</th>
+                                    <th className="px-6 py-4">Kecamatan / Desa</th>
+                                    <th className="px-6 py-4">Nama Lingkungan SLS</th>
+                                    <th className="px-4 py-4 text-center">Beban Target KK</th>
+                                    <th className="px-6 py-4">Petugas Alokasi (PCL)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white text-xs">
+                                {filteredSls.length === 0 ? (
+                                    <tr><td colSpan="5" className="text-center py-12 font-medium text-slate-400 italic">Tidak ditemukan daftar SLS Prioritas.</td></tr>
+                                ) : filteredSls.map(sls => {
+                                    const infoPcl = auditPetugasList.find(p => p.petugas_email === sls.petugas_id);
+
+                                    return (
+                                        <tr key={sls.idsubsls} className="hover:bg-slate-50/40 transition-colors">
+                                            <td className="px-6 py-4 font-mono font-bold text-slate-500 text-sm tracking-tight bg-slate-50/30">
+                                                {sls.idsubsls}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="font-extrabold text-slate-800 uppercase">{sls.nmdesa}</div>
+                                                <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">Kec. {sls.nmkec}</div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="font-black text-slate-700 flex items-center gap-1.5">
+                                                    {sls.nmsls}
+                                                    <span className="bg-red-50 text-red-600 border border-red-100 text-[8px] font-black px-1.5 py-0.2 rounded shadow-3xs">PRIORITAS</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-4 text-center font-black text-indigo-600 font-mono text-sm">{sls.target_kk_prioritas || 0} KK</td>
+                                            
+                                            <td className="px-6 py-4">
+                                                {sls.petugas_id ? (
+                                                    <div className="flex flex-col">
+                                                        <span className="font-black text-slate-800 uppercase flex items-center gap-1"><UserCheck size={12} className="text-emerald-600" /> {infoPcl?.nama_petugas || 'Akun Lapangan'}</span>
+                                                        <span className="text-[10px] text-slate-400 font-mono font-medium mt-0.5">{sls.petugas_id}</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded-xl font-black text-[10px] inline-flex items-center gap-1 animate-pulse"><UserX size={12}/> KOSONG / BELUM PLOT</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
         </div>
     );
-}
-
-// Pembantu render teks petugas pengawas
-function petGrid(petModel) {
-    if(!petModel) return "-";
-    return petModel.nama_petugas;
 }

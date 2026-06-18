@@ -23,10 +23,11 @@ export default function Layout() {
   // Menu Items disederhanakan karena khusus untuk Admin & Pegawai
   const allMenuItems = [
     { name: 'Pemantauan Lapangan', path: '/dashboard-lapangan', icon: BarChart3, roles: ['admin', 'pegawai'] },
+    { name: 'SLS Prioritas', path: '/prioritas', icon: ShieldAlert, roles: ['admin', 'pegawai'] },
     { name: 'Cek Selisih Muatan', path: '/cek-selisih-muatan', icon: AlertTriangle, roles: ['admin', 'pegawai'] },
     { name: 'Dashboard Alokasi', path: '/dashboard-alokasi', icon: PieChart, roles: ['admin', 'pegawai'] },
     { name: 'Alokasi Petugas', path: '/alokasi', icon: Map, roles: ['admin', 'pegawai'] }, 
-    { name: 'SLS Prioritas', path: '/prioritas', icon: ShieldAlert, roles: ['admin', 'pegawai'] },
+
     { name: 'Pengaturan', path: '/pengaturan', icon: Settings, roles: ['admin'] },
   ];
 
@@ -57,7 +58,7 @@ export default function Layout() {
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {/* 1. Menu Utama */}
         {allowedMenuItems
-          .filter(item => ['/dashboard-lapangan', '/cek-selisih-muatan'].includes(item.path))
+          .filter(item => ['/dashboard-lapangan', '/prioritas', '/cek-selisih-muatan'].includes(item.path))
           .map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -99,7 +100,7 @@ export default function Layout() {
 
         {/* 3. Menu Sisa */}
         {allowedMenuItems
-          .filter(item => !['/dashboard-lapangan', '/cek-selisih-muatan', '/dashboard-alokasi', '/alokasi'].includes(item.path))
+          .filter(item => !['/dashboard-lapangan', '/prioritas', '/cek-selisih-muatan', '/dashboard-alokasi', '/alokasi'].includes(item.path))
           .map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;

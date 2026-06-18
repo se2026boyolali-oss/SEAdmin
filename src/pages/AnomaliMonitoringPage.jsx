@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { 
     AlertTriangle, ShieldAlert, BarChart3, Map as MapIcon, 
     Search, Filter, ChevronRight, RefreshCw, AlertCircle, 
-    ArrowUpDown, Info, HelpCircle, TrendingUp, TrendingDown, Users, X
+    ArrowUpDown, HelpCircle, TrendingUp, Users, X
 } from 'lucide-react';
 
 export default function AnomaliMonitoringPage() {
@@ -20,26 +20,37 @@ export default function AnomaliMonitoringPage() {
     const [selectedPetugas, setSelectedPetugas] = useState(null);
     const [activeKecamatanDetail, setActiveKecamatanDetail] = useState(null);
 
-    // STATE CACHE ELEMEN MAKRO (Kunci utama performa instan)
+    // STATE CACHE ELEMEN MAKRO
     const [cachedAgregasiKecamatan, setCachedAgregasiKecamatan] = useState([]);
     const [cachedDaftarKecamatanUnik, setCachedDaftarKecamatanUnik] = useState([]);
     const [cachedRingkasanNasional, setCachedRingkasanNasional] = useState({ totalRed: 0, totalAmber: 0, totalSls: 0 });
 
+    // STATE CONFIG PAGINATION
+    const [currentPagePetugas, setCurrentPagePetugas] = useState(1);
+    const itemsPerPagePetugas = 15;
+
+    const [currentPageSls, setCurrentPageSls] = useState(1);
+    const itemsPerPageSls = 20;
+
     // =========================================================================
-    // 1. DATA INGESTION ENGINE + COMPUTE ONCE (PRE-AGGREGATION & PRE-SORTING)
+    // 1. DATA INGESTION ENGINE + COMPUTE ONCE
     // =========================================================================
     const fetchMasterMuatanData = async () => {
         setLoading(true);
         try {
             const { data, error } = await supabase
                 .from('view_rekonsiliasi_muatan')
-                .select('*');
+                .select(`
+                    idsubsls, kdkec, nmkec, kddesa, nmdesa, kdsls, nmsls, 
+                    petugas_id, nama_petugas, sumber_a, sumber_b, 
+                    selisih_absolut, rasio_kesenjangan, status_risiko
+                `);
             
             if (error) throw error;
 
-            const baseData = data || [];
+            const baseData = data ? [...data] : [];
 
-            // A. Urutkan Master SLS berdasarkan Kode Wilayah (Kdkec -> Kddesa -> Kdsls) secara permanen
+            // A. Urutkan Master SLS berdasarkan Kode Wilayah (Kdkec -> Kddesa -> Kdsls)
             baseData.sort((a, b) => {
                 const urutKec = (a.kdkec || "000").localeCompare(b.kdkec || "000", undefined, { numeric: true });
                 if (urutKec !== 0) return urutKec;
@@ -60,12 +71,10 @@ export default function AnomaliMonitoringPage() {
                 if (sls.status_risiko === "RED") totalRed++;
                 if (sls.status_risiko === "AMBER") totalAmber++;
 
-                // Mapping Dropdown Filter
                 if (sls.nmkec && !unikKecMap.has(sls.nmkec)) {
                     unikKecMap.set(sls.nmkec, sls.kdkec || "000");
                 }
 
-                // Mapping Peta Klaster Kecamatan
                 const key = sls.nmkec || "TIDAK TERDEFINISI";
                 if (!kecMap.has(key)) {
                     kecMap.set(key, { 
@@ -86,13 +95,10 @@ export default function AnomaliMonitoringPage() {
                 if (sls.status_risiko === "AMBER") current.amberFlags += 1;
             });
 
-            // C. Simpan Semua Hasil ke State Cache
             setCachedRingkasanNasional({ totalRed, totalAmber, totalSls: baseData.length });
-
             setCachedAgregasiKecamatan(
                 Array.from(kecMap.values()).sort((a, b) => a.kdkec.localeCompare(b.kdkec, undefined, { numeric: true }))
             );
-
             setCachedDaftarKecamatanUnik(
                 Array.from(unikKecMap.entries())
                     .sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true }))
@@ -116,14 +122,22 @@ export default function AnomaliMonitoringPage() {
         setSelectedPetugas(null);
     }, [selectedKecamatan]);
 
+    // Reset pagination utama jika parameter pencarian berubah
+    useEffect(() => {
+        setCurrentPageSls(1);
+    }, [searchTerm, selectedKecamatan, selectedRiskLevel, selectedPetugas]);
+
+    useEffect(() => {
+        setCurrentPagePetugas(1);
+    }, [selectedKecamatan]);
+
     // =========================================================================
-    // 2. PETUGAS PERFORMANCE AGGREGATION (OPTIMIZED BY SELECTED KECAMATAN)
+    // 2. PETUGAS PERFORMANCE AGGREGATION & PAGINATION
     // =========================================================================
-    const agregasiPetugas = useMemo(() => {
+    const filteredPetugasList = useMemo(() => {
         const petugasMap = new Map();
 
         rawMasterSls.forEach(sls => {
-            // Saring petugas secara instan berdasarkan kecamatan yang dipilih saat ini
             if (selectedKecamatan !== "SEMUA" && sls.nmkec !== selectedKecamatan) return;
 
             const pId = sls.petugas_id ? sls.petugas_id.trim() : "BELUM DITUGASKAN";
@@ -152,13 +166,19 @@ export default function AnomaliMonitoringPage() {
         return Array.from(petugasMap.values()).sort((a, b) => b.totalSelisih - a.totalSelisih);
     }, [rawMasterSls, selectedKecamatan]);
 
+    const paginatedPetugas = useMemo(() => {
+        const startIndex = (currentPagePetugas - 1) * itemsPerPagePetugas;
+        return filteredPetugasList.slice(startIndex, startIndex + itemsPerPagePetugas);
+    }, [filteredPetugasList, currentPagePetugas]);
+
+    const totalPagesPetugas = Math.ceil(filteredPetugasList.length / itemsPerPagePetugas);
+
     // =========================================================================
-    // 3. FILTERING ENGINE (SANGAT RINGAN & INSTAN)
+    // 3. FILTERING ENGINE & PAGINATION MASTER SLS
     // =========================================================================
     const filteredAndSortedSls = useMemo(() => {
         const cleanSearch = searchTerm.toLowerCase().trim();
 
-        // Operasi filter murni linier (O(N)), tidak ada sorting berat di dalam sini
         let result = rawMasterSls.filter(sls => {
             const matchesSearch = !cleanSearch ||
                 (sls.nmsls || "").toLowerCase().includes(cleanSearch) ||
@@ -173,17 +193,23 @@ export default function AnomaliMonitoringPage() {
             return matchesSearch && matchesKec && matchesRisk && matchesPetugas;
         });
 
-        // Hanya melakukan pengurutan manual jika user mengklik kepala tabel desktop
         if (sortConfig.key) {
             result.sort((a, b) => {
-                let aVal = a[sortConfig.key];
-                let bVal = b[sortConfig.key];
+                let aVal = a[sortConfig.key] || 0;
+                let bVal = b[sortConfig.key] || 0;
                 return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
             });
         }
 
         return result;
     }, [rawMasterSls, searchTerm, selectedKecamatan, selectedRiskLevel, sortConfig, selectedPetugas]);
+
+    const paginatedSls = useMemo(() => {
+        const startIndex = (currentPageSls - 1) * itemsPerPageSls;
+        return filteredAndSortedSls.slice(startIndex, startIndex + itemsPerPageSls);
+    }, [filteredAndSortedSls, currentPageSls]);
+
+    const totalPagesSls = Math.ceil(filteredAndSortedSls.length / itemsPerPageSls);
 
     const requestSort = (key) => {
         let direction = 'desc';
@@ -203,7 +229,7 @@ export default function AnomaliMonitoringPage() {
     }
 
     return (
-        <div className="w-full bg-slate-50 font-sans flex flex-col text-slate-800 space-y-6">
+        <div className="w-full bg-slate-50 font-sans flex flex-col text-slate-800 space-y-6 p-2 md:p-4">
             
             {/* HEADER CONTROL */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
@@ -217,7 +243,7 @@ export default function AnomaliMonitoringPage() {
                 </div>
                 <button 
                     onClick={fetchMasterMuatanData}
-                    className="w-full sm:w-auto px-4 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm"
+                    className="w-full sm:w-auto px-4 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                 >
                     <RefreshCw size={12} />
                     <span>Bandingkan Ulang</span>
@@ -280,11 +306,11 @@ export default function AnomaliMonitoringPage() {
                         <BarChart3 size={16} className="text-emerald-600" />
                         <div>
                             <h3 className="font-black text-xs uppercase tracking-wider text-slate-700">Peta Gap per Kecamatan</h3>
-                            <p className="text-[10px] text-slate-400 mt-0.5">Terurut berdasarkan Kode BPS Wilayah</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">Diurutkan berdasarkan Kode Wilayah</p>
                         </div>
                     </div>
                     
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-[800px] overflow-y-auto pr-1">
                         {cachedAgregasiKecamatan.map((kec) => (
                             <div 
                                 key={kec.nmkec}
@@ -310,73 +336,99 @@ export default function AnomaliMonitoringPage() {
                     </div>
                 </div>
 
-                {/* ANALISIS KESENJANGAN PER PETUGAS */}
-                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-4 lg:col-span-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                            <Users size={16} className="text-emerald-600" />
-                            <div>
-                                <h3 className="font-black text-xs uppercase tracking-wider text-slate-700">Perbedaan Beban Muatan per Petugas</h3>
-                                <p className="text-[10px] text-slate-400 mt-0.5">Klik baris petugas untuk menyaring tabel SLS di bawah</p>
+                {/* ANALISIS KESENJANGAN PER PETUGAS (PAGINASI 15 BARIS) */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-4 lg:col-span-2 flex flex-col justify-between">
+                    <div className="space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                                <Users size={16} className="text-emerald-600" />
+                                <div>
+                                    <h3 className="font-black text-xs uppercase tracking-wider text-slate-700">Perbedaan Beban Muatan per Petugas</h3>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">Menampilkan 15 petugas per halaman. Klik baris untuk memfilter.</p>
+                                </div>
+                            </div>
+                            {selectedPetugas && (
+                                <span className="text-[10px] bg-indigo-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-lg font-bold uppercase shrink-0">
+                                    Filter Aktif
+                                </span>
+                            )}
+                        </div>
+                        
+                        <div className="overflow-x-auto rounded-xl border border-slate-200">
+                            <table className="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr className="bg-slate-50 text-[10px] font-black uppercase text-slate-500 border-b border-slate-200 sticky top-0 z-10">
+                                        <th className="p-2.5 bg-slate-50">Petugas PCL (Nama / Email)</th>
+                                        <th className="p-2.5 text-center bg-slate-50">Cakupan SLS</th>
+                                        <th className="p-2.5 text-center bg-slate-50">Muatan Pemetaan</th>
+                                        <th className="p-2.5 text-center bg-slate-50">Jumlah Prelist</th>
+                                        <th className="p-2.5 text-center bg-slate-50">Akumulasi Gap</th>
+                                        <th className="p-2.5 text-center bg-slate-50">Critical Flags</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-semibold text-slate-600">
+                                    {paginatedPetugas.map(p => {
+                                        const isTarget = selectedPetugas?.id === p.petugas_id;
+                                        return (
+                                            <tr 
+                                                key={p.petugas_id} 
+                                                onClick={() => setSelectedPetugas(isTarget ? null : { id: p.petugas_id, nama: p.nama_petugas })}
+                                                className={`cursor-pointer transition-colors ${
+                                                    isTarget ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'hover:bg-slate-50'
+                                                }`}
+                                            >
+                                                <td className="p-2.5">
+                                                    <div className={`font-black uppercase text-[11px] ${isTarget ? 'text-white' : 'text-slate-800'}`}>{p.nama_petugas}</div>
+                                                    <div className={`text-[9px] font-mono mt-0.5 truncate max-w-[180px] ${isTarget ? 'text-indigo-200' : 'text-slate-400'}`}>{p.petugas_id}</div>
+                                                </td>
+                                                <td className="p-2.5 text-center font-mono">{p.totalSls}</td>
+                                                <td className={`p-2.5 text-center font-mono ${isTarget ? 'text-white' : 'text-indigo-600'}`}>{p.totalA}</td>
+                                                <td className={`p-2.5 text-center font-mono ${isTarget ? 'text-white' : 'text-amber-600'}`}>{p.totalB}</td>
+                                                <td className={`p-2.5 text-center font-mono ${isTarget ? 'text-white' : 'text-red-600'}`}>{p.totalSelisih}</td>
+                                                <td className="p-2.5 text-center">
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                                                        isTarget 
+                                                            ? 'bg-indigo-500 text-white font-black' 
+                                                            : p.kasusEkstrem > 0 ? 'bg-red-50 text-red-600 border border-red-100 font-black' : 'bg-slate-100 text-slate-400'
+                                                    }`}>
+                                                        {p.kasusEkstrem} SLS
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* PAGINASI TABEL PETUGAS */}
+                    {totalPagesPetugas > 1 && (
+                        <div className="flex justify-between items-center pt-2 text-[11px] font-bold text-slate-500 border-t border-slate-100 mt-2">
+                            <span>Total: {filteredPetugasList.length} Petugas</span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setCurrentPagePetugas(p => Math.max(p - 1, 1))}
+                                    disabled={currentPagePetugas === 1}
+                                    className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 cursor-pointer text-slate-700 font-black"
+                                >
+                                    Prev
+                                </button>
+                                <span className="font-mono bg-slate-50 px-2 py-1 rounded border border-slate-100 text-slate-700">{currentPagePetugas} / {totalPagesPetugas}</span>
+                                <button
+                                    onClick={() => setCurrentPagePetugas(p => Math.min(p + 1, totalPagesPetugas))}
+                                    disabled={currentPagePetugas === totalPagesPetugas}
+                                    className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40 cursor-pointer text-slate-700 font-black"
+                                >
+                                    Next
+                                </button>
                             </div>
                         </div>
-                        {selectedPetugas && (
-                            <span className="text-[10px] bg-indigo-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded-lg font-bold uppercase shrink-0">
-                                Filter Aktif
-                            </span>
-                        )}
-                    </div>
-                    
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 max-h-[300px] overflow-y-auto">
-                        <table className="w-full text-left border-collapse text-xs">
-                            <thead>
-                                <tr className="bg-slate-50 text-[10px] font-black uppercase text-slate-500 border-b border-slate-200 sticky top-0 z-10">
-                                    <th className="p-2.5 bg-slate-50">Petugas PCL (Nama / Email)</th>
-                                    <th className="p-2.5 text-center bg-slate-50">Cakupan SLS</th>
-                                    <th className="p-2.5 text-center bg-slate-50">Muatan Pemetaan</th>
-                                    <th className="p-2.5 text-center bg-slate-50">Jumlah Prelist</th>
-                                    <th className="p-2.5 text-center bg-slate-50">Akumulasi Gap</th>
-                                    <th className="p-2.5 text-center bg-slate-50">Critical Flags</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 font-semibold text-slate-600">
-                                {agregasiPetugas.map(p => {
-                                    const isTarget = selectedPetugas?.id === p.petugas_id;
-                                    return (
-                                        <tr 
-                                            key={p.petugas_id} 
-                                            onClick={() => setSelectedPetugas(isTarget ? null : { id: p.petugas_id, nama: p.nama_petugas })}
-                                            className={`cursor-pointer transition-colors ${
-                                                isTarget ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'hover:bg-slate-50'
-                                            }`}
-                                        >
-                                            <td className="p-2.5">
-                                                <div className={`font-black uppercase ${isTarget ? 'text-white' : 'text-slate-800'}`}>{p.nama_petugas}</div>
-                                                <div className={`text-[10px] font-mono mt-0.5 truncate max-w-[180px] ${isTarget ? 'text-indigo-200' : 'text-slate-400'}`}>{p.petugas_id}</div>
-                                            </td>
-                                            <td className="p-2.5 text-center font-mono">{p.totalSls}</td>
-                                            <td className={`p-2.5 text-center font-mono ${isTarget ? 'text-white' : 'text-indigo-600'}`}>{p.totalA}</td>
-                                            <td className={`p-2.5 text-center font-mono ${isTarget ? 'text-white' : 'text-amber-600'}`}>{p.totalB}</td>
-                                            <td className={`p-2.5 text-center font-mono ${isTarget ? 'text-white' : 'text-red-600'}`}>{p.totalSelisih}</td>
-                                            <td className="p-2.5 text-center">
-                                                <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                                                    isTarget 
-                                                        ? 'bg-indigo-500 text-white font-black' 
-                                                        : p.kasusEkstrem > 0 ? 'bg-red-50 text-red-600 border border-red-100 font-black' : 'bg-slate-100 text-slate-400'
-                                                }`}>
-                                                    {p.kasusEkstrem} SLS
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
+                    )}
                 </div>
             </div>
 
-            {/* 📌 DETAIL TABEL UTAMA SLS */}
+            {/* 📌 DETAIL TABEL UTAMA MASTER SLS (PAGINASI 20 BARIS) */}
             <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-4">
                 
                 {/* FILTER CONTROLLERS */}
@@ -393,7 +445,7 @@ export default function AnomaliMonitoringPage() {
                         {selectedPetugas && (
                             <button 
                                 onClick={() => setSelectedPetugas(null)}
-                                className="absolute right-3 top-2.5 p-1 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg flex items-center gap-1 text-[10px] font-black uppercase px-2 transition-all z-10"
+                                className="absolute right-3 top-2.5 p-1 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg flex items-center gap-1 text-[10px] font-black uppercase px-2 transition-all z-10 cursor-pointer"
                             >
                                 <X size={10} /> Bersihkan Filter PCL
                             </button>
@@ -429,9 +481,9 @@ export default function AnomaliMonitoringPage() {
                     </div>
                 </div>
 
-                {/* TAMPILAN MOBILE LIST */}
+                {/* TAMPILAN MOBILE LIST RESPONSIVE */}
                 <div className="block md:hidden space-y-3">
-                    {filteredAndSortedSls.map((sls) => {
+                    {paginatedSls.map((sls) => {
                         const isRed = sls.status_risiko === "RED";
                         const isAmber = sls.status_risiko === "AMBER";
                         return (
@@ -481,9 +533,9 @@ export default function AnomaliMonitoringPage() {
                     })}
                 </div>
 
-                {/* TAMPILAN DESKTOP TABLE */}
+                {/* TAMPILAN DESKTOP TABLE (PAGINASI 20 BARIS - NO SCROLL) */}
                 <div className="hidden md:block overflow-x-auto rounded-xl border border-slate-200 bg-white">
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full text-left border-collapse table-auto">
                         <thead>
                             <tr className="bg-slate-50 text-[10px] font-black uppercase text-slate-500 border-b border-slate-200 tracking-wider">
                                 <th className="p-3">Kode / Nama SLS</th>
@@ -504,7 +556,7 @@ export default function AnomaliMonitoringPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-600">
-                            {filteredAndSortedSls.map((sls) => {
+                            {paginatedSls.map((sls) => {
                                 const isRed = sls.status_risiko === "RED";
                                 const isAmber = sls.status_risiko === "AMBER";
 
@@ -539,13 +591,9 @@ export default function AnomaliMonitoringPage() {
                                         </td>
                                         <td className="p-3">
                                             <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase border block w-max ${
-                                                isRed 
-                                                    ? 'bg-red-50 border-red-200 text-red-600' 
-                                                    : isAmber 
-                                                        ? 'bg-amber-50 border-amber-200 text-amber-600' 
-                                                        : 'bg-emerald-50 border-emerald-200 text-emerald-600'
+                                                isRed ? 'bg-red-50 border-red-200 text-red-600' : isAmber ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-emerald-50 border-emerald-200 text-emerald-600'
                                             }`}>
-                                                {sls.tipeAnomali}
+                                                {isRed ? "🔴 BEDA EKSTREM" : isAmber ? "🟡 BEDA SEDANG" : "🟢 HAMPIR SAMA"}
                                             </span>
                                         </td>
                                     </tr>
@@ -558,6 +606,38 @@ export default function AnomaliMonitoringPage() {
                 {filteredAndSortedSls.length === 0 && (
                     <div className="text-center p-8 text-slate-400 font-bold uppercase tracking-wider text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
                         Tidak Ada Data Ketimpangan Pra-Cetak yang Sesuai Kriteria Filter.
+                    </div>
+                )}
+
+                {/* CONTROLLER NAVIGATION PAGINASI MASTER SLS */}
+                {totalPagesSls > 1 && (
+                    <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t border-slate-200 text-xs font-bold text-slate-500">
+                        <div>
+                            Menampilkan {Math.min((currentPageSls - 1) * itemsPerPageSls + 1, filteredAndSortedSls.length)} sampai{" "}
+                            {Math.min(currentPageSls * itemsPerPageSls, filteredAndSortedSls.length)} dari {filteredAndSortedSls.length} SLS
+                        </div>
+                        
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                onClick={() => setCurrentPageSls(prev => Math.max(prev - 1, 1))}
+                                disabled={currentPageSls === 1}
+                                className="px-3 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
+                            >
+                                Sebelumnya
+                            </button>
+                            
+                            <span className="px-3 py-1.5 bg-slate-100 text-slate-800 rounded-lg font-mono">
+                                Halaman {currentPageSls} dari {totalPagesSls}
+                            </span>
+                            
+                            <button
+                                onClick={() => setCurrentPageSls(prev => Math.min(prev + 1, totalPagesSls))}
+                                disabled={currentPageSls === totalPagesSls}
+                                className="px-3 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
+                            >
+                                Selanjutnya
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>
@@ -585,7 +665,7 @@ export default function AnomaliMonitoringPage() {
 
                         <button 
                             onClick={() => setActiveKecamatanDetail(null)}
-                            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wide transition-all"
+                            className="w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wide transition-all cursor-pointer"
                         >
                             Tutup Detail Wilayah
                         </button>
