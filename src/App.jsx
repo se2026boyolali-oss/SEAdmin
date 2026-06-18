@@ -15,6 +15,10 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const PmlMonitoringPage = lazy(() => import('./pages/PmlMonitoringPage'));
 const PclAssignmentPage = lazy(() => import('./pages/PclAssignmentPage'));
 
+// 🚀 Lazy Import kedua halaman pendataan orang penting
+const OrangPentingPage = lazy(() => import('./pages/OrangPentingPage'));
+const OrangPentingFormPublik = lazy(() => import('./pages/OrangPentingFormPublik'));
+
 const PageLoader = () => (
   <div className="p-10 text-center text-xs font-black uppercase tracking-widest text-slate-400">
     Memuat Komponen Halaman...
@@ -77,7 +81,10 @@ function AppContent() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
+        {/* Rute Publik Terbuka Bebas Tanpa Login */}
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+        <Route path="/entrise" element={<OrangPentingFormPublik />} />
+        
         <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
         
         {/* Rute Lapangan Mandiri */}
@@ -92,6 +99,10 @@ function AppContent() {
           <Route path="cek-selisih-muatan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AnomaliMonitoringPage /></ProtectedRoute>} />
           <Route path="alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AlokasiPage /></ProtectedRoute>} />
           <Route path="prioritas" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><PrioritasPage /></ProtectedRoute>} />
+          
+          {/* Dashboard Internal untuk Monitoring Rekapan */}
+          <Route path="orang-penting" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><OrangPentingPage /></ProtectedRoute>} />
+          
           <Route path="pengaturan" element={<ProtectedRoute allowedRoles={['admin']}><SettingsPage /></ProtectedRoute>} />
         </Route>
 
