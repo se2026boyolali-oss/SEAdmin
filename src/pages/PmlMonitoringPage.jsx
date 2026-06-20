@@ -15,16 +15,31 @@ const geojsonCache = {};
 // =========================================================================
 const initPmlOfflineDB = () => {
     return new Promise((resolve, reject) => {
-        const request = indexedDB.open("BpsPmlOfflineDB", 1);
+        const request = indexedDB.open("BpsPmlOfflineDB", 2); // Naikkan versi ke 2
         request.onupgradeneeded = (e) => {
             const db = e.target.result;
             if (!db.objectStoreNames.contains("pending_realisasi")) {
                 db.createObjectStore("pending_realisasi", { keyPath: "id", autoIncrement: true });
             }
+            // Tambahkan store baru untuk absen pml
+            if (!db.objectStoreNames.contains("pending_absen_pml")) {
+                db.createObjectStore("pending_absen_pml", { keyPath: "id", autoIncrement: true });
+            }
         };
         request.onsuccess = (e) => resolve(e.target.result);
         request.onerror = (e) => reject(e.target.error);
     });
+};
+
+const simpanAbsenKeOfflineDB = async (payload) => {
+    try {
+        const db = await initPmlOfflineDB();
+        const tx = db.transaction("pending_absen_pml", "readwrite");
+        await tx.objectStore("pending_absen_pml").add(payload);
+        // Update hitungan antrean jika diperlukan state baru
+    } catch (err) {
+        console.error("Gagal mengamankan absen ke IndexedDB:", err);
+    }
 };
 
 // 🏃‍♂️ SUB-KOMPONEN BARIS SLS: Isolasi State Input untuk Performa Tinggi Lapangan (Zero-Lag)
@@ -777,99 +792,148 @@ const handleTriggerPmlLocation = () => {
     };
 
 const submitPmlCheckIn = async () => {
-        if (submitSiklusLoading) return; 
+    if (submitSiklusLoading) return; 
 
-        const pmlEmail = user?.email || profile?.email;
-        const tglHariIni = manualMode ? selectedManualDate : getTodayDateString();
-        const tglRealtimeHariIni = getTodayDateString(); // Kunci penentu realtime hari ini
+    const pmlEmail = user?.email || profile?.email;
+    if (!pmlEmail) {
+        alert("Email pengguna tidak terdeteksi. Silakan masuk log kembali.");
+        return;
+    }
 
-        if (!pmlPhotoPreview) {
-            alert("Wajib mengambil foto bukti pengawasan lapangan atau tunggu hingga sistem selesai memproses gambar!");
-            return;
-        }
+    const tglHariIni = manualMode ? selectedManualDate : getTodayDateString();
+    const tglRealtimeHariIni = getTodayDateString(); // Kunci penentu realtime hari ini
 
-        setSubmitSiklusLoading(true);
+    if (!pmlPhotoPreview) {
+        alert("Wajib mengambil foto bukti pengawasan lapangan atau tunggu hingga sistem selesai memproses gambar!");
+        return;
+    }
 
-        const idSlsClean = manualMode ? String(selectedManualSls).trim() : (pmlCoords?.idsubsls ? String(pmlCoords.idsubsls).trim() : 'WILAYAH-PML');
-        const namaClean = profile?.nama_pengguna ? profile.nama_pengguna.replace(/\s+/g, '_').toUpperCase() : 'PENGAWAS';
-        const tglClean = tglHariIni.replace(/-/g, ''); 
-        
-        const namaFileUnik = `SE26_PML_${idSlsClean}_${namaClean}_${tglClean}.jpg`;
-        let finalFotoUrl = "OFFLINE_LINK";
+    setSubmitSiklusLoading(true);
 
-        // ==========================================
-        // BLOK KONDISI LURING / OFFLINE
-        // ==========================================
-        if (!navigator.onLine) {
-            localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
-            
-            // State dan cache utama hanya berubah jika tanggal yang dipilih adalah HARI INI
-            if (tglHariIni === tglRealtimeHariIni) {
-                localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
-                setPmlCheckedInToday(true);
-            }
-            
-            alert("💾 Absen Pendampingan PML disimpan offline di memori HP!");
-            resetPmlForm();
-            setSubmitSiklusLoading(false);
-            return;
-        }
+    const idSlsClean = manualMode ? String(selectedManualSls).trim() : (pmlCoords?.idsubsls ? String(pmlCoords.idsubsls).trim() : 'WILAYAH-PML');
+    const namaClean = profile?.nama_pengguna ? profile.nama_pengguna.replace(/\s+/g, '_').toUpperCase() : 'PENGAWAS';
+    const tglClean = tglHariIni.replace(/-/g, ''); 
+    
+    const namaFileUnik = `SE26_PML_${idSlsClean}_${namaClean}_${tglClean}.jpg`;
+    
+    // Ambil data Base64 dari canvas persisten untuk diamankan ke IndexedDB jika luring/gagal
+    const canvas = canvasRef.current;
+    const livePhotoBase64 = canvas ? canvas.toDataURL("image/jpeg", 0.6) : null;
 
-        // ==========================================
-        // BLOK KONDISI DARING / ONLINE
-        // ==========================================
+    // Siapkan struktur data offline terpadu (Sesuai skema tabel Supabase + metadata pendukung)
+    const payloadOffline = {
+        tanggal: tglHariIni,
+        pml_email: pmlEmail.toLowerCase().trim(),
+        idsubsls: idSlsClean,
+        latitude: pmlCoords?.latitude || null,
+        longitude: pmlCoords?.longitude || null,
+        foto_base64: livePhotoBase64, // Disimpan lokal untuk diupload saat online nanti
+        nama_file: namaFileUnik,
+        created_at: new Date().toISOString()
+    };
+
+    // Helper internal untuk mengunci data absen ke IndexedDB secara aman
+    const simpanAbsenKeIndexedDB = async () => {
         try {
-            const canvas = canvasRef.current;
-            const livePhotoBase64 = canvas.toDataURL("image/jpeg", 0.6);
-
-            const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
-            const responseGas = await fetch(gasUrl, {
-                method: "POST",
-                body: JSON.stringify({
-                    fotoBase64: livePhotoBase64,
-                    namaFile: namaFileUnik
-                })
-            });
-            const hasilGas = await responseGas.json();
-            if (hasilGas.status === "success") finalFotoUrl = hasilGas.url;
-
-            const { error } = await supabase
-                .from('log_checkin_pml')
-                .insert({
-                    tanggal: tglHariIni,
-                    pml_email: pmlEmail.toLowerCase().trim(),
-                    idsubsls: idSlsClean,
-                    latitude: pmlCoords?.latitude || null,
-                    longitude: pmlCoords?.longitude || null,
-                    foto_bukti: finalFotoUrl
-                });
-
-            if (error) throw error;
-
-            // State dan cache utama hanya berubah jika tanggal yang dipilih adalah HARI INI
-            if (tglHariIni === tglRealtimeHariIni) {
-                localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
-                setPmlCheckedInToday(true);
-            }
-
-            alert("Absen Pengawasan Lapangan Berhasil Tersimpan!");
-            resetPmlForm();
-        } catch (err) {
-            alert("Gagal mengirim data online, absen disimpan lokal di HP: " + err.message);
+            const db = await initPmlOfflineDB();
+            const tx = db.transaction("pending_absen_pml", "readwrite");
+            await tx.objectStore("pending_absen_pml").add(payloadOffline);
             
-            localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
-            
-            // State dan cache utama hanya berubah jika tanggal yang dipilih adalah HARI INI
-            if (tglHariIni === tglRealtimeHariIni) {
-                localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
-                setPmlCheckedInToday(true);
+            // Perbarui jumlah antrean di dashboard (pastikan fungsi ini eksis di state utama)
+            if (typeof checkOfflineInputQueueCount === "function") {
+                await checkOfflineInputQueueCount();
             }
-
-            resetPmlForm();
-        } finally {
-            setSubmitSiklusLoading(false);
+        } catch (dbErr) {
+            console.error("Gagal mengunci database IndexedDB:", dbErr.message);
+            alert("⚠️ Memori browser/HP penuh, gagal menyimpan backup luring.");
         }
     };
+
+    // ==========================================
+    // BLOK KONDISI LURING / OFFLINE
+    // ==========================================
+    if (!navigator.onLine) {
+        // Amankan data menyeluruh beserta fotonya ke IndexedDB
+        await simpanAbsenKeIndexedDB();
+
+        localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
+        
+        if (tglHariIni === tglRealtimeHariIni) {
+            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+            setPmlCheckedInToday(true);
+        }
+        
+        alert("💾 Absen & Foto Pendampingan PML berhasil dikunci offline di HP!");
+        resetPmlForm();
+        setSubmitSiklusLoading(false);
+        return;
+    }
+
+    // ==========================================
+    // BLOK KONDISI DARING / ONLINE
+    // ==========================================
+    try {
+        let finalFotoUrl = "OFFLINE_LINK";
+
+        // 1. Unggah gambar ke server Google Drive via GAS
+        const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
+        const responseGas = await fetch(gasUrl, {
+            method: "POST",
+            body: JSON.stringify({
+                fotoBase64: livePhotoBase64,
+                namaFile: namaFileUnik
+            })
+        });
+        
+        const hasilGas = await responseGas.json();
+        
+        // Validasi respon dari sistem GAS agar tidak lolos saat kuota limit/error script Google
+        if (hasilGas && hasilGas.status === "success") {
+            finalFotoUrl = hasilGas.url;
+        } else {
+            throw new Error(hasilGas?.message || "Google Apps Script menolak unggahan berkas.");
+        }
+
+        // 2. Insert log koordinat dan URL gambar akhir ke Supabase
+        const { error } = await supabase
+            .from('log_checkin_pml')
+            .insert({
+                tanggal: tglHariIni,
+                pml_email: pmlEmail.toLowerCase().trim(),
+                idsubsls: idSlsClean,
+                latitude: pmlCoords?.latitude || null,
+                longitude: pmlCoords?.longitude || null,
+                foto_bukti: finalFotoUrl
+            });
+
+        if (error) throw error;
+
+        if (tglHariIni === tglRealtimeHariIni) {
+            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+            setPmlCheckedInToday(true);
+        }
+
+        alert("✅ Absen Pengawasan Lapangan Berhasil Tersimpan ke Server!");
+        resetPmlForm();
+    } catch (err) {
+        console.warn("Gangguan koneksi daring, mengalihkan ke sistem backup lokal:", err.message);
+        
+        // Jika skrip macet di tengah jalan saat upload online, amankan ke antrean IndexedDB
+        await simpanAbsenKeIndexedDB();
+
+        localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
+        
+        if (tglHariIni === tglRealtimeHariIni) {
+            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+            setPmlCheckedInToday(true);
+        }
+
+        alert("⚠️ Gagal mengirim data online, absen & FOTO disimpan aman di lokal HP!");
+        resetPmlForm();
+    } finally {
+        setSubmitSiklusLoading(false);
+    }
+};
 
     // =========================================================================
     // ACTION HANDLERS: SIMPAN REALISASI LANGSUNG PER SLS DAN VERIFIKASI SIKLUS
@@ -1053,89 +1117,161 @@ const submitPmlCheckIn = async () => {
     // =========================================================================
     // OPTIMALISASI 3: PROSES SINKRONISASI MASSAL MENGGUNAKAN TEKNIK BULK UPSERT
     // =========================================================================
-    const handleSyncPmlOfflineInputs = async () => {
-        setIsSyncingInput(true);
-        try {
-            const db = await initPmlOfflineDB();
+const handleSyncPmlOfflineInputs = async () => {
+    setIsSyncingInput(true);
+    try {
+        const db = await initPmlOfflineDB();
+        let totalSuksesCount = 0;
+
+        // =========================================================================
+        // SINKRONISASI 1: AMBIL & PROSES ANTREAN REALISASI SLS (STORE: pending_realisasi)
+        // =========================================================================
+        const recordsRealisasi = await new Promise((resolve) => {
             const txRead = db.transaction("pending_realisasi", "readonly");
             const storeRead = txRead.objectStore("pending_realisasi");
-            const getAllRequest = storeRead.getAll();
+            const req = storeRead.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+        });
 
-            getAllRequest.onsuccess = async () => {
-                const records = getAllRequest.result;
-                if (records.length === 0) {
-                    setIsSyncingInput(false);
-                    return;
-                }
+        const bulkProgressRecords = [];
+        const statusToggleRecords = [];
+        const idRealisasiToDelete = [];
 
-                const bulkProgressRecords = [];
-                const statusToggleRecords = [];
-                const idToDelete = [];
-
-                records.forEach(record => {
-                    if (record.isDirectSls) {
-                        bulkProgressRecords.push({
-                            idsubsls: record.idsubsls,
-                            realisasi_pencacahan: record.realisasi_pencacahan,
-                            pml_updater: record.pml_updater,
-                            updated_at: record.updated_at
-                        });
-                        idToDelete.push(record.id);
-                    } else if (record.isStatusToggle) {
-                        statusToggleRecords.push(record);
-                        idToDelete.push(record.id);
-                    }
+        recordsRealisasi.forEach(record => {
+            if (record.isDirectSls) {
+                bulkProgressRecords.push({
+                    idsubsls: record.idsubsls,
+                    realisasi_pencacahan: record.realisasi_pencacahan,
+                    pml_updater: record.pml_updater,
+                    updated_at: record.updated_at
                 });
+                idRealisasiToDelete.push(record.id);
+            } else if (record.isStatusToggle) {
+                statusToggleRecords.push(record);
+                idRealisasiToDelete.push(record.id);
+            }
+        });
 
-                let totalSuksesCount = 0;
-
-                if (bulkProgressRecords.length > 0) {
-                    const { error: progressBulkError } = await supabase
-                        .from('muatan_sls')
-                        .upsert(bulkProgressRecords, { onConflict: 'idsubsls' });
-                    
-                    if (!progressBulkError) {
-                        totalSuksesCount += bulkProgressRecords.length;
-                    } else {
-                        console.error("Gagal melakukan bulk progress:", progressBulkError.message);
-                    }
-                }
-
-                for (let statusRecord of statusToggleRecords) {
-                    try {
-                        const { error: statusErr } = await supabase
-                            .from('muatan_sls')
-                            .update({
-                                is_selesai: statusRecord.is_selesai,
-                                pml_validator: statusRecord.is_selesai ? statusRecord.pml_validator : null,
-                                validated_at: statusRecord.is_selesai ? statusRecord.validated_at : null
-                            })
-                            .eq('idsubsls', statusRecord.idsubsls);
-
-                        if (!statusErr) totalSuksesCount++;
-                    } catch (err) {
-                        console.error(err);
-                    }
-                }
-
-                if (idToDelete.length > 0) {
-                    const txDelete = db.transaction("pending_realisasi", "readwrite");
-                    const storeDelete = txDelete.objectStore("pending_realisasi");
-                    idToDelete.forEach(id => storeDelete.delete(id));
-                    
-                    txDelete.oncomplete = () => {
-                        alert(`📡 Sinkronisasi Selesai! Berhasil mengunggah ${totalSuksesCount} antrean perubahan SLS ke server kabupaten.`);
-                        checkOfflineInputQueueCount();
-                        fetchPmlData();
-                    };
-                }
-                setIsSyncingInput(false);
-            };
-        } catch (err) {
-            alert("Gagal sinkronisasi data: " + err.message);
-            setIsSyncingInput(false);
+        // Eksekusi Bulk Upsert Realisasi ke Supabase
+        if (bulkProgressRecords.length > 0) {
+            const { error: progressBulkError } = await supabase
+                .from('muatan_sls')
+                .upsert(bulkProgressRecords, { onConflict: 'idsubsls' });
+            
+            if (!progressBulkError) {
+                totalSuksesCount += bulkProgressRecords.length;
+            } else {
+                console.error("Gagal melakukan bulk progress:", progressBulkError.message);
+            }
         }
-    };
+
+        // Eksekusi Update Status Selesai SLS satu per satu
+        for (let statusRecord of statusToggleRecords) {
+            try {
+                const { error: statusErr } = await supabase
+                    .from('muatan_sls')
+                    .update({
+                        is_selesai: statusRecord.is_selesai,
+                        pml_validator: statusRecord.is_selesai ? statusRecord.pml_validator : null,
+                        validated_at: statusRecord.is_selesai ? statusRecord.validated_at : null
+                    })
+                    .eq('idsubsls', statusRecord.idsubsls);
+
+                if (!statusErr) totalSuksesCount++;
+            } catch (err) {
+                console.error("Gagal sync status selesai SLS:", err);
+            }
+        }
+
+        // Bersihkan data antrean realisasi yang sukses terunggah dari IndexedDB
+        if (idRealisasiToDelete.length > 0) {
+            const txDelete = db.transaction("pending_realisasi", "readwrite");
+            const storeDelete = txDelete.objectStore("pending_realisasi");
+            idRealisasiToDelete.forEach(id => storeDelete.delete(id));
+        }
+
+        // =========================================================================
+        // SINKRONISASI 2: AMBIL & PROSES ANTREAN ABSEN PML (STORE: pending_absen_pml)
+        // =========================================================================
+        const recordsAbsen = await new Promise((resolve) => {
+            if (!db.objectStoreNames.contains("pending_absen_pml")) return resolve([]);
+            const txAbsenRead = db.transaction("pending_absen_pml", "readonly");
+            const storeAbsenRead = txAbsenRead.objectStore("pending_absen_pml");
+            const req = storeAbsenRead.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+        });
+
+        const idAbsenToDelete = [];
+
+        // Loop berurutan (for...of) untuk mencegah lonjakan request upload gambar (antrean ramah memori)
+        for (let absenRecord of recordsAbsen) {
+            try {
+                let finalFotoUrl = "OFFLINE_LINK";
+
+                // 1. Kirim ulang gambar Base64 ke Google Apps Script
+                if (absenRecord.foto_base64) {
+                    const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
+                    const responseGas = await fetch(gasUrl, {
+                        method: "POST",
+                        body: JSON.stringify({
+                            fotoBase64: absenRecord.foto_base64,
+                            namaFile: absenRecord.nama_file
+                        })
+                    });
+                    const hasilGas = await responseGas.json();
+                    if (hasilGas && hasilGas.status === "success") {
+                        finalFotoUrl = hasilGas.url;
+                    }
+                }
+
+                // 2. Lempar rekap koordinat dan URL gambar Google Drive ke Supabase
+                const { error: supabaseAbsenErr } = await supabase
+                    .from('log_checkin_pml')
+                    .insert({
+                        tanggal: absenRecord.tanggal,
+                        pml_email: absenRecord.pml_email,
+                        idsubsls: absenRecord.idsubsls,
+                        latitude: absenRecord.latitude,
+                        longitude: absenRecord.longitude,
+                        foto_bukti: finalFotoUrl
+                    });
+
+                if (!supabaseAbsenErr) {
+                    totalSuksesCount++;
+                    idAbsenToDelete.push(absenRecord.id);
+                } else {
+                    console.error("Supabase menolak log checkin absen:", supabaseAbsenErr.message);
+                }
+            } catch (singleAbsenErr) {
+                console.error("Gagal menyinkronkan 1 item absen PML:", singleAbsenErr.message);
+            }
+        }
+
+        // Bersihkan data antrean absen yang sukses terunggah dari IndexedDB
+        if (idAbsenToDelete.length > 0) {
+            const txAbsenDelete = db.transaction("pending_absen_pml", "readwrite");
+            const storeAbsenDelete = txAbsenDelete.objectStore("pending_absen_pml");
+            idAbsenToDelete.forEach(id => storeAbsenDelete.delete(id));
+        }
+
+        // =========================================================================
+        // FINALISASI: SELESAI SINKRONISASI MASAL
+        // =========================================================================
+        alert(`📡 Sinkronisasi Selesai! Berhasil mengunggah total ${totalSuksesCount} perubahan data lapangan (SLS & Absen) ke server.`);
+        
+        // Refresh indikator antrean dan rekap dashboard
+        if (typeof checkOfflineInputQueueCount === "function") await checkOfflineInputQueueCount();
+        if (typeof fetchPmlData === "function") await fetchPmlData();
+
+    } catch (err) {
+        console.error("Kegagalan total sistem sinkronisasi masal:", err.message);
+        alert("Gagal sinkronisasi data: " + err.message);
+    } finally {
+        setIsSyncingInput(false);
+    }
+};
 
     // =========================================================================
     // FILTERING & MEMOIZATION DATA FILTER ARRAY
