@@ -231,13 +231,31 @@ export default function PmlMonitoringPage() {
         return match ? match[0] : null;
     }, [profile?.kecamatan_tugas]);
 
-    const checkOfflineInputQueueCount = async () => {
+const checkOfflineInputQueueCount = async () => {
         try {
             const db = await initPmlOfflineDB();
-            const tx = db.transaction("pending_realisasi", "readonly");
-            const store = tx.objectStore("pending_realisasi");
-            const countRequest = store.count();
-            countRequest.onsuccess = () => setOfflineInputCount(countRequest.result);
+            
+            // 1. Hitung antrean realisasi SLS
+            const countRealisasi = await new Promise((resolve) => {
+                const tx = db.transaction("pending_realisasi", "readonly");
+                const store = tx.objectStore("pending_realisasi");
+                const req = store.count();
+                req.onsuccess = () => resolve(req.result || 0);
+                req.onerror = () => resolve(0);
+            });
+
+            // 2. Hitung antrean absen PML
+            const countAbsen = await new Promise((resolve) => {
+                if (!db.objectStoreNames.contains("pending_absen_pml")) return resolve(0);
+                const tx = db.transaction("pending_absen_pml", "readonly");
+                const store = tx.objectStore("pending_absen_pml");
+                const req = store.count();
+                req.onsuccess = () => resolve(req.result || 0);
+                req.onerror = () => resolve(0);
+            });
+
+            // Set total gabungan antrean ke state
+            setOfflineInputCount(countRealisasi + countAbsen);
         } catch (err) {
             console.error("Gagal membaca storage offline PML:", err);
         }
@@ -462,10 +480,17 @@ export default function PmlMonitoringPage() {
         }
     }, [authLoading]); 
 
-    useEffect(() => {
-        const handlePmlSignalToggle = () => checkOfflineInputQueueCount();
+useEffect(() => {
+        const handlePmlSignalToggle = () => {
+            checkOfflineInputQueueCount();
+        };
+        
         window.addEventListener('online', handlePmlSignalToggle);
         window.addEventListener('offline', handlePmlSignalToggle);
+        
+        // Jalankan sekali saat pertama kali aplikasi dimuat
+        checkOfflineInputQueueCount();
+
         return () => {
             window.removeEventListener('online', handlePmlSignalToggle);
             window.removeEventListener('offline', handlePmlSignalToggle);
@@ -1577,22 +1602,24 @@ const handleSyncPmlOfflineInputs = async () => {
                 )}
 
                 {/* NOTIFIKASI OFFLINE QUEUE */}
-                {offlineInputCount > 0 && (
-                    <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl flex items-center justify-between text-xs font-bold animate-fadeIn">
-                        <div className="flex items-center gap-2">
-                            <WifiOff size={16} className="text-amber-600 shrink-0 animate-pulse" />
-                            <span>Ada {offlineInputCount} Realisasi Belum Diunggah</span>
-                        </div>
-                        <button
-                            disabled={isSyncingInput || !navigator.onLine}
-                            onClick={handleSyncPmlOfflineInputs}
-                            className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-xl flex items-center gap-1 text-[11px] font-black transition-all disabled:bg-slate-300 disabled:text-slate-500"
-                        >
-                            {isSyncingInput ? <RefreshCw className="animate-spin" size={12} /> : <CloudLightning size={12} />}
-                            {navigator.onLine ? "SINKRON" : "LURING"}
-                        </button>
-                    </div>
-                )}
+{/* NOTIFIKASI OFFLINE QUEUE */}
+{offlineInputCount > 0 && (
+    <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl flex items-center justify-between text-xs font-bold animate-fadeIn">
+        <div className="flex items-center gap-2">
+            <WifiOff size={16} className="text-amber-600 shrink-0 animate-pulse" />
+            {/* PERBAIKAN TEKS BANNER */}
+            <span>Ada {offlineInputCount} Data Lapangan (Absen/SLS) Belum Diunggah</span>
+        </div>
+        <button
+            disabled={isSyncingInput || !navigator.onLine}
+            onClick={handleSyncPmlOfflineInputs}
+            className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-xl flex items-center gap-1 text-[11px] font-black transition-all disabled:bg-slate-300 disabled:text-slate-500"
+        >
+            {isSyncingInput ? <RefreshCw className="animate-spin" size={12} /> : <CloudLightning size={12} />}
+            {navigator.onLine ? "SINKRON" : "LURING"}
+        </button>
+    </div>
+)}
 
                 {/* TAB 0: DAFTAR PANTAU PETUGAS LAPANAGAN PCL */}
                 {activeTab === 0 && (
