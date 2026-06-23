@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, PieChart, Pie, Cell, AreaChart, Area } from 'recharts';
 import { supabase } from '../supabaseClient'; 
+import * as XLSX from 'xlsx';
 
 export default function DashboardMonitoring() {
     // --- STATE MANAGEMENT UTAMA ---
@@ -410,9 +411,95 @@ if (statusSlsKategori === "selesai") petugasMap[emailPetugas].sls_selesai += 1;
     const indexOfFirstItem = indexOfLastItem - itemsPerPage;
     const currentModalItems = lowPerformersList.slice(indexOfFirstItem, indexOfLastItem);
 
-    const handleDownloadSlsExcel = () => {
-        alert("Fitur Export Excel terpicu untuk cakupan: " + selectedKecTab + " - Mode: " + viewModeTab);
-    };
+// --- FUNGSI EXPORT EXCEL DINAMIS SESUAI BAR CHART ---
+// --- FUNGSI EXPORT EXCEL: SEMUA DATA BERUJUD JUMLAH DOKUMEN MURNI ---
+// --- FUNGSI EXPORT EXCEL: JUMLAH MURNI + PERSENTASE CAPAIAN DI AKHIR ---
+const handleDownloadSlsExcel = () => {
+    const currentChartData = getChartData();
+    
+    if (!currentChartData || currentChartData.length === 0) {
+        alert("Tidak ada data yang bisa diexport saat ini.");
+        return;
+    }
+
+    const formattedData = currentChartData.map((item, index) => {
+        // 1. Ambil nilai target total murni terlebih dahulu
+        const totalTargetMurni = item.total_target || item.t || 0;
+
+        // 2. Deklarasi variabel hitungan dokumen murni
+        let approvedMurni = 0;
+        let submittedMurni = 0;
+        let draftMurni = 0;
+        let rejectedMurni = 0;
+        let revokedMurni = 0;
+        let openMurni = 0;
+
+        // JIKA BUKAN MODE PETUGAS/SLS (Kembalikan nilai persen di state ke jumlah dokumen riil)
+        if (viewModeTab !== "PETUGAS" && viewModeTab !== "SLS") {
+            approvedMurni  = totalTargetMurni > 0 ? Math.round((item.approved * totalTargetMurni) / 100) : 0;
+            submittedMurni = totalTargetMurni > 0 ? Math.round((item.submitted * totalTargetMurni) / 100) : 0;
+            draftMurni     = totalTargetMurni > 0 ? Math.round((item.draft * totalTargetMurni) / 100) : 0;
+            rejectedMurni  = totalTargetMurni > 0 ? Math.round((item.rejected * totalTargetMurni) / 100) : 0;
+            revokedMurni   = totalTargetMurni > 0 ? Math.round((item.revoked * totalTargetMurni) / 100) : 0;
+            
+            const totalRealisasiMurni = approvedMurni + submittedMurni + draftMurni + rejectedMurni + revokedMurni;
+            openMurni      = totalTargetMurni - totalRealisasiMurni;
+        } else {
+            // Jika sudah di level PETUGAS atau SLS, datanya memang sudah bawaan murni
+            approvedMurni  = item.approved || 0;
+            submittedMurni = item.submitted || 0;
+            draftMurni     = item.draft || 0;
+            rejectedMurni  = item.rejected || 0;
+            revokedMurni   = item.revoked || 0;
+            openMurni      = item.open || 0;
+        }
+
+        const totalRealisasi = totalTargetMurni - openMurni;
+
+        // Hitung rumus persentase capaian (Total Realisasi / Total Target * 100) dengan 2 desimal
+        const persentaseCapaian = totalTargetMurni > 0 
+            ? parseFloat(((totalRealisasi / totalTargetMurni) * 100).toFixed(2)) 
+            : 0.00;
+
+        // 3. Susun struktur baris Excel
+        const row = {
+            "No": index + 1,
+            "Nama Wilayah / Petugas": item.nama_asli || item.nama,
+        };
+
+        if (viewModeTab === "SLS" && item.idsubsls) {
+            row["ID Sub SLS"] = item.idsubsls;
+        }
+
+        if (item.namaKec) row["Kecamatan"] = item.namaKec;
+
+        // Masukkan data murni dokumen
+        row["Approved PML"] = approvedMurni;
+        row["Submitted"] = submittedMurni;
+        row["Draft"] = draftMurni;
+        row["Rejected"] = rejectedMurni;
+        row["Revoked"] = revokedMurni;
+        row["Open"] = openMurni;
+        row["Total Target"] = totalTargetMurni;
+        row["Total Realisasi"] = totalRealisasi;
+        
+        // 🌟 Tambahan kolom persentase di paling belakang
+        row["Persentase Capaian (%)"] = persentaseCapaian;
+
+        return row;
+    });
+
+    // 4. Proses pembuatan file Excel
+    const worksheet = XLSX.utils.json_to_sheet(formattedData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Data Realisasi Lapangan");
+
+    // 5. Penamaan file excel dinamis
+    const namaWilayahFile = selectedKecTab === "SEMUA" ? "KAB_BOYOLALI" : `KEC_${selectedKecTab}`;
+    const namaFileExcel = `VOLUME_PROGRESS_${viewModeTab}_${namaWilayahFile}_${new Date().toISOString().slice(0,10)}.xlsx`;
+
+    XLSX.writeFile(workbook, namaFileExcel);
+};
     
     if (loading) {
         return (
@@ -796,7 +883,13 @@ const bottomPerformers = [...validPetugasData]
                                     <span className="font-mono font-black text-slate-700">{item.count} SLS</span>
                                 </div>
                             ))}
-                            <button onClick={handleDownloadSlsExcel} className="w-full bg-emerald-600 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-xs mt-2">Export Status SLS</button>
+                            <button 
+    onClick={handleDownloadSlsExcel} 
+    className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition-all duration-150 mt-2 flex items-center justify-center gap-1.5"
+    title="Unduh data volume realisasi saat ini dalam bentuk berkas Excel"
+>
+    <span>📥</span> Export Data Realisasi
+</button>
                         </div>
                     </div>
                 </div>
