@@ -14,6 +14,7 @@ const PrioritasPage = lazy(() => import('./pages/PrioritasPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const PmlMonitoringPage = lazy(() => import('./pages/PmlMonitoringPage'));
 const PclAssignmentPage = lazy(() => import('./pages/PclAssignmentPage'));
+const DashboardMonitoring = lazy(() => import('./pages/DashboardMonitoring'));
 
 // 🚀 Lazy Import kedua halaman pendataan orang penting
 const OrangPentingPage = lazy(() => import('./pages/OrangPentingPage'));
@@ -99,7 +100,7 @@ function AppContent() {
           <Route path="cek-selisih-muatan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AnomaliMonitoringPage /></ProtectedRoute>} />
           <Route path="alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AlokasiPage /></ProtectedRoute>} />
           <Route path="prioritas" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><PrioritasPage /></ProtectedRoute>} />
-          
+          <Route path="dashboard-monitoring" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><DashboardMonitoring /></ProtectedRoute>} />
           {/* Dashboard Internal untuk Monitoring Rekapan */}
           <Route path="orang-penting" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><OrangPentingPage /></ProtectedRoute>} />
           

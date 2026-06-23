@@ -22,7 +22,8 @@ export default function Layout() {
 
   // Menu Items disederhanakan karena khusus untuk Admin & Pegawai
   const allMenuItems = [
-    { name: 'Pemantauan Lapangan', path: '/dashboard-lapangan', icon: BarChart3, roles: ['admin', 'pegawai'] },
+    { name: 'Progress Lapangan', path: '/dashboard-monitoring', icon: BarChart3, roles: ['admin', 'pegawai'] },
+    { name: 'Keaktifan Petugas', path: '/dashboard-lapangan', icon: BarChart3, roles: ['admin', 'pegawai'] },
     // 🚀 2. DAFTARKAN MENU BARU DI BAWAH PEMANTAUAN LAPANGAN
     { name: 'Pendataan Orang Penting', path: '/orang-penting', icon: Shield, roles: ['admin', 'pegawai'] },
     
@@ -62,7 +63,7 @@ export default function Layout() {
         {/* 1. Menu Utama (Pemantauan Atas) */}
         {allowedMenuItems
           // 🚀 3. MASUKKAN '/orang-penting' KE FILTER BAGIAN UTAMA AGAR GERAKANNYA TIDAK PINDAH KE BAWAH
-          .filter(item => ['/dashboard-lapangan', '/orang-penting', '/prioritas', '/cek-selisih-muatan'].includes(item.path))
+          .filter(item => ['/dashboard-monitoring', '/dashboard-lapangan', '/orang-penting', '/prioritas', '/cek-selisih-muatan'].includes(item.path))
           .map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -105,7 +106,7 @@ export default function Layout() {
         {/* 3. Menu Sisa (Pengaturan dll) */}
         {allowedMenuItems
           // 🚀 4. PASTIKAN '/orang-penting' DIKECUALIKAN DI SINI AGAR TIDAK MUNCUL GANDA DI BAWAH PENGATURAN
-          .filter(item => !['/dashboard-lapangan', '/orang-penting', '/prioritas', '/cek-selisih-muatan', '/dashboard-alokasi', '/alokasi'].includes(item.path))
+          .filter(item => !['/dashboard-monitoring', '/dashboard-lapangan', '/orang-penting', '/prioritas', '/cek-selisih-muatan', '/dashboard-alokasi', '/alokasi'].includes(item.path))
           .map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
