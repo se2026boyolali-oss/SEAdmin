@@ -94,7 +94,7 @@ function AppContent() {
 
         {/* Rute Internal Manajemen - Murni Admin & Pegawai */}
         <Route path="/" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><Layout /></ProtectedRoute>}>
-          <Route index element={<Navigate to="/dashboard-lapangan" replace />} />
+          <Route index element={<Navigate to="/dashboard-alokasi" replace />} />
           <Route path="dashboard-lapangan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><KabupatenDashboardPage /></ProtectedRoute>} />
           <Route path="dashboard-alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><Dashboard /></ProtectedRoute>} />
           <Route path="cek-selisih-muatan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AnomaliMonitoringPage /></ProtectedRoute>} />

@@ -58,9 +58,9 @@ export default function DashboardMonitoring() {
         { key: "open",      label: "OPEN",                  fill: "#e2e8f0", radius: [4, 4, 0, 0] } 
     ];
 
-    const namaKecamatanTerpilihText = selectedKecTab !== "SEMUA" 
-        ? (dataMonitoringWilayah.kecamatan.find(k => k.kodeKec === selectedKecTab)?.nama_asli || selectedKecTab)
-        : "";
+const namaKecamatanTerpilihText = selectedKecTab !== "SEMUA" 
+    ? (dataMonitoringWilayah.kecamatan.find(k => k.kodeKec === selectedKecTab)?.nama_asli || selectedKecTab)
+    : "";
 
     // --- FETCH DATA UTAMA, DATA RIWAYAT, & DATA MASTER PETUGAS ---
     useEffect(() => {
@@ -69,15 +69,16 @@ export default function DashboardMonitoring() {
                 setLoading(true);
 
                 // 1. Ambil data progress lapangan real-time
-                const { data: currentProgress, error: progressError } = await supabase
-                    .from('progress_boyolali')
-                    .select(`
-                        idsubsls, kecamatan, kode_desa, nama_desa, kode_sls, nama_rt_dusun, status_progres, updated_at,
-                        muatan_sls (
-                            nmsls, kdkec, nmkec, kddesa, nmdesa, petugas_id,
-                            petugas (nama_petugas, posisi_tugas, id_pml_atasan)
-                        )
-                    `);
+// Ambil data progress lapangan real-time (UBAH BAGIAN INI)
+const { data: currentProgress, error: progressError } = await supabase
+    .from('progress_boyolali')
+    .select(`
+        idsubsls, kecamatan, kode_desa, nama_desa, kode_sls, nama_rt_dusun, status_progres, updated_at,
+        muatan_sls (
+            nmsls, kdkec, nmkec, kddesa, nmdesa, petugas_id,
+            petugas (nama_petugas, posisi_tugas, id_pml_atasan, kecamatan_tugas)
+        )
+    `);
                 if (progressError) throw progressError;
 
                 // 2. Ambil data riwayat 15 hari terakhir untuk time-series
@@ -128,258 +129,229 @@ export default function DashboardMonitoring() {
     }, []);
 
     // --- AGREGASI DATA, DETEKSI ANOMALI & EKSTRAKSI FILTER DROPDOWN ---
-    useEffect(() => {
-        if (rawData.length === 0) return;
+// --- AGREGASI DATA, DETEKSI ANOMALI & EKSTRAKSI FILTER DROPDOWN (FIXED) ---
+useEffect(() => {
+    if (rawData.length === 0) return;
 
-        const kecMap = {};
-        const desaMap = {};
-        const petugasMap = {};
-        const slsList = [];
+    const kecMap = {};
+    const desaMap = {};
+    const petugasMap = {};
+    const slsList = [];
 
-        let fSubmitted = 0, fDraft = 0, fRejected = 0, fRevoked = 0, fApproved = 0, fOpen = 0;
-        let fSlsSelesai = 0, fSlsSedang = 0, fSlsBelum = 0, fSlsTotal = 0;
+    let fSubmitted = 0, fDraft = 0, fRejected = 0, fRevoked = 0, fApproved = 0, fOpen = 0;
+    let fSlsSelesai = 0, fSlsSedang = 0, fSlsBelum = 0, fSlsTotal = 0;
 
-        const pmlSeen = new Set();
-        const tmpPmlList = [];
-        const tmpPclToPml = {};
+    const pmlSeen = new Set();
+    const tmpPmlList = [];
+    const tmpPclToPml = {};
 
-        // Loop Pertama: Mengumpulkan relasi lookup & mengekstrak PML berkecamatan secara dinamis
-        rawData.forEach(row => {
-            const relMuatan = row.muatan_sls || {};
-            const relPetugas = relMuatan.petugas || {};
-            const kodeKec = relMuatan.kdkec || "000";
-            const rawPmlEmail = relPetugas.id_pml_atasan ? relPetugas.id_pml_atasan.toLowerCase().trim() : null;
-            const rawPclEmail = relMuatan.petugas_id ? relMuatan.petugas_id.toLowerCase().trim() : null;
+    // Loop Pertama: Ambil relasi unik PML & PCL
+    rawData.forEach(row => {
+        const relMuatan = row.muatan_sls || {};
+        const relPetugas = relMuatan.petugas || {};
+        const kodeKec = relMuatan.kdkec || "000";
+        const rawPmlEmail = relPetugas.id_pml_atasan ? relPetugas.id_pml_atasan.toLowerCase().trim() : null;
+        const rawPclEmail = relMuatan.petugas_id ? relMuatan.petugas_id.toLowerCase().trim() : null;
 
-            if (rawPclEmail && rawPmlEmail && rawPmlEmail !== "tanpa petugas") {
-                tmpPclToPml[rawPclEmail] = rawPmlEmail;
-            }
+        if (rawPclEmail && rawPmlEmail && rawPmlEmail !== "tanpa petugas") {
+            tmpPclToPml[rawPclEmail] = rawPmlEmail;
+        }
 
-            if (rawPmlEmail && rawPmlEmail !== "tanpa petugas") {
-                if (selectedKecTab === "SEMUA" || kodeKec === selectedKecTab) {
-                    if (!pmlSeen.has(rawPmlEmail)) {
-                        pmlSeen.add(rawPmlEmail);
-                        tmpPmlList.push({
-                            email: rawPmlEmail,
-                            nama: staffLookup[rawPmlEmail] || rawPmlEmail
-                        });
-                    }
-                }
-            }
-        });
-        tmpPmlList.sort((a, b) => a.nama.localeCompare(b.nama));
-        setPmlList(tmpPmlList);
-        setPclToPmlLookup(tmpPclToPml);
-
-        // Loop Kedua: Kompilasi Ringkasan Agregasi Data
-        rawData.forEach(row => {
-            const relMuatan = row.muatan_sls || {};
-            const relPetugas = relMuatan.petugas || {};
-
-            const kodeKec = relMuatan.kdkec || "000";
-            const namaKec = row.kecamatan || relMuatan.nmkec || "Unknown";
-            const kodeDesa = row.kode_desa || relMuatan.kddesa || "000";
-            const namaDesa = row.nama_desa || relMuatan.nmdesa || "Unknown";
-            
-            const emailPetugas = relMuatan.petugas_id || "Tanpa Petugas";
-            const namaPetugas = relPetugas.nama_petugas ? `${relPetugas.nama_petugas}` : emailPetugas;
-            const emailPmlFormated = relPetugas.id_pml_atasan ? relPetugas.id_pml_atasan.toLowerCase().trim() : "tanpa pengawas";
-
-            // Logika cascading filter pengawas hulu
-            if (selectedPml !== "SEMUA" && emailPmlFormated !== selectedPml.toLowerCase().trim()) {
-                return; 
-            }
-
-            const statusProgres = row.status_progres || {};
-            
-            const s_submitted = parseInt(statusProgres["SUBMITTED BY Pencacah"]) || 0;
-            const s_draft     = parseInt(statusProgres["DRAFT"]) || 0;
-            const s_rejected  = parseInt(statusProgres["REJECTED BY Pengawas"]) || 0;
-            const s_revoked   = parseInt(statusProgres["REVOKED BY Pengawas"]) || 0;
-            const s_approved  = parseInt(statusProgres["APPROVED BY Pengawas"]) || 0;
-            const s_open      = parseInt(statusProgres["OPEN"]) || 0;
-
-            const totalTarget = s_submitted + s_draft + s_rejected + s_revoked + s_approved + s_open;
-
-            // 🌟 LOGIKA BARU PENENTUAN STATUS SLS (Sesuai Request) 🌟
-            let statusSlsKategori = "belum";
-            if (totalTarget > 0) {
-                if (s_open === 0) {
-                    statusSlsKategori = "selesai"; // Tidak ada yang open sama sekali
-                } else if (s_open < totalTarget) {
-                    statusSlsKategori = "sedang";  // Ada open dan ada status selain open
-                } else {
-                    statusSlsKategori = "belum";   // Hanya ada open (s_open === totalTarget)
-                }
-            }
-
-            const initStrukturData = (kode, namaTampilan, namaAsli) => ({
-                kodeKec, kodeDesa, nama: namaTampilan, nama_asli: namaAsli,
-                submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, open: 0,
-                t: 0, jml_sls: 0, sls_selesai: 0
-            });
-
-            if (!kecMap[kodeKec]) kecMap[kodeKec] = initStrukturData(kodeKec, `${namaKec} [${kodeKec}]`, namaKec);
-            kecMap[kodeKec].submitted += s_submitted; kecMap[kodeKec].draft += s_draft;
-            kecMap[kodeKec].rejected += s_rejected; kecMap[kodeKec].revoked += s_revoked;
-            kecMap[kodeKec].approved += s_approved; kecMap[kodeKec].open += s_open;
-            kecMap[kodeKec].t += totalTarget; kecMap[kodeKec].jml_sls += 1;
-            if (statusSlsKategori === "selesai") kecMap[kodeKec].sls_selesai += 1;
-
-            if (!desaMap[kodeDesa]) desaMap[kodeDesa] = initStrukturData(kodeDesa, namaDesa, namaDesa);
-            desaMap[kodeDesa].submitted += s_submitted; desaMap[kodeDesa].draft += s_draft;
-            desaMap[kodeDesa].rejected += s_rejected; desaMap[kodeDesa].revoked += s_revoked;
-            desaMap[kodeDesa].approved += s_approved; desaMap[kodeDesa].open += s_open;
-            desaMap[kodeDesa].t += totalTarget; desaMap[kodeDesa].jml_sls += 1;
-            if (statusSlsKategori === "selesai") desaMap[kodeDesa].sls_selesai += 1;
-
-            if (!petugasMap[emailPetugas]) {
-                const initData = initStrukturData(emailPetugas, namaPetugas, namaPetugas);
-                initData.email = emailPetugas;
-                initData.namaKec = namaKec; 
-                initData.emailPml = emailPmlFormated; 
-                petugasMap[emailPetugas] = initData;
-            }
-            petugasMap[emailPetugas].submitted += s_submitted; petugasMap[emailPetugas].draft += s_draft;
-            petugasMap[emailPetugas].rejected += s_rejected; petugasMap[emailPetugas].revoked += s_revoked;
-            petugasMap[emailPetugas].approved += s_approved; petugasMap[emailPetugas].open += s_open;
-            petugasMap[emailPetugas].t += totalTarget; petugasMap[emailPetugas].jml_sls += 1;
-            if (statusSlsKategori === "selesai") petugasMap[emailPetugas].sls_selesai += 1;
-
-            slsList.push({
-                idsubsls: row.idsubsls, kodeKec, kodeDesa, petugas_id: emailPetugas,
-                nama: row.nama_rt_dusun || relMuatan.nmsls || row.idsubsls,
-                nama_asli: row.nama_rt_dusun || relMuatan.nmsls || row.idsubsls,
-                total_target: totalTarget, total_realisasi: totalTarget - s_open,
-                submitted: totalTarget > 0 ? Math.round((s_submitted / totalTarget) * 100) : 0,
-                draft: totalTarget > 0 ? Math.round((s_draft / totalTarget) * 100) : 0,
-                rejected: totalTarget > 0 ? Math.round((s_rejected / totalTarget) * 100) : 0,
-                revoked: totalTarget > 0 ? Math.round((s_revoked / totalTarget) * 100) : 0,
-                approved: totalTarget > 0 ? Math.round((s_approved / totalTarget) * 100) : 0,
-                open: totalTarget > 0 ? Math.round((s_open / totalTarget) * 100) : 100,
-                jml_sls: 1, sls_selesai: statusSlsKategori === "selesai" ? 1 : 0
-            });
-
+        if (rawPmlEmail && rawPmlEmail !== "tanpa petugas") {
             if (selectedKecTab === "SEMUA" || kodeKec === selectedKecTab) {
-                fSubmitted += s_submitted;
-                fDraft     += s_draft;
-                fRejected  += s_rejected;
-                fRevoked   += s_revoked;
-                fApproved  += s_approved;
-                fOpen      += s_open;
-                fSlsTotal++;
+                if (!pmlSeen.has(rawPmlEmail)) {
+                    pmlSeen.add(rawPmlEmail);
+                    tmpPmlList.push({
+                        email: rawPmlEmail,
+                        nama: staffLookup[rawPmlEmail] || rawPmlEmail
+                    });
+                }
+            }
+        }
+    });
+    tmpPmlList.sort((a, b) => a.nama.localeCompare(b.nama));
+    setPmlList(tmpPmlList);
+    setPclToPmlLookup(tmpPclToPml);
 
+    // Loop Kedua: Kompilasi Ringkasan Agregasi Data Murni (Tanpa Return Filter di Tengah)
+    rawData.forEach(row => {
+        const relMuatan = row.muatan_sls || {};
+        const relPetugas = relMuatan.petugas || {};
+
+        const kodeKec = relMuatan.kdkec || "000";
+        const namaKec = row.kecamatan || relMuatan.nmkec || "Unknown";
+        const kodeDesa = row.kode_desa || relMuatan.kddesa || "000";
+        const namaDesa = row.nama_desa || relMuatan.nmdesa || "Unknown";
+        
+        const emailPetugas = relMuatan.petugas_id || "Tanpa Petugas";
+        const namaPetugas = relPetugas.nama_petugas ? `${relPetugas.nama_petugas}` : emailPetugas;
+        const emailPmlFormated = relPetugas.id_pml_atasan ? relPetugas.id_pml_atasan.toLowerCase().trim() : "tanpa pengawas";
+
+        const statusProgres = row.status_progres || {};
+        
+        const s_submitted = parseInt(statusProgres["SUBMITTED BY Pencacah"]) || 0;
+        const s_draft     = parseInt(statusProgres["DRAFT"]) || 0;
+        const s_rejected  = parseInt(statusProgres["REJECTED BY Pengawas"]) || 0;
+        const s_revoked   = parseInt(statusProgres["REVOKED BY Pengawas"]) || 0;
+        const s_approved  = parseInt(statusProgres["APPROVED BY Pengawas"]) || 0;
+        const s_open      = parseInt(statusProgres["OPEN"]) || 0;
+
+        const totalTarget = s_submitted + s_draft + s_rejected + s_revoked + s_approved + s_open;
+
+        // Penentuan Status SLS
+        let statusSlsKategori = "belum";
+        if (totalTarget > 0) {
+            if (s_open === 0) statusSlsKategori = "selesai";
+            else if (s_open < totalTarget) statusSlsKategori = "sedang";
+            else statusSlsKategori = "belum";
+        }
+
+        const initStrukturData = (kode, namaTampilan, namaAsli) => ({
+            kodeKec, kodeDesa, nama: namaTampilan, nama_asli: namaAsli,
+            submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, open: 0,
+            t: 0, jml_sls: 0, sls_selesai: 0
+        });
+
+        // Agregasi Level Kecamatan
+        if (!kecMap[kodeKec]) kecMap[kodeKec] = initStrukturData(kodeKec, `${namaKec} [${kodeKec}]`, namaKec);
+        kecMap[kodeKec].submitted += s_submitted; kecMap[kodeKec].draft += s_draft;
+        kecMap[kodeKec].rejected += s_rejected; kecMap[kodeKec].revoked += s_revoked;
+        kecMap[kodeKec].approved += s_approved; kecMap[kodeKec].open += s_open;
+        kecMap[kodeKec].t += totalTarget; kecMap[kodeKec].jml_sls += 1;
+        if (statusSlsKategori === "selesai") kecMap[kodeKec].sls_selesai += 1;
+
+        // Agregasi Level Desa
+        if (!desaMap[kodeDesa]) desaMap[kodeDesa] = initStrukturData(kodeDesa, namaDesa, namaDesa);
+        desaMap[kodeDesa].submitted += s_submitted; desaMap[kodeDesa].draft += s_draft;
+        desaMap[kodeDesa].rejected += s_rejected; desaMap[kodeDesa].revoked += s_revoked;
+        desaMap[kodeDesa].approved += s_approved; desaMap[kodeDesa].open += s_open;
+        desaMap[kodeDesa].t += totalTarget; desaMap[kodeDesa].jml_sls += 1;
+        if (statusSlsKategori === "selesai") desaMap[kodeDesa].sls_selesai += 1;
+
+        // Agregasi Level Petugas (Kunci Kecamatan Berdasarkan Data Baris Pertama yang Ditemukan)
+// Ekstraksi data master petugas dari joinkan tabel
+const kecamatanResmiPetugas = relPetugas.kecamatan_tugas || row.kecamatan || relMuatan.nmkec || "Unknown";
+
+if (!petugasMap[emailPetugas]) {
+    petugasMap[emailPetugas] = {
+        kodeKec: kodeKec, // Kode kecamatan SLS untuk filter grafik cascading
+        kodeDesa: kodeDesa,
+        nama: namaPetugas,
+        nama_asli: namaPetugas,
+        email: emailPetugas,
+        namaKec: kecamatanResmiPetugas, // 🌟 SEKARANG AKURAT: Diambil dari kecamatan_tugas master petugas
+        emailPml: emailPmlFormated,
+        submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, open: 0,
+        t: 0, jml_sls: 0, sls_selesai: 0
+    };
+}
+
+// Akumulasi data dokumen (tetap sama)
+petugasMap[emailPetugas].submitted += s_submitted;
+petugasMap[emailPetugas].draft += s_draft;
+petugasMap[emailPetugas].rejected += s_rejected;
+petugasMap[emailPetugas].revoked += s_revoked;
+petugasMap[emailPetugas].approved += s_approved;
+petugasMap[emailPetugas].open += s_open;
+petugasMap[emailPetugas].t += totalTarget;
+petugasMap[emailPetugas].jml_sls += 1;
+if (statusSlsKategori === "selesai") petugasMap[emailPetugas].sls_selesai += 1;
+
+        // Simpan Data SLS Murni
+        slsList.push({
+            idsubsls: row.idsubsls, kodeKec, kodeDesa, petugas_id: emailPetugas,
+            nama: row.nama_rt_dusun || relMuatan.nmsls || row.idsubsls,
+            nama_asli: row.nama_rt_dusun || relMuatan.nmsls || row.idsubsls,
+            total_target: totalTarget, total_realisasi: totalTarget - s_open,
+            submitted: totalTarget > 0 ? Math.round((s_submitted / totalTarget) * 100) : 0,
+            draft: totalTarget > 0 ? Math.round((s_draft / totalTarget) * 100) : 0,
+            rejected: totalTarget > 0 ? Math.round((s_rejected / totalTarget) * 100) : 0,
+            revoked: totalTarget > 0 ? Math.round((s_revoked / totalTarget) * 100) : 0,
+            approved: totalTarget > 0 ? Math.round((s_approved / totalTarget) * 100) : 0,
+            open: totalTarget > 0 ? Math.round((s_open / totalTarget) * 100) : 100,
+            jml_sls: 1, sls_selesai: statusSlsKategori === "selesai" ? 1 : 0
+        });
+
+        // Hitung Filter Untuk Metrik Atas Berdasarkan Tampilan Terpilih
+        if (selectedKecTab === "SEMUA" || kodeKec === selectedKecTab) {
+            // Evaluasi juga berdasarkan filter PML jika dipilih
+            if (selectedPml === "SEMUA" || emailPmlFormated === selectedPml.toLowerCase().trim()) {
+                fSubmitted += s_submitted; fDraft += s_draft; fRejected += s_rejected;
+                fRevoked += s_revoked; fApproved += s_approved; fOpen += s_open; fSlsTotal++;
                 if (statusSlsKategori === "selesai") fSlsSelesai++;
                 else if (statusSlsKategori === "sedang") fSlsSedang++;
                 else fSlsBelum++;
             }
-        });
+        }
+    });
 
-        // --- LOGIKA PERHITUNGAN 4 MATRIKS PRODUKTIVITAS & DRILL-DOWN MODAL DATA ---
-        const tanggalAwalSensus = new Date("2026-06-15");
-        const tanggalHariIni = new Date();
-        const selisihMilidetik = Math.abs(tanggalHariIni - tanggalAwalSensus);
-        const kalkulasiHariKe = Math.floor(selisihMilidetik / (1000 * 60 * 60 * 24)) + 1;
+    // --- LOGIKA PERHITUNGAN 4 MATRIKS PRODUKTIVITAS HARIAN ---
+    const tanggalAwalSensus = new Date("2026-06-15");
+    const tanggalHariIni = new Date();
+    const selisihMilidetik = Math.abs(tanggalHariIni - tanggalAwalSensus);
+    const kalkulasiHariKe = Math.floor(selisihMilidetik / (1000 * 60 * 60 * 24)) + 1;
 
-        const totalMuatanSelainOpen = fSubmitted + fDraft + fRejected + fRevoked + fApproved;
-        const daftarPetugasValid = Object.values(petugasMap).filter(p => p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab));
-        const jumlahPetugasAktif = daftarPetugasValid.length;
+    const totalMuatanSelainOpen = fSubmitted + fDraft + fRejected + fRevoked + fApproved;
+    const daftarPetugasValid = Object.values(petugasMap).filter(p => p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab) && (selectedPml === "SEMUA" || p.emailPml === selectedPml.toLowerCase().trim()));
+    const jumlahPetugasAktif = daftarPetugasValid.length;
 
-        const hitungRata2RealisasiPerPetugas = jumlahPetugasAktif > 0 ? Math.round(totalMuatanSelainOpen / jumlahPetugasAktif) : 0;
-        const hitungRata2DokPerHariPerPetugas = (kalkulasiHariKe > 0 && jumlahPetugasAktif > 0) 
-            ? parseFloat((totalMuatanSelainOpen / kalkulasiHariKe / jumlahPetugasAktif).toFixed(1)) 
-            : 0;
+    const hitungRata2RealisasiPerPetugas = jumlahPetugasAktif > 0 ? Math.round(totalMuatanSelainOpen / jumlahPetugasAktif) : 0;
+    const hitungRata2DokPerHariPerPetugas = (kalkulasiHariKe > 0 && jumlahPetugasAktif > 0) 
+        ? parseFloat((totalMuatanSelainOpen / kalkulasiHariKe / jumlahPetugasAktif).toFixed(1)) 
+        : 0;
 
-        let counterPetugasDiBawahRata2 = 0;
-        const tmpLowPerformers = []; 
+    let counterPetugasDiBawahRata2 = 0;
+    const tmpLowPerformers = []; 
 
-        daftarPetugasValid.forEach(p => {
-            const realisasiIndividu = p.submitted + p.draft + p.rejected + p.revoked + p.approved; 
-            
-            if (realisasiIndividu < hitungRata2RealisasiPerPetugas) {
-                counterPetugasDiBawahRata2++;
-                
-                const pmlName = staffLookup[p.emailPml] || p.emailPml;
-                tmpLowPerformers.push({
-                    namaPetugas: p.nama_asli,
-                    namaPengawas: pmlName === "tanpa pengawas" ? "Tanpa Pengawas" : pmlName,
-                    namaKecamatan: p.namaKec,
-                    realisasi: realisasiIndividu
-                });
-            }
-        });
-
-        tmpLowPerformers.sort((a, b) => a.realisasi - b.realisasi);
-        setLowPerformersList(tmpLowPerformers);
-
-        setMetriksKpiHarian({
-            hariKe: kalkulasiHariKe,
-            rata2RealisasiPerPetugas: hitungRata2RealisasiPerPetugas,
-            rata2DokPerHariPerPetugas: hitungRata2DokPerHariPerPetugas,
-            petugasDiBawahRata2: counterPetugasDiBawahRata2
-        });
-
-        const formatKePersen = (obj) => {
-            const total = obj.t || 1;
-            return {
-                ...obj, total_target: obj.t, total_realisasi: obj.t - obj.open,
-                submitted: Math.round((obj.submitted / total) * 100),
-                draft: Math.round((obj.draft / total) * 100),
-                rejected: Math.round((obj.rejected / total) * 100),
-                revoked: Math.round((obj.revoked / total) * 100),
-                approved: Math.round((obj.approved / total) * 100),
-                open: Math.round((obj.open / total) * 100)
-            };
-        };
-
-        const formatKeJumlahMurni = (obj) => {
-            return {
-                ...obj,
-                total_target: obj.t,
-                total_realisasi: obj.t - obj.open
-            };
-        };
-
-        const sortedKecamatan = Object.values(kecMap).map(formatKePersen).sort((a, b) => a.kodeKec.localeCompare(b.kodeKec, undefined, { numeric: true }));
-        const sortedDesa = Object.values(desaMap).map(formatKePersen).sort((a, b) => a.kodeDesa.localeCompare(b.kodeDesa, undefined, { numeric: true }));
-        
-        const sortedPetugas = Object.values(petugasMap).map(formatKeJumlahMurni).sort((a, b) => b.total_realisasi - a.total_realisasi);
-        const sortedSls = slsList.sort((a, b) => a.idsubsls.localeCompare(b.idsubsls, undefined, { numeric: true }));
-
-        setDataMonitoringWilayah({
-            kecamatan: sortedKecamatan, desa: sortedDesa, petugas: sortedPetugas, sls: sortedSls,
-            muatanStatus: { submitted: fSubmitted, draft: fDraft, rejected: fRejected, revoked: fRevoked, approved: fApproved, open: fOpen },
-            statusSls: { selesai: fSlsSelesai, sedang: fSlsSedang, belum: fSlsBelum, total: fSlsTotal }
-        });
-
-        // --- DETEKSI ANOMALI RADAR PCL ---
-        const listMacet = [];
-        const listMelambat = [];
-        const tanggalUnik = [...new Set(historyData.map(h => h.tanggal))].sort();
-
-        if (tanggalUnik.length >= 4) {
-            const tglHariIni = tanggalUnik[tanggalUnik.length - 1];
-            const tgl3HariLalu = tanggalUnik[tanggalUnik.length - 4];
-
-            Object.values(petugasMap).forEach(p => {
-                if (p.email === "Tanpa Petugas") return;
-                if (selectedKecTab !== "SEMUA" && p.kodeKec !== selectedKecTab) return;
-                
-                const logHariIni = historyData.find(h => h.petugas_id === p.email && h.tanggal === tglHariIni)?.total_capaian || (p.t - p.open);
-                const log3HariLalu = historyData.find(h => h.petugas_id === p.email && h.tanggal === tgl3HariLalu)?.total_capaian || 0;
-                
-                const delta = logHariIni - log3HariLalu;
-
-                if (delta === 0) {
-                    listMacet.push({ email: p.email, nama: p.nama_asli, delta, kodeKec: p.kodeKec });
-                } else if (delta > 0 && delta < 10) {
-                    listMelambat.push({ email: p.email, nama: p.nama_asli, delta, kodeKec: p.kodeKec });
-                }
+    daftarPetugasValid.forEach(p => {
+        const realisasiIndividu = p.submitted + p.draft + p.rejected + p.revoked + p.approved; 
+        if (realisasiIndividu < hitungRata2RealisasiPerPetugas) {
+            counterPetugasDiBawahRata2++;
+            const pmlName = staffLookup[p.emailPml] || p.emailPml;
+            tmpLowPerformers.push({
+                namaPetugas: p.nama_asli,
+                namaPengawas: pmlName === "tanpa pengawas" ? "Tanpa Pengawas" : pmlName,
+                namaKecamatan: p.namaKec,
+                realisasi: realisasiIndividu
             });
         }
-        setCriticalPcl({ macet: listMacet, melambat: listMelambat });
+    });
 
-    }, [rawData, historyData, selectedKecTab, selectedPml, staffLookup]);
+    tmpLowPerformers.sort((a, b) => a.realisasi - b.realisasi);
+    setLowPerformersList(tmpLowPerformers);
+
+    setMetriksKpiHarian({
+        hariKe: kalkulasiHariKe,
+        rata2RealisasiPerPetugas: hitungRata2RealisasiPerPetugas,
+        rata2DokPerHariPerPetugas: hitungRata2DokPerHariPerPetugas,
+        petugasDiBawahRata2: counterPetugasDiBawahRata2
+    });
+
+    const formatKePersen = (obj) => {
+        const total = obj.t || 1;
+        return {
+            ...obj, total_target: obj.t, total_realisasi: obj.t - obj.open,
+            submitted: Math.round((obj.submitted / total) * 100),
+            draft: Math.round((obj.draft / total) * 100),
+            rejected: Math.round((obj.rejected / total) * 100),
+            revoked: Math.round((obj.revoked / total) * 100),
+            approved: Math.round((obj.approved / total) * 100),
+            open: Math.round((obj.open / total) * 100)
+        };
+    };
+
+    const sortedKecamatan = Object.values(kecMap).map(formatKePersen).sort((a, b) => a.kodeKec.localeCompare(b.kodeKec, undefined, { numeric: true }));
+    const sortedDesa = Object.values(desaMap).map(formatKePersen).sort((a, b) => a.kodeDesa.localeCompare(b.kodeDesa, undefined, { numeric: true }));
+    const sortedPetugas = Object.values(petugasMap).map(obj => ({ ...obj, total_target: obj.t, total_realisasi: obj.t - obj.open })).sort((a, b) => b.total_realisasi - a.total_realisasi);
+    const sortedSls = slsList.sort((a, b) => a.idsubsls.localeCompare(b.idsubsls, undefined, { numeric: true }));
+
+    setDataMonitoringWilayah({
+        kecamatan: sortedKecamatan, desa: sortedDesa, petugas: sortedPetugas, sls: sortedSls,
+        muatanStatus: { submitted: fSubmitted, draft: fDraft, rejected: fRejected, revoked: fRevoked, approved: fApproved, open: fOpen },
+        statusSls: { selesai: fSlsSelesai, sedang: fSlsSedang, belum: fSlsBelum, total: fSlsTotal }
+    });
+
+}, [rawData, historyData, selectedKecTab, selectedPml, staffLookup]);
 
     // --- AGREGASI DATA TIME-SERIES TREN ---
     useEffect(() => {
@@ -449,6 +421,25 @@ export default function DashboardMonitoring() {
             </div>
         );
     }
+
+// --- PREPARASI DATA TABEL TOP & BOTTOM PERFORMERS ---
+// Saring data agar Top/Bottom performers akurat mengikuti level Kode Kecamatan saat ini
+const validPetugasData = dataMonitoringWilayah.petugas.filter(p => 
+    p.email !== "Tanpa Petugas" && 
+    p.total_target > 0 && // Pastikan memiliki target riil agar tidak muncul data 0
+    (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab) // 🌟 Ganti menggunakan perbandingan KODE KECAMATAN
+);
+
+// Tentukan limit berdasarkan scope wilayah saat ini
+const limitPetugas = selectedKecTab === "SEMUA" ? 20 : 10;
+
+// Ambil Top Performers (Urutan asli dari state sudah Descending berdasarkan total_realisasi)
+const topPerformers = validPetugasData.slice(0, limitPetugas);
+
+// Ambil Bottom Performers (Urutan dibalik secara Ascending dari realisasi terkecil)
+const bottomPerformers = [...validPetugasData]
+    .sort((a, b) => a.total_realisasi - b.total_realisasi)
+    .slice(0, limitPetugas);
 
     const dataPieStatus = [
         { name: "SUBMITTED BY Pencacah", value: dataMonitoringWilayah.muatanStatus.submitted, color: "#3b82f6" },
@@ -534,7 +525,7 @@ export default function DashboardMonitoring() {
                 <div className="bg-slate-50 border border-slate-200/60 px-3 py-1.5 rounded-xl text-right flex items-center gap-2 self-end md:self-auto">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
                     <span className="text-[9px] font-black text-slate-500 uppercase tracking-wide">
-                        Waktu Sync Terakhir: <span className="font-mono text-slate-800 font-black">{lastSyncedTime}</span>
+                        Data Diambil dari Fasih SM. Waktu Sync Terakhir: <span className="font-mono text-slate-800 font-black">{lastSyncedTime}</span>
                     </span>
                 </div>
             </div>
@@ -850,54 +841,98 @@ export default function DashboardMonitoring() {
                 </div>
             </div>
 
-            {/* 🚀 BARIS BAWAH: PANEL CONTROL CENTER ANOMALI PCL */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                
-                {/* Panel Kiri: Radar PCL Macet Total */}
-                <div className="bg-white p-4 border border-slate-200 rounded-3xl shadow-sm flex flex-col h-[320px]">
-                    <div className="border-b border-slate-100 pb-3 mb-3 flex justify-between items-center">
-                        <span className="text-[10px] font-black text-rose-600 uppercase tracking-wider flex items-center gap-1">🚨 Petugas Tidak Aktif (3 Hari Tanpa Input)</span>
-                        <span className="bg-rose-50 text-rose-600 text-[9px] font-mono font-black px-2 py-0.5 rounded-full">{criticalPcl.macet.length} Orang</span>
-                    </div>
-                    <div className="overflow-y-auto flex-1 space-y-2 pr-1 scrollbar-thin">
-                        {criticalPcl.macet.length === 0 ? (
-                            <div className="text-center text-slate-400 text-[10px] font-bold py-12 uppercase">✅ Semua Petugas Aktif Kirim</div>
-                        ) : (
-                            criticalPcl.macet.map(pcl => (
-                                <div key={pcl.email} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-100 transition-colors">
-                                    <div className="max-w-[70%]">
-                                        <div className="text-[11px] font-black text-slate-700 truncate">{pcl.nama}</div>
-                                        <div className="text-[8px] text-slate-400 font-mono truncate">{pcl.email}</div>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
+{/* 🚀 BARIS BAWAH: TABEL TOP & BOTTOM PCL */}
+<div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
-                {/* Panel Kanan: Radar PCL Melambat */}
-                <div className="bg-white p-4 border border-slate-200 rounded-3xl shadow-sm flex flex-col h-[320px]">
-                    <div className="border-b border-slate-100 pb-3 mb-3 flex justify-between items-center">
-                        <span className="text-[10px] font-black text-amber-600 uppercase tracking-wider flex items-center gap-1">⚠️ PCL Melambat (3 Hari Terakhir &lt; 10 Dokumen)</span>
-                        <span className="bg-amber-50 text-amber-600 text-[9px] font-mono font-black px-2 py-0.5 rounded-full">{criticalPcl.melambat.length} Orang</span>
-                    </div>
-                    <div className="overflow-y-auto flex-1 space-y-2 pr-1 scrollbar-thin">
-                        {criticalPcl.melambat.length === 0 ? (
-                            <div className="text-center text-slate-400 text-[10px] font-bold py-12 uppercase">🎉 Ritme Kecepatan Petugas Normal</div>
-                        ) : (
-                            criticalPcl.melambat.map(pcl => (
-                                <div key={pcl.email} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-100 transition-colors">
-                                    <div className="max-w-[65%]">
-                                        <div className="text-[11px] font-black text-slate-700 truncate">{pcl.nama}</div>
-                                        <div className="text-[8px] text-amber-600 font-bold font-mono uppercase mt-0.5">Hanya bertambah: +{pcl.delta} Assignment</div>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
+    {/* Panel Kiri: Top Performers */}
+    <div className="bg-white p-4 border border-slate-200 rounded-3xl shadow-sm flex flex-col h-[450px]">
+        <div className="border-b border-slate-100 pb-3 mb-3 flex justify-between items-center">
+            <span className="text-[11px] font-black text-emerald-600 uppercase tracking-wider flex items-center gap-1.5">
+                🏆 Top {limitPetugas} Realisasi Terbanyak
+            </span>
+            <span className="bg-emerald-50 text-emerald-600 text-[9px] font-mono font-black px-2 py-0.5 rounded-full">
+                {selectedKecTab === "SEMUA" ? "TINGKAT KABUPATEN" : "TINGKAT KECAMATAN"}
+            </span>
+        </div>
+        <div className="overflow-y-auto overflow-x-auto flex-1 scrollbar-thin pr-1">
+            <table className="w-full text-left border-collapse min-w-[650px]">
+                <thead className="sticky top-0 bg-white z-10 shadow-sm outline outline-1 outline-slate-100">
+                    <tr className="text-[9px] font-black text-slate-400 uppercase tracking-wider bg-slate-50">
+                        <th className="p-2.5 text-center w-8">No</th>
+                        <th className="p-2.5">Nama PCL</th>
+                        <th className="p-2.5">Nama PML</th>
+                        <th className="p-2.5">Kecamatan</th>
+                        <th className="p-2.5 text-right">Terkirim</th>
+                        <th className="p-2.5 text-right">Target</th>
+                        <th className="p-2.5 text-right pr-4">%</th>
+                    </tr>
+                </thead>
+                <tbody className="text-[10px] text-slate-600 font-medium divide-y divide-slate-100">
+                    {topPerformers.map((p, idx) => {
+                        const pmlName = p.emailPml === "tanpa pengawas" ? "Tanpa Pengawas" : (staffLookup[p.emailPml] || p.emailPml);
+                        const persentase = p.total_target > 0 ? ((p.total_realisasi / p.total_target) * 100).toFixed(1) : "0.0";
+                        return (
+                            <tr key={p.email} className="hover:bg-emerald-50/50 transition-colors">
+                                <td className="p-2 text-center font-mono font-bold text-slate-400">{idx + 1}</td>
+                                <td className="p-2 font-bold text-slate-800 whitespace-nowrap">{p.nama_asli}</td>
+                                <td className="p-2 whitespace-nowrap truncate max-w-[130px]" title={pmlName}>{pmlName}</td>
+                                <td className="p-2 font-bold text-slate-500 whitespace-nowrap">{p.namaKec}</td>
+                                <td className="p-2 text-right font-mono font-black text-emerald-600">{p.total_realisasi.toLocaleString('id-ID')}</td>
+                                <td className="p-2 text-right font-mono text-slate-400">{p.total_target.toLocaleString('id-ID')}</td>
+                                <td className="p-2 text-right pr-4 font-mono font-bold text-slate-800">{persentase}%</td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-            </div>
+    {/* Panel Kanan: Bottom Performers */}
+    <div className="bg-white p-4 border border-slate-200 rounded-3xl shadow-sm flex flex-col h-[450px]">
+        <div className="border-b border-slate-100 pb-3 mb-3 flex justify-between items-center">
+            <span className="text-[11px] font-black text-rose-600 uppercase tracking-wider flex items-center gap-1.5">
+                ⚠️ Bottom {limitPetugas} Realisasi Paling Sedikit
+            </span>
+            <span className="bg-rose-50 text-rose-600 text-[9px] font-mono font-black px-2 py-0.5 rounded-full">
+                {selectedKecTab === "SEMUA" ? "TINGKAT KABUPATEN" : "TINGKAT KECAMATAN"}
+            </span>
+        </div>
+        <div className="overflow-y-auto overflow-x-auto flex-1 scrollbar-thin pr-1">
+            <table className="w-full text-left border-collapse min-w-[650px]">
+                <thead className="sticky top-0 bg-white z-10 shadow-sm outline outline-1 outline-slate-100">
+                    <tr className="text-[9px] font-black text-slate-400 uppercase tracking-wider bg-slate-50">
+                        <th className="p-2.5 text-center w-8">No</th>
+                        <th className="p-2.5">Nama PCL</th>
+                        <th className="p-2.5">Nama PML</th>
+                        <th className="p-2.5">Kecamatan</th>
+                        <th className="p-2.5 text-right">Terkirim</th>
+                        <th className="p-2.5 text-right">Target</th>
+                        <th className="p-2.5 text-right pr-4">%</th>
+                    </tr>
+                </thead>
+                <tbody className="text-[10px] text-slate-600 font-medium divide-y divide-slate-100">
+                    {bottomPerformers.map((p, idx) => {
+                        const pmlName = p.emailPml === "tanpa pengawas" ? "Tanpa Pengawas" : (staffLookup[p.emailPml] || p.emailPml);
+                        const persentase = p.total_target > 0 ? ((p.total_realisasi / p.total_target) * 100).toFixed(1) : "0.0";
+                        return (
+                            <tr key={p.email} className="hover:bg-rose-50/50 transition-colors">
+                                <td className="p-2 text-center font-mono font-bold text-slate-400">{idx + 1}</td>
+                                <td className="p-2 font-bold text-slate-800 whitespace-nowrap">{p.nama_asli}</td>
+                                <td className="p-2 whitespace-nowrap truncate max-w-[130px]" title={pmlName}>{pmlName}</td>
+                                <td className="p-2 font-bold text-slate-500 whitespace-nowrap">{p.namaKec}</td>
+                                <td className="p-2 text-right font-mono font-black text-rose-600">{p.total_realisasi.toLocaleString('id-ID')}</td>
+                                <td className="p-2 text-right font-mono text-slate-400">{p.total_target.toLocaleString('id-ID')}</td>
+                                <td className="p-2 text-right pr-4 font-mono font-bold text-slate-800">{persentase}%</td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
 
             {/* 🌟 MODAL DRILL-DOWN EXCLUSIVE: JUMLAH KIRIM DI BAWAH RATA-RATA DENGAN PAGINASI 20 🌟 */}
             {showKpiModal && (
