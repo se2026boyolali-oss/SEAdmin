@@ -1834,9 +1834,9 @@ const handleSyncPmlOfflineInputs = async () => {
                                 <HelpCircle size={14} className="font-bold" />
                             </div>
                             <div className="text-[10px] leading-relaxed w-full">
-                                <span className="font-black uppercase block mb-0.5">📋 Komando & Tactical Monitoring PML:</span>
+                                <span className="font-black uppercase block mb-0.5">📋 Petunjuk Halaman Monitoring PML:</span>
                                 <p className="font-medium text-amber-700/90">
-                                    1. Seluruh volume capaian dokumen (*Draft, Submit, Approve, Reject*) ditarik otomatis dari aplikasi Fasih secara berkala. Anda tidak perlu lagi melakukan entri data manual per SLS. Klik nama petugas untuk melihat progress per SLS.<br />
+                                    1. Seluruh volume capaian dokumen (*Draft, Submit, Approve, Reject*) <strong className="font-black text-green-600 bg-green-50 px-1 py-0.5 rounded">ditarik otomatis dari aplikasi Fasih</strong> secara berkala. Anda tidak perlu lagi melakukan entri data manual per SLS. Klik nama petugas untuk melihat progress per SLS.<br />
 
                                     2. Tombol <strong className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">Kirim Rekap Untuk Evaluasi</strong> digunakan saat jadwal evaluasi berkala (pola 2-1-2-1) dan jadwal evaluasi lainnya untuk mengirim rekaman kendala dan solusi tim ke Kabupaten.
                                 </p>
