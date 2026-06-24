@@ -43,29 +43,50 @@ const simpanAbsenKeOfflineDB = async (payload) => {
 };
 
 // 🏃‍♂️ SUB-KOMPONEN BARIS SLS: Isolasi State Input untuk Performa Tinggi Lapangan (Zero-Lag)
-const SlsCardRow = React.memo(({ sls, initialValue, onSave, onToggleSelesai, actionLoading }) => {
-    const [inputValue, setInputValue] = useState(initialValue);
-
-    useEffect(() => {
-        setInputValue(initialValue);
-    }, [initialValue]);
-
-    const realisasi = sls.realisasi_pencacahan || 0;
-    const muatan = sls.jml_muatan || 0;
-    const persen = muatan > 0 ? Math.min(Math.round((realisasi / muatan) * 100), 100) : 0;
+// ====== BG-6: REWORK TOTAL KOMPONEN ANAK SLS CARD ROW (GRID MONITORING OTOMATIS) ======
+// ====== PERBAIKAN BG-6: PARSING DATA JSONB STATUS PROGRES ======
+const SlsCardRow = React.memo(({ sls, progressData }) => {
+    // Cari data progress milik SLS ini
+    const matchProgress = progressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
     
-    const isSelesaiMutlak = sls.is_selesai === true;
-    const isClean = realisasi >= muatan && muatan > 0;
-    const isTouched = realisasi > 0;
+    // Ekstraksi objek status_progres dari baris database
+    const statusObj = matchProgress?.status_progres || {};
+
+    // Ambil nilai dari key JSON secara presisi (jika tidak ada/0, default ke 0)
+    const approved = statusObj["APPROVED BY Pengawas"] || 0;
+    const submitted = statusObj["SUBMITTED BY Pencacah"] || 0;
+    const draft = statusObj["DRAFT"] || 0;
+    const rejected = statusObj["REJECTED BY Pengawas"] || 0; 
+    const revoked = statusObj["REVOKED BY Pengawas"] || 0;
+    const open = statusObj["OPEN"] || 0;
     
-    const borderWarna = isSelesaiMutlak ? 'border-l-emerald-500' : isTouched ? 'border-l-amber-500' : 'border-l-rose-500';
+    // Target total diambil dari key 'total' di JSON, jika kosong gunakan target muatan master
+    const totalTarget = statusObj["total"] || sls.jml_muatan || 0;
+
+    // Hitung total realisasi yang sudah dikerjakan (tidak berstatus OPEN)
+    const totalRealisasi = approved + submitted + draft + rejected + revoked;
+    
+    // Hitung persentase capaian riil terhadap target total
+    const persen = totalTarget > 0 ? Math.min(Math.round((totalRealisasi / totalTarget) * 100), 100) : 0;
+    
+    // SLS otomatis dianggap selesai mutlak jika disetujui (Approved) sudah memenuhi target muatan
+    // Atau jika total pengerjaan sudah menyamai total target
+    const isSelesaiOtomatis = totalRealisasi >= totalTarget && totalTarget > 0;
+
+    const borderWarna = isSelesaiOtomatis 
+        ? 'border-l-emerald-500 bg-emerald-50/10' 
+        : totalRealisasi > 0 
+            ? 'border-l-amber-500' 
+            : 'border-l-slate-300';
 
     return (
-        <div className={`bg-white border border-slate-200 border-l-4 ${borderWarna} rounded-xl p-3 shadow-2xs flex flex-col gap-2 relative ${isSelesaiMutlak ? 'bg-emerald-50/10' : ''}`}>
+        <div className={`bg-white border border-slate-200 border-l-4 ${borderWarna} rounded-2xl p-3 shadow-2xs flex flex-col gap-2.5 relative`}>
+            
+            {/* Bagian Atas: Info SLS & Badge Status */}
             <div className="flex justify-between items-start gap-2">
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${isSelesaiMutlak ? 'bg-emerald-500 animate-pulse' : isClean ? 'bg-emerald-500' : isTouched ? 'bg-amber-400' : 'bg-rose-500'}`}></span>
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${isSelesaiOtomatis ? 'bg-emerald-500 animate-pulse' : totalRealisasi > 0 ? 'bg-amber-400' : 'bg-slate-300'}`}></span>
                         <h5 className="font-black text-slate-800 text-xs uppercase truncate">
                             ({sls.kdsls}) {sls.nmsls}
                         </h5>
@@ -75,66 +96,49 @@ const SlsCardRow = React.memo(({ sls, initialValue, onSave, onToggleSelesai, act
                     </p>
                 </div>
                 
-                <button
-                    disabled={actionLoading === `status-${sls.idsubsls}`}
-                    onClick={() => onToggleSelesai(sls.idsubsls, isSelesaiMutlak)}
-                    className={`px-2 py-1 rounded-lg font-black text-[9px] uppercase tracking-wider active:scale-95 transition-all flex items-center justify-center border shrink-0 ${
-                        isSelesaiMutlak 
-                            ? 'bg-rose-500 border-rose-600 text-white shadow-xs' 
-                            : 'bg-emerald-600 border-emerald-700 text-white shadow-xs'
-                    }`}
-                >
-                    {actionLoading === `status-${sls.idsubsls}` ? (
-                        <RefreshCw className="animate-spin" size={10} />
-                    ) : isSelesaiMutlak ? (
-                        <span>Batal Selesai</span>
-                    ) : (
-                        <span>Tandai Selesai</span>
-                    )}
-                </button>
+                {/* Auto Badge Status Selesai */}
+                {isSelesaiOtomatis ? (
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-black text-[8px] uppercase tracking-wider">
+                        ✓ Selesai
+                    </span>
+                ) : totalRealisasi > 0 ? (
+                    <span className="px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-lg font-black text-[8px] uppercase tracking-wider">
+                    {totalRealisasi} Assignment
+                    </span>
+                ) : (
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-lg font-black text-[8px] uppercase tracking-wider">
+                        Kosong
+                    </span>
+                )}
             </div>
 
-            <div className="w-full bg-slate-100 rounded-full h-1 overflow-hidden">
-                <div 
-                    className={`h-full rounded-full transition-all duration-300 ${isSelesaiMutlak || isClean ? 'bg-emerald-500' : isTouched ? 'bg-amber-500' : 'bg-rose-500'}`}
-                    style={{ width: `${isSelesaiMutlak ? 100 : persen}%` }}
-                ></div>
-            </div>
-
-            <div className="flex items-center justify-between gap-2 mt-1 pt-1.5 border-t border-slate-100">
-                <div className="flex flex-col">
-                    <span className="text-[9px] font-bold text-slate-400 font-mono">
-                        Realisasi: <span className="font-black text-slate-700">{realisasi}</span> / {muatan} Muatan
-                    </span>
-                    <span className="text-[9px] font-mono font-black text-indigo-600">
-                        Progres: {isSelesaiMutlak ? '100' : persen}%
-                    </span>
+            {/* Bagian Tengah: Progress Bar Capaian */}
+            <div className="space-y-1">
+                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                    <div 
+                        className={`h-full rounded-full transition-all duration-300 ${isSelesaiOtomatis ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                        style={{ width: `${persen}%` }}
+                    ></div>
                 </div>
-                
-                <div className="flex items-center gap-1.5 shrink-0">
-                    <input
-                        type="number"
-                        disabled={isSelesaiMutlak}
-                        placeholder="Hasil"
-                        className="w-12 bg-slate-50 border border-slate-200 rounded-lg py-1 text-center font-black text-xs text-slate-800 outline-none focus:bg-white focus:border-indigo-500 transition-all disabled:opacity-40"
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                    />
-
-                    <button
-                        disabled={isSelesaiMutlak || actionLoading === sls.idsubsls}
-                        onClick={() => onSave(sls.idsubsls, inputValue)}
-                        className="bg-slate-800 active:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black active:scale-95 transition-all disabled:bg-slate-100 disabled:text-slate-300 flex items-center gap-1 shadow-xs"
-                    >
-                        {actionLoading === sls.idsubsls ? <RefreshCw className="animate-spin" size={10} /> : <Save size={10} />}
-                        <span>SIMPAN</span>
-                    </button>
+                <div className="flex justify-between items-center text-[9px] font-mono font-bold text-slate-400">
+                    <span>Progres: <strong className="text-slate-700 font-black">{totalRealisasi}</strong> / {totalTarget} target</span>
+                    <span className={isSelesaiOtomatis ? "text-emerald-600 font-black" : "text-amber-600 font-black"}>{persen}%</span>
                 </div>
             </div>
+
+            {/* 🌟 Bagian Bawah: Mengganti Grid Kotak Besar Menjadi Baris Keterangan Simpel Semisal List Petugas */}
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-100 text-[10px] font-mono font-bold text-slate-400">
+                <span>Draft: <strong className="text-amber-600 font-black">{draft}</strong></span>
+                <span>Submit: <strong className="text-blue-600 font-black">{submitted}</strong></span>
+                <span>Approve: <strong className="text-emerald-600 font-black">{approved}</strong></span>
+                {(rejected + revoked) > 0 && <span>Reject: <strong className="text-rose-600 font-black">{rejected + revoked}</strong></span>}
+            </div>
+            
         </div>
     );
 });
-SlsCardRow.displayName = 'SlsCardRow';
+// ====== AKHIR PERBAIKAN BG-6 ======
+// ====== AKHIR DARI BG-6 ======
 
 export default function PmlMonitoringPage() {
     const { user, profile, loading: authLoading, logout } = useAuth();
@@ -174,7 +178,12 @@ export default function PmlMonitoringPage() {
     const [desaList, setDesaList] = useState([]);
     const [selectedDesa, setSelectedDesa] = useState("SEMUA");
     const [slsInputs, setSlsInputs] = useState({});
-
+// ====== SUNTIKAN 1A: TAMBAHKAN STATE BARU DI BAWAH DEKLARASI STATE FLAT SLS ======
+const [realtimeProgressData, setRealtimeProgressData] = useState([]);
+// ====== AKHIR SUNTIKAN 1A ======
+// ====== SUNTIKAN STATE BARU UNTUK WAKTU SINKRONISASI SERVER ======
+const [lastSyncProgressTime, setLastSyncProgressTime] = useState("Memuat...");
+// ====== AKHIR SUNTIKAN STATE BARU ======
     const [last7Dates, setLast7Dates] = useState([]);
     const [touchStart, setTouchStart] = useState(null);
     const [touchEnd, setTouchEnd] = useState(null);
@@ -332,7 +341,7 @@ const checkOfflineInputQueueCount = async () => {
                 const aktif = parsedPcls.filter(p => p.statusHariIni === 'AKTIF').length;
                 setRekapStatusTim({ aktif, absen: parsedPcls.length - aktif });
             }
-
+// ====== BG-5: SUNTIKAN CACHE PROGRESS DI BLOK LURING (OFFLINE) ======
             const cachedFlatSls = localStorage.getItem(`cache_pml_flat_sls_${cleanPmlEmail}`);
             if (cachedFlatSls) {
                 const flatData = JSON.parse(cachedFlatSls);
@@ -344,9 +353,14 @@ const checkOfflineInputQueueCount = async () => {
                     initialSlsInputs[s.idsubsls] = s.realisasi_pencacahan || 0;
                 });
                 setSlsInputs(initialSlsInputs);
+
+                // 🌟 BACA CACHE PROGRESS SAAT OFFLINE
+                const cachedProgress = localStorage.getItem(`cache_pml_realtime_progress_${cleanPmlEmail}`);
+                if (cachedProgress) setRealtimeProgressData(JSON.parse(cachedProgress));
             }
             setLoading(false);
             return;
+// ====== AKHIR DARI BG-5 ======
         }
 
         try {
@@ -400,7 +414,59 @@ const checkOfflineInputQueueCount = async () => {
             setAllSlsFlat(slsKhususBinaan);
             setDesaList([...new Set(slsKhususBinaan.map(s => s.nmdesa))]);
             localStorage.setItem(`cache_pml_flat_sls_${cleanPmlEmail}`, JSON.stringify(slsKhususBinaan));
+// 🌟 AWAL SUNTIKAN: Tarik data volume realisasi otomatis (Approved, Submitted, dll)
+            // ====== PERBAIKAN SUNTIKAN 1B: QUERY HANYA KOLOM ID SUBSLS DAN STATUS PROGRES ======
+            if (navigator.onLine && slsKhususBinaan.length > 0) {
+                try {
+                    const idsubslsBinaanArray = slsKhususBinaan.map(s => String(s.idsubsls).trim());
+                    const { data: progressData, error: progressError } = await supabase
+                        .from('progress_boyolali')
+                        .select('idsubsls, status_progres') // 🌟 Diperbaiki di sini
+                        .in('idsubsls', idsubslsBinaanArray);
 
+                    if (!progressError && progressData) {
+                        setRealtimeProgressData(progressData);
+                        localStorage.setItem(`cache_pml_realtime_progress_${cleanPmlEmail}`, JSON.stringify(progressData));
+                        // ====== PERBAIKAN FORMAT: DD/MM/YYYY JAM LENGKAP PADA LOOKUP SINKRONISASI ======
+                        try {
+                            const { data: syncData } = await supabase
+                                .from('sync_status')
+                                .select('last_update')
+                                .eq('nama_tabel', 'progress_boyolali')
+                                .single();
+                                
+                            if (syncData?.last_update) {
+                                const d = new Date(syncData.last_update);
+                                
+                                // Helper internal untuk memaksa dua digit angka (pad zero)
+                                const pad = (num) => String(num).padStart(2, '0');
+                                
+                                // Ekstraksi komponen tanggal local waktu Asia/Jakarta
+                                const tanggalHari = pad(d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric" }));
+                                const bulanHari = pad(d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", month: "numeric" }));
+                                const tahunHari = d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", year: "numeric" });
+                                
+                                // Format jam: HH:MM:SS
+                                const jam = d.toLocaleTimeString("id-ID", { hour12: false, timeZone: "Asia/Jakarta" }).replace(/\./g, ':');
+                                
+                                // Gabungkan menjadi format DD/MM/YYYY HH:MM:SS
+                                const formatLengkap = `${tanggalHari}/${bulanHari}/${tahunHari} ${jam}`; 
+                                // Hasil akhir: 24/06/2026 21:32:22
+                                
+                                setLastSyncProgressTime(formatLengkap);
+                                localStorage.setItem(`cache_pml_last_sync_text_${cleanPmlEmail}`, formatLengkap);
+                            }
+                        } catch (errSync) {
+                            console.warn("Gagal lookup timestamp sync_status:", errSync.message);
+                        }
+// ====== AKHIR PERBAIKAN FORMAT ======
+                    }
+                } catch (errProgress) {
+                    console.warn("Gagal otomatisasi database progress dashboard:", errProgress.message);
+                }
+            }
+// ====== AKHIR PERBAIKAN SUNTIKAN 1B ======
+            // 🌟 AKHIR SUNTIKAN
             let countAktif = 0;
             const combinedData = (petugasData || []).map(pcl => {
                 const cleanPclEmail = pcl.email.toLowerCase().trim();
@@ -1045,11 +1111,26 @@ const submitPmlCheckIn = async () => {
                 }
             }
 
-            const dataRealisasiFormatted = filteredSlsInputs.map(sls => ({
-                idsubsls: sls.idsubsls,
-                realisasi: slsInputs[sls.idsubsls] !== undefined ? parseInt(slsInputs[sls.idsubsls]) : (sls.realisasi_pencacahan || 0)
-            }));
+// ====== SUNTIKAN 4: AGREGASI OTOMATIS DATA REALISASI DARI JSONB DASHBOARD ======
+            const dataRealisasiFormatted = filteredSlsInputs.map(sls => {
+                // Cari cocok data progress JSONB di memori untuk SLS ini
+                const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
+                const statusObj = match?.status_progres || {};
 
+                // Hitung total akumulasi dokumen riil lapangan (Approved + Submitted + Draft + Rejected + Revoked)
+                const totalAkumulasiOtomatis = 
+                    (statusObj["APPROVED BY Pengawas"] || 0) +
+                    (statusObj["SUBMITTED BY Pencacah"] || 0) +
+                    (statusObj["DRAFT"] || 0) +
+                    (statusObj["REJECTED BY Pengawas"] || 0) +
+                    (statusObj["REVOKED BY Pengawas"] || 0);
+
+                return {
+                    idsubsls: sls.idsubsls,
+                    realisasi: totalAkumulasiOtomatis // Otomatis menggunakan angka agregasi riil database
+                };
+            });
+// ====== AKHIR SUNTIKAN 4 ======
             const { error } = await supabase
                 .from('log_realisasi_pml')
                 .upsert({
@@ -1747,17 +1828,26 @@ const handleSyncPmlOfflineInputs = async () => {
                     <div className="space-y-3 animate-fadeIn">
                         
                         {/* BANNER PANDUAN UTAMA */}
+{/* BANNER PANDUAN UTAMA - VERSI MONITORING & LIVE SYNC */}
                         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl flex gap-2.5 items-start shadow-3xs">
                             <div className="bg-amber-100 p-1 rounded-xl text-amber-700 shrink-0 mt-0.5">
                                 <HelpCircle size={14} className="font-bold" />
                             </div>
-                            <div className="text-[10px] leading-relaxed">
-                                <span className="font-black uppercase block mb-0.5">📋 Panduan Menginput Realisasi:</span>
+                            <div className="text-[10px] leading-relaxed w-full">
+                                <span className="font-black uppercase block mb-0.5">📋 Komando & Tactical Monitoring PML:</span>
                                 <p className="font-medium text-amber-700/90">
-                                    1. Klik <strong className="font-black text-slate-800">Nama Petugas</strong> di bawah untuk menginput realisasi dan menekan tombol <strong className="font-black text-slate-800">SIMPAN</strong> untuk menyimpan realisasi lapangan tiap SLS (bisa dilakukan secara rutin).<br />
-                                    2. Tombol <strong className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">Kirim Rekap Untuk Evaluasi</strong> <span className="underline font-black">HANYA</span> digunakan ketika jadwal evaluasi. (2-1-2-1 dan pertemuan wajib)<br />
-                                    3. Klik tombol <strong className="font-black text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded">Tandai Selesai</strong> pada masing-masing SLS jika semua muatan di SLS tersebut sudah selesai didata semua.
+                                    1. Seluruh volume capaian dokumen (*Draft, Submit, Approve, Reject*) ditarik otomatis dari aplikasi Fasih secara berkala. Anda tidak perlu lagi melakukan entri data manual per SLS. Klik nama petugas untuk melihat progress per SLS.<br />
+
+                                    2. Tombol <strong className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">Kirim Rekap Untuk Evaluasi</strong> digunakan saat jadwal evaluasi berkala (pola 2-1-2-1) dan jadwal evaluasi lainnya untuk mengirim rekaman kendala dan solusi tim ke Kabupaten.
                                 </p>
+                                
+                                {/* INDIKATOR TERAKHIR SINKRONISASI SERVER */}
+                                <div className="mt-2 pt-1.5 border-t border-amber-200/60 flex items-center justify-between text-[9px] text-amber-800/80 font-mono font-bold">
+                                    <span className="flex items-center gap-1">🔄 Pembaruan Data Terakhir:</span>
+                                    <span className="bg-amber-200/70 text-amber-900 px-2 py-0.5 rounded-md font-black">
+                                        {lastSyncProgressTime}
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
@@ -1799,6 +1889,7 @@ const handleSyncPmlOfflineInputs = async () => {
                                 <span className="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-mono">{filteredSlsInputs.length} SLS</span>
                             </div>
 
+
                             {Object.keys(groupedSlsByPetugas).map((namaPetugas) => {
                                 const isExpanded = expandedPetugasSls === namaPetugas;
                                 const listSlsPetugas = groupedSlsByPetugas[namaPetugas];
@@ -1807,48 +1898,73 @@ const handleSyncPmlOfflineInputs = async () => {
                                 const totalRealisasiPcl = listSlsPetugas.reduce((acc, curr) => acc + (curr.realisasi_pencacahan || 0), 0);
                                 const persenPcl = totalMuatanPcl > 0 ? Math.min(Math.round((totalRealisasiPcl / totalMuatanPcl) * 100), 100) : 0;
 
+                                // Hitung akumulasi status dokumen dari JSONB per petugas untuk ringkasan
+                                let draftPcl = 0, submitPcl = 0, appPcl = 0, rejPcl = 0;
+                                listSlsPetugas.forEach(sls => {
+                                    const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
+                                    const obj = match?.status_progres || {};
+                                    draftPcl += (obj["DRAFT"] || 0);
+                                    submitPcl += (obj["SUBMITTED BY Pencacah"] || 0);
+                                    appPcl += (obj["APPROVED BY Pengawas"] || 0) + (obj["APPROVED BY PEMERIKSA"] || 0);
+                                    rejPcl += (obj["REJECTED BY Pengawas"] || 0) + (obj["REVOKED BY Pengawas"] || 0);
+                                });
+
                                 return (
-                                    <div key={namaPetugas} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs transition-all">
+                                    <div key={namaPetugas} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs transition-all">
                                         
-                                        {/* HEADER AKORDION */}
+                                        {/* HEADER AKORDION SIMPEL */}
                                         <div 
                                             onClick={() => setExpandedPetugasSls(isExpanded ? null : namaPetugas)}
-                                            className={`p-3 flex items-center justify-between gap-2 cursor-pointer transition-colors active:bg-slate-100 ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
+                                            className={`p-3 flex flex-col gap-2 cursor-pointer transition-colors active:bg-slate-100 ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
                                         >
-                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                                <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0 uppercase shadow-xs">
-                                                    {namaPetugas.charAt(0)}
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                    <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0 uppercase shadow-xs">
+                                                        {namaPetugas.charAt(0)}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <h4 className="text-xs font-black text-slate-800 uppercase truncate tracking-tight">{namaPetugas}</h4>
+                                                        <p className="text-[9px] font-bold text-slate-400 font-mono mt-0.5">
+                                                            {listSlsPetugas.length} SLS • {totalRealisasiPcl}/{totalMuatanPcl} TARGET
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <h4 className="text-xs font-black text-slate-800 uppercase truncate tracking-tight">{namaPetugas}</h4>
-                                                    <div className="flex items-center gap-2 mt-0.5">
-                                                        <span className="text-[9px] font-bold text-slate-400 uppercase font-mono">
-                                                            {listSlsPetugas.length} SLS
-                                                        </span>
-                                                        <span className="text-[9px] font-black text-slate-400">•</span>
-                                                        <span className="text-[9px] font-mono font-black text-indigo-600">
-                                                            {totalRealisasiPcl}/{totalMuatanPcl} Assignment ({persenPcl}%)
-                                                        </span>
+                                                
+                                                <div className="shrink-0 flex items-center gap-2">
+                                                    <span className="text-xs font-mono font-black text-indigo-600">
+                                                        {persenPcl}%
+                                                    </span>
+                                                    <div className="text-slate-400">
+                                                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                                     </div>
                                                 </div>
                                             </div>
-                                            
-                                            <div className="shrink-0 text-slate-400 p-1">
-                                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+
+                                            {/* SUNTIKAN 1: PROGRESS BAR HORIZONTAL */}
+                                            <div className="w-full bg-slate-100 rounded-full h-1 overflow-hidden">
+                                                <div 
+                                                    className="h-full bg-indigo-600 rounded-full transition-all duration-300"
+                                                    style={{ width: `${persenPcl}%` }}
+                                                ></div>
+                                            </div>
+
+                                            {/* SUNTIKAN 2: RINGKASAN STATUS DOKUMEN MINI */}
+                                            <div className="flex justify-end gap-2 text-[9px] font-mono font-bold text-slate-400 border-t border-slate-50 pt-1">
+                                                <span>Draft: <strong className="text-amber-600">{draftPcl}</strong></span>
+                                                <span>Submit: <strong className="text-blue-600">{submitPcl}</strong></span>
+                                                <span>Approve: <strong className="text-emerald-600">{appPcl}</strong></span>
+                                                {rejPcl > 0 && <span>Reject: <strong className="text-rose-600">{rejPcl}</strong></span>}
                                             </div>
                                         </div>
 
-                                        {/* ISI ACCORDION DENGAN ROW INPUT MEMOIZED */}
+                                        {/* ISI ACCORDION (KEMBALI KE STRUKTUR LAMA ANDA) */}
                                         {isExpanded && (
                                             <div className="p-2.5 bg-slate-50/50 space-y-2 animate-fadeIn border-t border-slate-100">
                                                 {listSlsPetugas.map((sls) => (
                                                     <SlsCardRow 
                                                         key={sls.idsubsls}
                                                         sls={sls}
-                                                        initialValue={slsInputs[sls.idsubsls] !== undefined ? slsInputs[sls.idsubsls] : ""}
-                                                        onSave={handleSaveSlsProgressDirect}
-                                                        onToggleSelesai={handleToggleSlsSelesai}
-                                                        actionLoading={actionLoading}
+                                                        progressData={realtimeProgressData}
                                                     />
                                                 ))}
                                             </div>
@@ -1856,6 +1972,7 @@ const handleSyncPmlOfflineInputs = async () => {
                                     </div>
                                 );
                             })}
+
 
                             {filteredSlsInputs.length === 0 && (
                                 <div className="text-center text-[10px] text-slate-400 font-bold py-8 bg-white rounded-2xl border border-dashed border-slate-200">
