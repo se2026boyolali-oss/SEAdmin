@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Trash2, Search, UserMinus, RotateCcw, Lock, Unlock, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { Trash2, Search, UserMinus, RotateCcw, Lock, Unlock, ShieldAlert, CheckCircle2, Sliders } from 'lucide-react';
 
 // Daftar 22 Kecamatan di Boyolali untuk opsi sakelar
 const DAFTAR_KECAMATAN = [
@@ -33,9 +33,13 @@ export default function SettingsPage() {
   const [lockedKecamatan, setLockedKecamatan] = useState([]);
   const [loadingToggleKec, setLoadingToggleKec] = useState(null); // Menyimpan nama kecamatan yang sedang di-loading
 
-  // NEW STATE: Menyimpan status hak akses upload manual global untuk PCL lapangan
+  // STATE: Menyimpan status hak akses upload manual global untuk PCL lapangan
   const [allowManualUpload, setAllowManualUpload] = useState(false);
   const [loadingGlobalToggle, setLoadingGlobalToggle] = useState(false);
+
+  // NEW STATE: State untuk kontrol sistem maintenance global
+  const [isMaintenance, setIsMaintenance] = useState(false);
+  const [loadingMaintenanceToggle, setLoadingMaintenanceToggle] = useState(false);
 
   // Ref untuk tracking mount awal (mencegah double fetch petugas)
   const isFirstMount = useRef(true);
@@ -81,7 +85,7 @@ export default function SettingsPage() {
     }
   };
 
-  // 3. MODIFIKASI: Ambil status konfigurasi aplikasi (Kecamatan Kunci & Jalur Manual PCL) sekaligus
+  // 3. Ambil status konfigurasi aplikasi (Kecamatan Kunci, Jalur Manual PCL & Status Maintenance)
   const fetchAppSettings = async () => {
     try {
       // Pemuatan data kecamatan terblokir
@@ -108,6 +112,19 @@ export default function SettingsPage() {
         setAllowManualUpload(manualData.value_boolean === true);
       } else if (manualError && manualError.code !== 'PGRST116') {
         throw manualError;
+      }
+
+      // NEW FETCH: Ambil status mode maintenance sistem
+      const { data: maintData, error: maintError } = await supabase
+        .from('app_settings')
+        .select('value_boolean')
+        .eq('key', 'is_maintenance')
+        .single();
+
+      if (!maintError && maintData) {
+        setIsMaintenance(maintData.value_boolean === true);
+      } else if (maintError && maintError.code !== 'PGRST116') {
+        throw maintError;
       }
 
     } catch (err) {
@@ -264,7 +281,7 @@ export default function SettingsPage() {
     }
   };
 
-  // NEW FUNCTION: Aksi Merubah Status Sakelar Sakti Jalur Upload Manual PCL
+  // Aksi Merubah Status Sakelar Sakti Jalur Upload Manual PCL
   const handleToggleGlobalManualUpload = async () => {
     if (loadingGlobalToggle) return;
     setLoadingGlobalToggle(true);
@@ -292,6 +309,37 @@ export default function SettingsPage() {
       setMessage({ text: `Gagal merubah kebijakan manual global: ${error.message}`, type: 'error' });
     } finally {
       setLoadingGlobalToggle(false);
+    }
+  };
+
+  // NEW FUNCTION: Aksi Mengubah Mode Maintenance Global Aplikasi
+  const handleToggleMaintenanceMode = async () => {
+    if (loadingMaintenanceToggle) return;
+    setLoadingMaintenanceToggle(true);
+    setMessage({ text: '', type: '' });
+
+    const nextState = !isMaintenance;
+
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({
+          key: 'is_maintenance',
+          value_boolean: nextState,
+          updated_at: new Date()
+        }, { onConflict: 'key' });
+
+      if (error) throw error;
+
+      setIsMaintenance(nextState);
+      setMessage({
+        text: `Status Server: Mode Pemeliharaan (Maintenance) berhasil ${nextState ? 'DIAKTIFKAN (ON) - Selain Admin dilarang entry data' : 'DINONAKTIFKAN (OFF) - Sistem kembali normal'}!`,
+        type: 'success'
+      });
+    } catch (error) {
+      setMessage({ text: `Gagal mengubah status pemeliharaan sistem: ${error.message}`, type: 'error' });
+    } finally {
+      setLoadingMaintenanceToggle(false);
     }
   };
 
@@ -326,46 +374,88 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* NEW PANEL: PUSAT KENDALI KEBIJAKAN DARURAT (UPLOAD MANUAL TOGGLE) */}
-      <section className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 md:p-6 rounded-3xl shadow-xl border border-slate-700/50">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
-                Kebijakan Awal Pelaksanaan Sensus
-              </span>
-              {allowManualUpload && (
-                <span className="text-[9px] bg-emerald-500 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider animate-pulse">
-                  Aktif (ON)
+      {/* BLOCK UTAMA ADMNISTRASI GLOBAL (DUAL PANEL TOGGLE) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        
+        {/* PANEL KEBIJAKAN DARURAT (UPLOAD MANUAL TOGGLE) */}
+        <section className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 md:p-6 rounded-3xl shadow-xl border border-slate-700/50 flex flex-col justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
+                  Kebijakan Pelaksanaan Sensus
                 </span>
-              )}
+                {allowManualUpload && (
+                  <span className="text-[9px] bg-emerald-500 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider animate-pulse">
+                    Aktif (ON)
+                  </span>
+                )}
+              </div>
+              <h2 className="text-base font-black text-white flex items-center gap-2 tracking-tight">
+                <ShieldAlert className="text-amber-400 shrink-0" size={18} />
+                Bypass Jalur Alternatif: Upload Manual PCL
+              </h2>
+              <p className="text-slate-400 text-xs leading-relaxed pt-1">
+                Aktifkan jika petugas terkendala satelit GPS / kamera HP. Petugas diberikan opsi memilih SLS, mengubah tanggal mandiri, dan mengunggah foto langsung dari <strong>Galeri HP</strong>.
+              </p>
             </div>
-            <h2 className="text-base md:text-lg font-black text-white flex items-center gap-2 tracking-tight">
-              <ShieldAlert className="text-amber-400 shrink-0" size={20} />
-              Bypass Jalur Alternatif: Upload Manual PCL
-            </h2>
-            <p className="text-slate-400 text-xs md:text-sm max-w-2xl leading-relaxed">
-              Aktifkan ini jika banyak petugas terkendala satelit GPS / kamera HP. Petugas akan diberikan opsi memilih SLS, merubah tanggal secara mandiri, dan mengunggah foto langsung dari <strong>Galeri HP</strong>.
-            </p>
-          </div>
 
-          {/* iOS Style Custom Interactive Switch Toggle Box */}
-          <div 
-            onClick={handleToggleGlobalManualUpload}
-            className={`w-14 h-8 shrink-0 rounded-full p-1 transition-colors duration-300 ease-in-out flex items-center shadow-inner ${
-              loadingGlobalToggle ? 'bg-slate-700 opacity-60 cursor-not-allowed' : 'cursor-pointer'
-            } ${allowManualUpload ? 'bg-emerald-500' : 'bg-slate-600'}`}
-          >
-            <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ease-in-out flex items-center justify-center ${
-              allowManualUpload ? 'translate-x-6' : 'translate-x-0'
-            }`}>
-              {loadingGlobalToggle ? (
-                <span className="w-2 h-2 rounded-full bg-slate-400 animate-ping"></span>
-              ) : null}
+            {/* iOS Style Interactive Toggle */}
+            <div 
+              onClick={handleToggleGlobalManualUpload}
+              className={`w-14 h-8 shrink-0 rounded-full p-1 transition-colors duration-300 ease-in-out flex items-center shadow-inner ${
+                loadingGlobalToggle ? 'bg-slate-700 opacity-60 cursor-not-allowed' : 'cursor-pointer'
+              } ${allowManualUpload ? 'bg-emerald-500' : 'bg-slate-600'}`}
+            >
+              <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ease-in-out flex items-center justify-center ${
+                allowManualUpload ? 'translate-x-6' : 'translate-x-0'
+              }`}>
+                {loadingGlobalToggle && <span className="w-2 h-2 rounded-full bg-slate-400 animate-ping"></span>}
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+
+        {/* NEW PANEL: PUSAT KENDALI MAINTENANCE SERVER (SAKELAR SAKTI MAINTENANCE) */}
+        <section className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 md:p-6 rounded-3xl shadow-xl border border-slate-700/50 flex flex-col justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] bg-rose-600 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-wider">
+                  Status Keamanan Server
+                </span>
+                {isMaintenance && (
+                  <span className="text-[9px] bg-amber-500 text-slate-900 px-2 py-0.5 rounded-full font-black uppercase tracking-wider animate-pulse">
+                    Maintenance Aktif (ON)
+                  </span>
+                )}
+              </div>
+              <h2 className="text-base font-black text-white flex items-center gap-2 tracking-tight">
+                <Sliders className="text-rose-400 shrink-0" size={18} />
+                Kunci Pemeliharaan Sistem Global (Maintenance Mode)
+              </h2>
+              <p className="text-slate-400 text-xs leading-relaxed pt-1">
+                Aktifkan switch ini saat melakukan <strong>Migrasi/Backup Database</strong>. Semua akun mitra (PML/PCL/Pegawai) akan otomatis diblokir ke halaman perbaikan untuk mencegah masuknya data baru. Akses murni terbuka untuk <strong>Admin</strong>.
+              </p>
+            </div>
+
+            {/* iOS Style Interactive Toggle */}
+            <div 
+              onClick={handleToggleMaintenanceMode}
+              className={`w-14 h-8 shrink-0 rounded-full p-1 transition-colors duration-300 ease-in-out flex items-center shadow-inner ${
+                loadingMaintenanceToggle ? 'bg-slate-700 opacity-60 cursor-not-allowed' : 'cursor-pointer'
+              } ${isMaintenance ? 'bg-rose-500' : 'bg-slate-600'}`}
+            >
+              <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ease-in-out flex items-center justify-center ${
+                isMaintenance ? 'translate-x-6' : 'translate-x-0'
+              }`}>
+                {loadingMaintenanceToggle && <span className="w-2 h-2 rounded-full bg-slate-400 animate-ping"></span>}
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
 
       {/* PANEL 1: SAKELAR KUNCI/BUKA ALOKASI PER KECAMATAN */}
       <section className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-200">

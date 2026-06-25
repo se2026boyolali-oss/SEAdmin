@@ -1,6 +1,7 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { supabase } from './supabaseClient';
 
 import LoginPage from './pages/LoginPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
@@ -15,10 +16,19 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const PmlMonitoringPage = lazy(() => import('./pages/PmlMonitoringPage'));
 const PclAssignmentPage = lazy(() => import('./pages/PclAssignmentPage'));
 const DashboardMonitoring = lazy(() => import('./pages/DashboardMonitoring'));
-
-// 🚀 Lazy Import kedua halaman pendataan orang penting
 const OrangPentingPage = lazy(() => import('./pages/OrangPentingPage'));
 const OrangPentingFormPublik = lazy(() => import('./pages/OrangPentingFormPublik'));
+
+// 🧱 Komponen Tampilan Halaman Maintenance
+const MaintenancePage = () => (
+  <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6 text-center">
+    <div className="text-4xl mb-4">⚙️</div>
+    <h1 className="text-xl font-black uppercase tracking-wider text-amber-400">Sistem Dalam Pemeliharaan</h1>
+    <p className="text-xs text-slate-400 max-w-sm mt-2 font-mono">
+      Proses sinkronisasi data dan pemeliharaan server sedang berlangsung. Aplikasi akan segera kembali online. Terima kasih atas kesabaran Anda.
+    </p>
+  </div>
+);
 
 const PageLoader = () => (
   <div className="p-10 text-center text-xs font-black uppercase tracking-widest text-slate-400">
@@ -67,9 +77,46 @@ const PublicRoute = ({ children }) => {
 };
 
 function AppContent() {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
+  const [isMaintenance, setIsMaintenance] = useState(false);
+  const [checkingSettings, setCheckingSettings] = useState(true);
 
-  if (loading) {
+  // 🔄 Ambil status maintenance dari database secara real-time
+  useEffect(() => {
+    async function fetchMaintenanceStatus() {
+      try {
+        const { data, error } = await supabase
+          .from('app_settings')
+          .select('value_boolean')
+          .eq('key', 'is_maintenance')
+          .single();
+        
+        if (data) {
+          setIsMaintenance(data.value_boolean);
+        }
+      } catch (err) {
+        console.error("Gagal memuat konfigurasi sistem:", err);
+      } finally {
+        setCheckingSettings(false);
+      }
+    }
+
+    fetchMaintenanceStatus();
+
+    // Opsional: Realtime subscription agar otomatis berubah jika Admin menekan switch on/off
+    const settingsSubscription = supabase
+      .channel('public:app_settings')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_settings', filter: 'key=eq.is_maintenance' }, (payload) => {
+        setIsMaintenance(payload.new.value_boolean);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(settingsSubscription);
+    };
+  }, []);
+
+  if (authLoading || checkingSettings) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100">
         <div className="text-sm font-black uppercase tracking-widest text-slate-500 animate-pulse">
@@ -77,6 +124,11 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  // 🛡️ INTERCEPTOR MAINTENANCE: Jika sistem dikunci, dan yang login BUKAN Admin, tendang ke halaman Maintenance
+  if (isMaintenance && profile?.role !== 'admin') {
+    return <MaintenancePage />;
   }
 
   return (
@@ -101,7 +153,6 @@ function AppContent() {
           <Route path="alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AlokasiPage /></ProtectedRoute>} />
           <Route path="prioritas" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><PrioritasPage /></ProtectedRoute>} />
           <Route path="dashboard-monitoring" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><DashboardMonitoring /></ProtectedRoute>} />
-          {/* Dashboard Internal untuk Monitoring Rekapan */}
           <Route path="orang-penting" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><OrangPentingPage /></ProtectedRoute>} />
           
           <Route path="pengaturan" element={<ProtectedRoute allowedRoles={['admin']}><SettingsPage /></ProtectedRoute>} />
