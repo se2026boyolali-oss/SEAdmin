@@ -7,40 +7,65 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState(''); // State baru untuk pesan sukses (Hijau)
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
+const handleLogin = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
     setLoading(true);
 
+    const inputEmail = email.toLowerCase().trim();
+    console.log("=== MEMULAI PROSES LOGIN DENGAN PROTEKSI ARSITEKTUR ===");
+
     try {
-      // Login langsung bawaan Supabase (akan otomatis pakai password lama yang sudah kita salin)
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.toLowerCase().trim(),
-        password: password,
+      // 1. Coba login secara normal ke Supabase Auth Baru
+      console.log("Langkah 1: Mencoba login biasa...");
+      const { data, error: loginError } = await supabase.auth.signInWithPassword({ 
+        email: inputEmail, 
+        password 
       });
 
-      if (error) {
-        throw new Error("Alamat email atau kata sandi Anda salah.");
+      // Jika sukses langsung tanpa error (Berarti sudah pernah migrasi/klik kedua)
+      if (!loginError && data?.user) {
+        console.log("Akses Diterima! Mengalihkan ke Dashboard Utama...");
+        navigate('/', { replace: true });
+        return;
       }
 
-      // Ambil profile untuk cek halaman redirect
-      const { data: profile } = await supabase
-        .from('app_users')
-        .select('is_first_login')
-        .eq('email', email.toLowerCase().trim())
-        .single();
-
-      if (profile?.is_first_login) {
-        navigate('/change-password');
-      } else {
-        navigate('/');
-      }
+      // Jika loginError terdeteksi tapi tidak memutus aliran try, lempar ke catch secara manual
+      if (loginError) throw loginError;
 
     } catch (error) {
-      setErrorMsg(error.message);
+      console.log("Login baru ditolak/belum terdaftar. Memasuki jalur interceptor RPC...", error.message);
+      
+      try {
+        // 2. JALUR UTAMA MIGRASI: Panggil RPC karena login biasa gagal/belum sinkron
+        const { data: migrationSuccess, error: rpcError } = await supabase.rpc(
+          'verify_and_migrate_legacy_password', 
+          { input_email: inputEmail, input_password: password }
+        );
+
+        if (rpcError) {
+          console.error("RPC Error:", rpcError);
+          throw new Error("Terjadi gangguan komunikasi data sensus.");
+        }
+
+        if (migrationSuccess === true) {
+          console.log("✅ Akun sukses ditanam lewat RPC!");
+          setSuccessMsg("Email dan kata sandi Anda BENAR! Sehubungan dengan adanya pembaruan sistem dan perpindahan basis data Sensus, silakan klik sekali lagi tombol 'Masuk Aplikasi' di bawah untuk langsung menuju ke Dashboard.");
+          return;
+        } else {
+          // Jika RPC menghasilkan false, berarti password-nya memang salah
+          setErrorMsg("Alamat email atau kata sandi yang Anda masukkan salah.");
+        }
+
+      } catch (innerError) {
+        console.error("Sistem Gagal Memproses RPC:", innerError);
+        setErrorMsg("Terjadi kesalahan operasional sistem saat sinkronisasi basis data.");
+      }
     } finally {
       setLoading(false);
     }
@@ -57,9 +82,17 @@ export default function LoginPage() {
         <div className="bg-white py-6 px-4 shadow-xl rounded-2xl sm:py-8 sm:px-10 border border-slate-200">
           <h3 className="text-xl font-bold text-slate-800 mb-6 text-center">Sign In</h3>
           
+          {/* 🔴 Tampilan Kotak Error (Tetap Merah) */}
           {errorMsg && (
             <div className="bg-rose-50 border-l-4 border-rose-500 p-4 mb-4 rounded-xl">
               <p className="text-sm font-semibold text-rose-700">{errorMsg}</p>
+            </div>
+          )}
+
+          {/* 🟢 Tampilan Kotak Sukses Migrasi (Hijau Segar & Ramah) */}
+          {successMsg && (
+            <div className="bg-emerald-50 border-l-4 border-emerald-500 p-4 mb-4 rounded-xl">
+              <p className="text-sm font-semibold text-emerald-800 leading-relaxed">{successMsg}</p>
             </div>
           )}
 
