@@ -1,3 +1,4 @@
+// src/pages/LoginPage.jsx
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
@@ -12,117 +13,30 @@ export default function LoginPage() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setErrorMsg('');
-    let isMounted = true;
     setLoading(true);
 
-    const inputEmail = email.toLowerCase().trim();
-
     try {
-      // Langkah A: Coba login biasa ke Supabase Auth
-      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ 
-        email: inputEmail, 
-        password 
+      // Login langsung bawaan Supabase (akan otomatis pakai password lama yang sudah kita salin)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.toLowerCase().trim(),
+        password: password,
       });
 
-      // Langkah B: Aktivasi Pertama Kali / Password Default
-      if (loginError) {
-        const [checkUser, checkPetugas] = await Promise.all([
-          supabase.from('app_users').select('*').eq('email', inputEmail).maybeSingle(),
-          supabase.from('petugas').select('*').eq('email', inputEmail).eq('status', 'Diterima')
-        ]);
-
-        const registeredUser = checkUser.data;
-        const allPetugasData = checkPetugas.data || [];
-
-        const registeredPml = allPetugasData.find(p => p.posisi_tugas === 'PML') || null;
-        const registeredPcl = allPetugasData.find(p => p.posisi_tugas === 'PCL') || null;
-
-        if (!registeredUser && !registeredPml && !registeredPcl) {
-          throw new Error('Email Anda belum didaftarkan di dalam sistem. Silakan hubungi Admin BPS Kabupaten Boyolali.');
-        }
-
-        if (password !== '123456') {
-          if (registeredUser && registeredUser.id !== null) {
-            throw new Error('Email terdaftar, namun password yang Anda masukkan salah. Silakan coba lagi atau hubungi Admin untuk reset password.');
-          } else {
-            throw new Error('Email terdaftar di basis data, namun password awal untuk aktivasi pertama kali salah (Gunakan: 123456).');
-          }
-        }
-
-        let signUpData = null;
-        let signUpError = null;
-
-        try {
-          const res = await supabase.auth.signUp({
-            email: inputEmail,
-            password: '123456',
-          });
-          signUpData = res.data;
-          signUpError = res.error;
-        } catch (signUpCatchErr) {
-          signUpError = signUpCatchErr;
-        }
-
-        if (signUpError) {
-          if (signUpError.message?.toLowerCase().includes("already registered") || signUpError.status === 429) {
-            const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
-              email: inputEmail,
-              password: '123456'
-            });
-            if (retryError) throw new Error('Gagal melakukan aktivasi otomatis atau server sedang sibuk. Silakan bersihkan histori browser Anda atau tunggu 1 menit.');
-            signUpData = retryData;
-          } else {
-            throw signUpError;
-          }
-        }
-
-        const sessionUser = signUpData?.user || signUpData?.data?.user;
-
-        if (sessionUser) {
-          const newUid = sessionUser.id;
-
-          // 🛠️ FIX BUG: Ditambahkan AWAIT agar data lama dipastikan terhapus bersih sebelum melakukan insert profil baru
-          await supabase.from('app_users').delete().eq('email', inputEmail);
-
-          const finalNama = registeredPml?.nama_petugas || registeredPcl?.nama_petugas || registeredUser?.nama_pengguna;
-          const finalRole = registeredPml ? 'pml' : (registeredPcl ? 'pcl' : (registeredUser?.role || 'pcl'));
-          const finalKecamatan = registeredPml?.kecamatan_tugas || registeredPcl?.kecamatan_tugas || registeredUser?.kecamatan_tugas;
-
-          const { error: insertError } = await supabase
-            .from('app_users')
-            .insert({
-              id: newUid,
-              email: inputEmail,
-              nama_pengguna: finalNama,
-              role: finalRole,
-              kecamatan_tugas: finalKecamatan,
-              is_first_login: true
-            });
-
-          if (insertError) throw insertError;
-
-          navigate('/change-password');
-          return;
-        } else {
-          throw new Error('Gagal memproses pendaftaran otomatis. Pastikan status "Confirm Sign Up" di Dashboard Supabase Auth sudah bernilai OFF.');
-        }
+      if (error) {
+        throw new Error("Alamat email atau kata sandi Anda salah.");
       }
 
-      // Langkah C: Login Berhasil (User Lama)
-      const { data: profile, error: profileError } = await supabase
+      // Ambil profile untuk cek halaman redirect
+      const { data: profile } = await supabase
         .from('app_users')
         .select('is_first_login')
-        .eq('email', inputEmail)
-        .maybeSingle();
+        .eq('email', email.toLowerCase().trim())
+        .single();
 
-      if (profileError) throw profileError;
-
-      const isFirstLogin = profile ? profile.is_first_login : true;
-
-      if (isFirstLogin) {
+      if (profile?.is_first_login) {
         navigate('/change-password');
       } else {
-        navigate('/'); 
+        navigate('/');
       }
 
     } catch (error) {
