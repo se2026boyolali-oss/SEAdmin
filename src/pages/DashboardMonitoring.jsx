@@ -89,64 +89,73 @@ export default function DashboardMonitoring() {
     // ==========================================
     // 2. DATA EFFECTS MANAGEMENT (useEffect)
     // ==========================================
-    useEffect(() => {
-        async function loadAllDashboardData() {
-            try {
-                setLoading(true);
-                const { data: currentProgress, error: progressError } = await supabase
-                    .from('progress_boyolali')
-                    .select(`
-                        idsubsls, kecamatan, kode_desa, nama_desa, kode_sls, nama_rt_dusun, status_progres, updated_at,
-                        muatan_sls (
-                            nmsls, kdkec, nmkec, kddesa, nmdesa, petugas_id,
-                            petugas (nama_petugas, posisi_tugas, id_pml_atasan, kecamatan_tugas)
-                        )
-                    `);
-                if (progressError) throw progressError;
+useEffect(() => {
+    async function loadAllDashboardData() {
+        try {
+            setLoading(true);
 
-                const { data: historicalLogs, error: historyError } = await supabase
-                    .from('history_progress_petugas')
-                    .select('*')
-                    .order('tanggal', { ascending: true });
-                if (historyError) throw historyError;
+            // 1. Ambil data progress (Batasi kolom jika memungkinkan, pastikan tidak ada teks raksasa)
+            const { data: currentProgress, error: progressError } = await supabase
+                .from('progress_boyolali')
+                .select(`
+                    idsubsls, kecamatan, kode_desa, nama_desa, kode_sls, nama_rt_dusun, status_progres, updated_at,
+                    muatan_sls (
+                        nmsls, kdkec, nmkec, kddesa, nmdesa, petugas_id,
+                        petugas (nama_petugas, posisi_tugas, id_pml_atasan, kecamatan_tugas)
+                    )
+                `);
+            if (progressError) throw progressError;
 
-                const { data: masterStaff, error: staffError } = await supabase
-                    .from('petugas')
-                    .select('email, nama_petugas');
-                if (staffError) throw staffError;
+            // 🌟 OPTIMISASI EGRESS 1: Filter tanggal langsung di Server Supabase (Hanya 14 Hari terakhir)
+            const duaMingguLalu = new Date();
+            duaMingguLalu.setDate(duaMingguLalu.getDate() - 15); // Ambil aman 15 hari
+            const strFilterTanggal = duaMingguLalu.toISOString().split('T')[0];
 
-                if (masterStaff) {
-                    const lookupObj = {};
-                    masterStaff.forEach(st => {
-                        lookupObj[st.email.toLowerCase().trim()] = st.nama_petugas;
-                    });
-                    setStaffLookup(lookupObj);
-                }
+            // 🌟 OPTIMISASI EGRESS 2: Ambil kolom yang dibutuhkan saja, HINDARI select('*')
+            const { data: historicalLogs, error: historyError } = await supabase
+                .from('history_progress_petugas')
+                .select('tanggal, petugas_id, total_capaian, kode_kec, kode_desa') 
+                .gte('tanggal', strFilterTanggal) // <--- Server-side filtering mengurangi baris drastis
+                .order('tanggal', { ascending: true });
+            if (historyError) throw historyError;
 
-                const { data: syncData, error: syncError } = await supabase
-                    .from('sync_status')
-                    .select('last_update')
-                    .order('last_update', { ascending: false })
-                    .limit(1);
-                if (syncError) throw syncError;
-                
-                if (syncData && syncData.length > 0 && syncData[0].last_update) {
-                    const syncTime = new Date(syncData[0].last_update);
-                    setLastSyncedTime(syncTime.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB');
-                } else {
-                    setLastSyncedTime(new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB');
-                }
+            const { data: masterStaff, error: staffError } = await supabase
+                .from('petugas')
+                .select('email, nama_petugas');
+            if (staffError) throw staffError;
 
-                setRawData(currentProgress || []);
-                setHistoryData(historicalLogs || []);
-            } catch (err) {
-                console.error("Control Center Load Error:", err.message);
-            } finally {
-                setLoading(false);
+            if (masterStaff) {
+                const lookupObj = {};
+                masterStaff.forEach(st => {
+                    lookupObj[st.email.toLowerCase().trim()] = st.nama_petugas;
+                });
+                setStaffLookup(lookupObj);
             }
+
+            const { data: syncData, error: syncError } = await supabase
+                .from('sync_status')
+                .select('last_update')
+                .order('last_update', { ascending: false })
+                .limit(1);
+            if (syncError) throw syncError;
+            
+            if (syncData && syncData.length > 0 && syncData[0].last_update) {
+                const syncTime = new Date(syncData[0].last_update);
+                setLastSyncedTime(syncTime.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB');
+            } else {
+                setLastSyncedTime(new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB');
+            }
+
+            setRawData(currentProgress || []);
+            setHistoryData(historicalLogs || []);
+        } catch (err) {
+            console.error("Control Center Load Error:", err.message);
+        } finally {
+            setLoading(false);
         }
-        loadAllDashboardData();
-    }, []);
+    }
+    loadAllDashboardData();
+}, []);
 
 // ==========================================
     // 2. DATA EFFECTS MANAGEMENT (useEffect) - UPDATE PERBAIKAN BUG CRITICAL PCL
