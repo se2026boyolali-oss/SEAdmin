@@ -25,10 +25,13 @@ const CustomLabelTren = (props) => {
 };
 
 const susunanBarStatus = [
-    { key: "submitted", label: "SUBMITTED BY Pencacah", fill: "#3b82f6", radius: undefined },  
+    { key: "submitted", label: "SUBMITTED BY Pencacah", fill: "#3b82f6", radius: undefined },
+    //{key: "submitted_resp", label: "SUBMITTED BY Respondent", fill: "#4042db", radius: undefined },  
     { key: "draft",     label: "DRAFT",                 fill: "#f97316", radius: undefined },  
     { key: "rejected",  label: "REJECTED BY Pengawas",  fill: "#ef4444", radius: undefined },  
-    { key: "revoked",   label: "REVOKED BY Pengawas",   fill: "#991b1b", radius: undefined },  
+    { key: "revoked",   label: "REVOKED BY Pengawas",   fill: "#991b1b", radius: undefined },
+    
+    //{ key: "edited",    label: "EDITED BY Pengawas",    fill: "#758a2c", radius: undefined },  
     { key: "approved",  label: "APPROVED BY Pengawas",  fill: "#10b981", radius: undefined },  
     { key: "open",      label: "OPEN",                  fill: "#e2e8f0", radius: [4, 4, 0, 0] } 
 ];
@@ -94,17 +97,18 @@ useEffect(() => {
         try {
             setLoading(true);
 
-            // 1. Ambil data progress (Batasi kolom jika memungkinkan, pastikan tidak ada teks raksasa)
-            const { data: currentProgress, error: progressError } = await supabase
-                .from('progress_boyolali')
-                .select(`
-                    idsubsls, kecamatan, kode_desa, nama_desa, kode_sls, nama_rt_dusun, status_progres, updated_at,
-                    muatan_sls (
-                        nmsls, kdkec, nmkec, kddesa, nmdesa, petugas_id,
-                        petugas (nama_petugas, posisi_tugas, id_pml_atasan, kecamatan_tugas)
-                    )
-                `);
-            if (progressError) throw progressError;
+const { data: currentProgress, error: progressError } = await supabase
+    .from('progress_boyolali')
+    .select(`
+        idsubsls, kecamatan, kode_desa, nama_desa, kode_sls, nama_rt_dusun, updated_at,
+        total, open, draft, submitted_pencacah, approved_pengawas, 
+        rejected_pengawas, revoked_pengawas, edited_pengawas, submitted_respondent,
+        muatan_sls (
+            nmsls, kdkec, nmkec, kddesa, nmdesa, petugas_id,
+            petugas (nama_petugas, posisi_tugas, id_pml_atasan, kecamatan_tugas)
+        )
+    `);
+if (progressError) throw progressError;
 
             // 🌟 OPTIMISASI EGRESS 1: Filter tanggal langsung di Server Supabase (Hanya 14 Hari terakhir)
             const duaMingguLalu = new Date();
@@ -220,14 +224,17 @@ useEffect(() => {
 
             const statusProgres = row.status_progres || {};
             
-            const s_submitted = parseInt(statusProgres["SUBMITTED BY Pencacah"]) || 0;
-            const s_draft     = parseInt(statusProgres["DRAFT"]) || 0;
-            const s_rejected  = parseInt(statusProgres["REJECTED BY Pengawas"]) || 0;
-            const s_revoked   = parseInt(statusProgres["REVOKED BY Pengawas"]) || 0;
-            const s_approved  = parseInt(statusProgres["APPROVED BY Pengawas"]) || 0;
-            const s_open      = parseInt(statusProgres["OPEN"]) || 0;
+            const s_submitted          = parseInt(row.submitted_pencacah) || 0;
+            const s_draft              = parseInt(row.draft) || 0;
+            const s_rejected           = parseInt(row.rejected_pengawas) || 0;
+            const s_revoked            = parseInt(row.revoked_pengawas) || 0;
+            const s_approved           = parseInt(row.approved_pengawas) || 0;
+            const s_edited             = parseInt(row.edited_pengawas) || 0;
+            const s_submitted_resp     = parseInt(row.submitted_respondent) || 0;
+            const s_open               = parseInt(row.open) || 0;
 
-            const totalTarget = s_submitted + s_draft + s_rejected + s_revoked + s_approved + s_open;
+            // Total target dihitung dari akumulasi semua status, atau bisa langsung menggunakan row.total
+            const totalTarget = parseInt(row.total) || (s_submitted + s_draft + s_rejected + s_revoked + s_approved + s_edited + s_submitted_resp + s_open);
 
             let statusSlsKategori = "belum";
             if (totalTarget > 0) {
@@ -236,28 +243,48 @@ useEffect(() => {
                 else statusSlsKategori = "belum";
             }
 
-            const initStrukturData = (kode, namaTampilan, namaAsli) => ({
+const initStrukturData = (kode, namaTampilan, namaAsli) => ({
                 kodeKec, kodeDesa, nama: namaTampilan, nama_asli: namaAsli,
-                submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, open: 0,
+                submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, 
+                edited: 0, submitted_resp: 0, open: 0, // <-- Tambahan kolom baru
                 t: 0, jml_sls: 0, sls_selesai: 0
             });
 
+// =================================================================
+            // PROSES AKUMULASI DATA WILAYAH & PETUGAS (FIX KOLOM SEPARATED NUMERIC)
+            // =================================================================
+            
+            // 1. Akumulasi per Kecamatan
             if (!kecMap[kodeKec]) kecMap[kodeKec] = initStrukturData(kodeKec, `${namaKec} [${kodeKec}]`, namaKec);
-            kecMap[kodeKec].submitted += s_submitted; kecMap[kodeKec].draft += s_draft;
-            kecMap[kodeKec].rejected += s_rejected; kecMap[kodeKec].revoked += s_revoked;
-            kecMap[kodeKec].approved += s_approved; kecMap[kodeKec].open += s_open;
-            kecMap[kodeKec].t += totalTarget; kecMap[kodeKec].jml_sls += 1;
+            kecMap[kodeKec].submitted      += s_submitted; 
+            kecMap[kodeKec].draft          += s_draft;
+            kecMap[kodeKec].rejected       += s_rejected; 
+            kecMap[kodeKec].revoked        += s_revoked;
+            kecMap[kodeKec].approved       += s_approved; 
+            kecMap[kodeKec].edited         += s_edited;          // Kolom Baru
+            kecMap[kodeKec].submitted_resp += s_submitted_resp;  // Kolom Baru
+            kecMap[kodeKec].open           += s_open;
+            kecMap[kodeKec].t              += totalTarget; 
+            kecMap[kodeKec].jml_sls        += 1;
             if (statusSlsKategori === "selesai") kecMap[kodeKec].sls_selesai += 1;
 
+            // 2. Akumulasi per Desa
             if (!desaMap[kodeDesa]) desaMap[kodeDesa] = initStrukturData(kodeDesa, namaDesa, namaDesa);
-            desaMap[kodeDesa].submitted += s_submitted; desaMap[kodeDesa].draft += s_draft;
-            desaMap[kodeDesa].rejected += s_rejected; desaMap[kodeDesa].revoked += s_revoked;
-            desaMap[kodeDesa].approved += s_approved; desaMap[kodeDesa].open += s_open;
-            desaMap[kodeDesa].t += totalTarget; desaMap[kodeDesa].jml_sls += 1;
+            desaMap[kodeDesa].submitted      += s_submitted; 
+            desaMap[kodeDesa].draft          += s_draft;
+            desaMap[kodeDesa].rejected       += s_rejected; 
+            desaMap[kodeDesa].revoked        += s_revoked;
+            desaMap[kodeDesa].approved       += s_approved; 
+            desaMap[kodeDesa].edited         += s_edited;          // Kolom Baru
+            desaMap[kodeDesa].submitted_resp += s_submitted_resp;  // Kolom Baru
+            desaMap[kodeDesa].open           += s_open;
+            desaMap[kodeDesa].t              += totalTarget; 
+            desaMap[kodeDesa].jml_sls        += 1;
             if (statusSlsKategori === "selesai") desaMap[kodeDesa].sls_selesai += 1;
 
             const kecamatanResmiPetugas = relPetugas.kecamatan_tugas || row.kecamatan || relMuatan.nmkec || "Unknown";
 
+            // 3. Akumulasi per Petugas (PCL)
             if (!petugasMap[emailPetugas]) {
                 petugasMap[emailPetugas] = {
                     kodeKec: kodeKec, 
@@ -267,21 +294,25 @@ useEffect(() => {
                     email: emailPetugas,
                     namaKec: kecamatanResmiPetugas, 
                     emailPml: emailPmlFormated,
-                    submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, open: 0,
+                    submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, 
+                    edited: 0, submitted_resp: 0, open: 0, // Kolom Baru dimasukkan di inisialisasi
                     t: 0, jml_sls: 0, sls_selesai: 0
                 };
             }
 
-            petugasMap[emailPetugas].submitted += s_submitted;
-            petugasMap[emailPetugas].draft += s_draft;
-            petugasMap[emailPetugas].rejected += s_rejected;
-            petugasMap[emailPetugas].revoked += s_revoked;
-            petugasMap[emailPetugas].approved += s_approved;
-            petugasMap[emailPetugas].open += s_open;
-            petugasMap[emailPetugas].t += totalTarget;
-            petugasMap[emailPetugas].jml_sls += 1;
+            petugasMap[emailPetugas].submitted      += s_submitted;
+            petugasMap[emailPetugas].draft          += s_draft;
+            petugasMap[emailPetugas].rejected       += s_rejected;
+            petugasMap[emailPetugas].revoked        += s_revoked;
+            petugasMap[emailPetugas].approved       += s_approved;
+            petugasMap[emailPetugas].edited         += s_edited;          // Kolom Baru
+            petugasMap[emailPetugas].submitted_resp += s_submitted_resp;  // Kolom Baru
+            petugasMap[emailPetugas].open           += s_open;
+            petugasMap[emailPetugas].t              += totalTarget;
+            petugasMap[emailPetugas].jml_sls        += 1;
             if (statusSlsKategori === "selesai") petugasMap[emailPetugas].sls_selesai += 1;
 
+            // 4. Transformasi Persentase untuk Data SLS Tunggal (slsList)
             slsList.push({
                 idsubsls: row.idsubsls, kodeKec, kodeDesa, petugas_id: emailPetugas,
                 nama: row.nama_rt_dusun || relMuatan.nmsls || row.idsubsls,
@@ -292,6 +323,8 @@ useEffect(() => {
                 rejected: totalTarget > 0 ? Math.round((s_rejected / totalTarget) * 100) : 0,
                 revoked: totalTarget > 0 ? Math.round((s_revoked / totalTarget) * 100) : 0,
                 approved: totalTarget > 0 ? Math.round((s_approved / totalTarget) * 100) : 0,
+                edited: totalTarget > 0 ? Math.round((s_edited / totalTarget) * 100) : 0,                     // Kolom Baru
+                submitted_resp: totalTarget > 0 ? Math.round((s_submitted_resp / totalTarget) * 100) : 0,     // Kolom Baru
                 open: totalTarget > 0 ? Math.round((s_open / totalTarget) * 100) : 100,
                 jml_sls: 1, sls_selesai: statusSlsKategori === "selesai" ? 1 : 0
             });
@@ -329,7 +362,7 @@ useEffect(() => {
         // Pembuatan tanggal penilai dinamis (H-1 dan H-3)
         const tglSekarang = new Date();
         const tglH1 = new Date(); tglH1.setDate(tglSekarang.getDate() - 1);
-        const tglH3 = new Date(); tglH3.setDate(tglSekarang.getDate() - 3);
+        const tglH3 = new Date(); tglH3.setDate(tglSekarang.getDate() - 4);
         
         const strH1 = tglH1.toISOString().split('T')[0];
         const strH3 = tglH3.toISOString().split('T')[0];
@@ -388,7 +421,7 @@ useEffect(() => {
             petugasDiBawahRata2: counterPetugasDiBawahRata2
         });
 
-        const formatKePersen = (obj) => {
+const formatKePersen = (obj) => {
             const total = obj.t || 1;
             return {
                 ...obj, total_target: obj.t, total_realisasi: obj.t - obj.open,
@@ -397,6 +430,8 @@ useEffect(() => {
                 rejected: Math.round((obj.rejected / total) * 100),
                 revoked: Math.round((obj.revoked / total) * 100),
                 approved: Math.round((obj.approved / total) * 100),
+                edited: Math.round((obj.edited / total) * 100),                 // Baru
+                submitted_resp: Math.round((obj.submitted_resp / total) * 100), // Baru
                 open: Math.round((obj.open / total) * 100)
             };
         };
@@ -941,7 +976,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                         setCriticalModalConfig({
                             show: true,
                             type: "macet",
-                            title: "⚠️ Daftar Petugas Tidak Aktif (Stagnan > 3 Hari)",
+                            title: "⚠️ Daftar Petugas Tidak Aktif (3 hari tidak kirim assignment)",
                             data: listMacetMapped
                         });
                     }}
@@ -1010,7 +1045,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                         setCriticalModalConfig({
                             show: true,
                             type: "melambat",
-                            title: "⚠️ Daftar Petugas Melambat (Produktivitas Rendah)",
+                            title: "⚠️ Daftar Petugas Melambat (Produktivitas Rendah 3 hari kirim < 10 Assignment)",
                             data: listMelambatMapped
                         });
                     }}
@@ -1040,7 +1075,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
             </div>
 
 {/* BARIS GRAPH UTAMA: GRAFIK BATANG & REKAP BULAT */}
-            <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
+<div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                     <div>
                         <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
@@ -1094,13 +1129,20 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider mr-1">Legenda Status:</span>
                     {susunanBarStatus.map((b) => {
                         const totalKategori = dataPieStatus.find(item => item.name === b.label)?.value || 0;
-                        const persenKategori = totalSeluruhMuatan > 0 ? ((totalKategori / totalSeluruhMuatan) * 100).toFixed(1) : "0.0";
+                        const persenKategori = totalSeluruhMuatan > 0 ? ((totalKategori / totalSeluruhMuatan) * 100).toFixed(2) : "0.00";
                         return (
                             <div key={b.key} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs text-[10px]">
                                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: b.fill }}></span>
-                                <span className="font-bold text-slate-500 uppercase text-[9px]">{b.label.replace(" BY Pencacah", "").replace(" BY Pengawas", "")}</span>
+                                {/* PERBAIKAN TEKS: Membersihkan imbuhan kata penanda agar tampilan UI seragam dan rapi */}
+                                <span className="font-bold text-slate-500 uppercase text-[9px]">
+                                    {b.label.toUpperCase()
+                                        .replace(" BY PENCACAH", "")
+                                        .replace(" BY PENGAWAS", "")
+                                        .replace("SUBMITTED ", "")
+                                    }
+                                </span>
                                 <span className="font-mono font-black text-slate-800 border-l border-slate-200 pl-1.5 ml-0.5">
-                                    {totalKategori.toLocaleString('id-ID')} <span className="text-[9px] font-sans font-normal text-slate-400">({persenKategori}%)</span>
+                                    {totalKategori.toLocaleString('id-ID')} <span className="text-[9px] font-sans font-bold text-slate-600 ml-0.5">({persenKategori}%)</span>
                                 </span>
                             </div>
                         );
@@ -1116,93 +1158,93 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                         </div>
                     </div>
 
-{/* REKAP KANAN: DIAGRAM LINGKARAN & INDIKATOR TARGET SLS WILAYAH */}
-<div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4 flex flex-col justify-between h-full">
-    <div>
-        <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase">Status Assignment</div>
-        
-        {/* Kontainer Pie Chart */}
-        <div className="h-44 w-full relative mt-2">
-            <ResponsiveContainer width="100%" height="100%">
-                <PieChart margin={{ top: 0, right: 0, bottom: 5, left: 0 }}>
-                    <Pie
-                        data={dataPieStatus}
-                        cx="50%" cy="45%" innerRadius={45} outerRadius={58} paddingAngle={2} dataKey="value" stroke="none"
-                    >
-                        {dataPieStatus.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                    </Pie>
-                    
-                    {/* HANYA PERSENTASE DI TENGAH PIE */}
-                    <text x="50%" y="42%" textAnchor="middle" dominantBaseline="middle" className="fill-indigo-600 font-mono font-black text-[15px]">
-                        {persentaseTanpaOpen}%
-                    </text>
-                    <text x="50%" y="54%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-400 font-sans font-bold text-[8px] uppercase tracking-wider">
-                        Realisasi
-                    </text>
+                    {/* REKAP KANAN: DIAGRAM LINGKARAN & INDIKATOR TARGET SLS WILAYAH */}
+                    <div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4 flex flex-col justify-between h-full">
+                        <div>
+                            <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase">Status Assignment</div>
+                            
+                            {/* Kontainer Pie Chart */}
+                            <div className="h-44 w-full relative mt-2">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart margin={{ top: 0, right: 0, bottom: 5, left: 0 }}>
+                                        <Pie
+                                            data={dataPieStatus}
+                                            cx="50%" cy="45%" innerRadius={45} outerRadius={58} paddingAngle={2} dataKey="value" stroke="none"
+                                        >
+                                            {dataPieStatus.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.color} />
+                                            ))}
+                                        </Pie>
+                                        
+                                        {/* HANYA PERSENTASE DI TENGAH PIE */}
+                                        <text x="50%" y="42%" textAnchor="middle" dominantBaseline="middle" className="fill-indigo-600 font-mono font-black text-[15px]">
+                                            {persentaseTanpaOpen}%
+                                        </text>
+                                        <text x="50%" y="54%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-400 font-sans font-bold text-[8px] uppercase tracking-wider">
+                                            REALISASI
+                                        </text>
 
-                    <Tooltip 
-                        content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                                const pData = payload[0];
-                                const persentase = ((pData.value / totalSeluruhMuatan) * 100).toFixed(1);
+                                        <Tooltip 
+                                            content={({ active, payload }) => {
+                                                if (active && payload && payload.length) {
+                                                    const pData = payload[0];
+                                                    const persentase = ((pData.value / totalSeluruhMuatan) * 100).toFixed(1);
+                                                    return (
+                                                        <div className="bg-slate-950 text-white px-2 py-1.5 rounded-lg text-[10px] font-sans shadow-xl">
+                                                            <span className="font-bold">{pData.name}</span>: <span className="font-mono text-indigo-300">{pData.value.toLocaleString('id-ID')} ({persentase}%)</span>
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            }}
+                                        />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+
+                            {/* TOTAL MUATAN DI BAWAH PIE CHART */}
+                            <div className="mt-2 flex items-center justify-between bg-slate-900 border border-slate-950 px-3 py-2.5 rounded-xl">
+                                <span className="font-black text-white text-[10px] uppercase tracking-wider flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                                    Total Assignment
+                                </span>
+                                <span className="font-mono font-black text-[13px] text-white bg-slate-800 px-2.5 py-0.5 rounded-md border border-slate-700/60 shadow-inner">
+                                    {totalSeluruhMuatan.toLocaleString('id-ID')}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* KELOMPOK STATUS PROGRES WILAYAH SLS */}
+                        <div className="space-y-2 border-t border-slate-100 pt-4">
+                            <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase mb-1">Status Progres Wilayah SLS</div>
+                            {[
+                                { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
+                                { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
+                                { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
+                            ].map((item) => {
+                                const totalSls = dataMonitoringWilayah.statusSls.total || 1;
+                                const persenSls = ((item.count / totalSls) * 100).toFixed(1);
                                 return (
-                                    <div className="bg-slate-950 text-white px-2 py-1.5 rounded-lg text-[10px] font-sans shadow-xl">
-                                        <span className="font-bold">{pData.name}</span>: <span className="font-mono text-indigo-300">{pData.value.toLocaleString('id-ID')} ({persentase}%)</span>
+                                    <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px]">
+                                        <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
+                                            <span className={`w-1.5 h-1.5 rounded-full ${item.color}`}></span>
+                                            {item.label}
+                                        </span>
+                                        <span className="font-mono font-black text-slate-700">
+                                            {item.count} <span className="text-[9px] font-sans text-slate-400 font-normal">SLS ({persenSls}%)</span>
+                                        </span>
                                     </div>
                                 );
-                            }
-                            return null;
-                        }}
-                    />
-                </PieChart>
-            </ResponsiveContainer>
-        </div>
-
-        {/* BAGIAN BARU: TOTAL MUATAN DI BAWAH PIE CHART */}
-<div className="mt-2 flex items-center justify-between bg-slate-900 border border-slate-950 px-3 py-2.5 rounded-xl">
-    <span className="font-black text-white text-[10px] uppercase tracking-wider flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
-        Total Assignment
-    </span>
-    <span className="font-mono font-black text-[13px] text-white bg-slate-800 px-2.5 py-0.5 rounded-md border border-slate-700/60 shadow-inner">
-        {totalSeluruhMuatan.toLocaleString('id-ID')}
-    </span>
-</div>
-    </div>
-
-    {/* KELOMPOK STATUS PROGRES WILAYAH SLS */}
-    <div className="space-y-2 border-t border-slate-100 pt-4">
-        <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase mb-1">Status Progres Wilayah SLS</div>
-        {[
-            { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
-            { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
-            { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
-        ].map((item) => {
-            const totalSls = dataMonitoringWilayah.statusSls.total || 1;
-            const persenSls = ((item.count / totalSls) * 100).toFixed(1);
-            return (
-                <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px]">
-                    <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                        <span className={`w-1.5 h-1.5 rounded-full ${item.color}`}></span>
-                        {item.label}
-                    </span>
-                    <span className="font-mono font-black text-slate-700">
-                        {item.count} <span className="text-[9px] font-sans text-slate-400 font-normal">SLS ({persenSls}%)</span>
-                    </span>
-                </div>
-            );
-        })}
-        <button 
-            onClick={handleDownloadSlsExcel} 
-            className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition-all duration-150 mt-3 flex items-center justify-center gap-1.5"
-            title="Unduh data volume realisasi saat ini dalam bentuk berkas Excel"
-        >
-            <span>📥</span> Export Data Realisasi
-        </button>
-    </div>
-</div>
+                            })}
+                            <button 
+                                onClick={handleDownloadSlsExcel} 
+                                className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition-all duration-150 mt-3 flex items-center justify-center gap-1.5"
+                                title="Unduh data volume realisasi saat ini dalam bentuk berkas Excel"
+                            >
+                                <span>📥</span> Export Data Realisasi
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1292,7 +1334,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                             key={keyName} 
                             type="linear" 
                             dataKey={keyName} 
-                            stroke={strokeColor} 
+                            stroke={strokeColor}
                             strokeWidth={isHovered ? 4 : 2} 
                             strokeOpacity={isDimmed ? 0.08 : 1}
                             fillOpacity={trendKeys.length > 1 ? 0 : isHovered ? 0.2 : 0.05} 
@@ -1581,7 +1623,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                                     {criticalModalConfig.title}
                                 </h3>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">
-                                    Menampilkan rekam jejak pengiriman berkas harian petugas dalam 3 hari terakhir ($H-1$ s.d $H-3$)
+                                    Menampilkan rekam pengiriman assignment harian petugas dalam 3 hari terakhir ($H-1$ s.d $H-3$)
                                 </p>
                             </div>
                             <button 

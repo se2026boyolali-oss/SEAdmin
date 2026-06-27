@@ -45,32 +45,31 @@ const simpanAbsenKeOfflineDB = async (payload) => {
 // 🏃‍♂️ SUB-KOMPONEN BARIS SLS: Isolasi State Input untuk Performa Tinggi Lapangan (Zero-Lag)
 // ====== BG-6: REWORK TOTAL KOMPONEN ANAK SLS CARD ROW (GRID MONITORING OTOMATIS) ======
 // ====== PERBAIKAN BG-6: PARSING DATA JSONB STATUS PROGRES ======
+// ====== BG-6: REWORK TOTAL KOMPONEN ANAK SLS CARD ROW (KOLOM NUMERIK TERPISAH) ======
 const SlsCardRow = React.memo(({ sls, progressData }) => {
     // Cari data progress milik SLS ini
     const matchProgress = progressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
     
-    // Ekstraksi objek status_progres dari baris database
-    const statusObj = matchProgress?.status_progres || {};
-
-    // Ambil nilai dari key JSON secara presisi (jika tidak ada/0, default ke 0)
-    const approved = statusObj["APPROVED BY Pengawas"] || 0;
-    const submitted = statusObj["SUBMITTED BY Pencacah"] || 0;
-    const draft = statusObj["DRAFT"] || 0;
-    const rejected = statusObj["REJECTED BY Pengawas"] || 0; 
-    const revoked = statusObj["REVOKED BY Pengawas"] || 0;
-    const open = statusObj["OPEN"] || 0;
+    // 🚀 LANGSUNG EXTRACT DARI KOLOM NUMERIK SUPABASE
+    const approved        = parseInt(matchProgress?.approved_pengawas) || 0;
+    const edited          = parseInt(matchProgress?.edited_pengawas) || 0; // Status Baru
+    const submitted       = parseInt(matchProgress?.submitted_pencacah) || 0;
+    const submitted_resp  = parseInt(matchProgress?.submitted_respondent) || 0; // Status Baru
+    const draft           = parseInt(matchProgress?.draft) || 0;
+    const rejected        = parseInt(matchProgress?.rejected_pengawas) || 0; 
+    const revoked         = parseInt(matchProgress?.revoked_pengawas) || 0;
+    const open            = parseInt(matchProgress?.open) || 0;
     
-    // Target total diambil dari key 'total' di JSON, jika kosong gunakan target muatan master
-    const totalTarget = statusObj["total"] || sls.jml_muatan || 0;
+    // Target total diambil dari kolom 'total'
+    const totalTarget = parseInt(matchProgress?.total) || sls.jml_muatan || 0;
 
-    // Hitung total realisasi yang sudah dikerjakan (tidak berstatus OPEN)
-    const totalRealisasi = approved + submitted + draft + rejected + revoked;
+    // Hitung total realisasi yang sudah dikerjakan (Semua dokumen non-OPEN)
+    const totalRealisasi = approved + edited + submitted + submitted_resp + draft + rejected + revoked;
     
     // Hitung persentase capaian riil terhadap target total
     const persen = totalTarget > 0 ? Math.min(Math.round((totalRealisasi / totalTarget) * 100), 100) : 0;
     
-    // SLS otomatis dianggap selesai mutlak jika disetujui (Approved) sudah memenuhi target muatan
-    // Atau jika total pengerjaan sudah menyamai total target
+    // SLS otomatis dianggap selesai mutlak jika total pengerjaan sudah memenuhi atau melebihi target
     const isSelesaiOtomatis = totalRealisasi >= totalTarget && totalTarget > 0;
 
     const borderWarna = isSelesaiOtomatis 
@@ -126,11 +125,11 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
                 </div>
             </div>
 
-            {/* 🌟 Bagian Bawah: Mengganti Grid Kotak Besar Menjadi Baris Keterangan Simpel Semisal List Petugas */}
-            <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-100 text-[10px] font-mono font-bold text-slate-400">
+            {/* Bagian Bawah: Agregasi Detail Dokumen */}
+            <div className="flex flex-wrap justify-end gap-x-2.5 gap-y-0.5 pt-2 border-t border-slate-100 text-[9px] font-mono font-bold text-slate-400">
                 <span>Draft: <strong className="text-amber-600 font-black">{draft}</strong></span>
-                <span>Submit: <strong className="text-blue-600 font-black">{submitted}</strong></span>
-                <span>Approve: <strong className="text-emerald-600 font-black">{approved}</strong></span>
+                <span>Submit: <strong className="text-blue-600 font-black">{submitted + submitted_resp}</strong></span>
+                <span>Approve: <strong className="text-emerald-600 font-black">{approved + edited}</strong></span>
                 {(rejected + revoked) > 0 && <span>Reject: <strong className="text-rose-600 font-black">{rejected + revoked}</strong></span>}
             </div>
             
@@ -150,7 +149,7 @@ export default function PmlMonitoringPage() {
 
     const [loading, setLoading] = useState(true);
     const [pcls, setPcls] = useState([]);
-    
+    const [historyData, setHistoryData] = useState([]);
     const [searchInputValue, setSearchInputValue] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
     
@@ -295,6 +294,12 @@ const checkOfflineInputQueueCount = async () => {
     // =========================================================================
     // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL
     // =========================================================================
+// =========================================================================
+    // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL
+    // =========================================================================
+// =========================================================================
+    // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL
+    // =========================================================================
     const fetchPmlData = async () => {
         const pmlEmail = user?.email || profile?.email;
         if (!pmlEmail) return;
@@ -341,7 +346,11 @@ const checkOfflineInputQueueCount = async () => {
                 const aktif = parsedPcls.filter(p => p.statusHariIni === 'AKTIF').length;
                 setRekapStatusTim({ aktif, absen: parsedPcls.length - aktif });
             }
-// ====== BG-5: SUNTIKAN CACHE PROGRESS DI BLOK LURING (OFFLINE) ======
+
+            // AMBIL CACHE RIWAYAT PROGRESS UNTUK USEMEMO SAAT OFFLINE
+            const cachedHistory = localStorage.getItem(`cache_pml_history_progress_${cleanPmlEmail}`);
+            if (cachedHistory) setHistoryData(JSON.parse(cachedHistory));
+
             const cachedFlatSls = localStorage.getItem(`cache_pml_flat_sls_${cleanPmlEmail}`);
             if (cachedFlatSls) {
                 const flatData = JSON.parse(cachedFlatSls);
@@ -354,13 +363,11 @@ const checkOfflineInputQueueCount = async () => {
                 });
                 setSlsInputs(initialSlsInputs);
 
-                // 🌟 BACA CACHE PROGRESS SAAT OFFLINE
                 const cachedProgress = localStorage.getItem(`cache_pml_realtime_progress_${cleanPmlEmail}`);
                 if (cachedProgress) setRealtimeProgressData(JSON.parse(cachedProgress));
             }
             setLoading(false);
             return;
-// ====== AKHIR DARI BG-5 ======
         }
 
         try {
@@ -383,6 +390,24 @@ const checkOfflineInputQueueCount = async () => {
 
             if (petugasError) throw petugasError;
 
+            const daftarEmailBinaan = (petugasData || []).map(pcl => pcl.email.toLowerCase().trim());
+
+            // 🌟 TARIK DATA HISTORI DAN SIMPAN SECARA UTUH KE STATE & CACHE STORAGE
+            const duaMingguLalu = new Date();
+            duaMingguLalu.setDate(duaMingguLalu.getDate() - 15);
+            const strFilterTanggal = duaMingguLalu.toISOString().split('T')[0];
+
+            const { data: historicalLogs } = await supabase
+                .from('history_progress_petugas')
+                .select('tanggal, petugas_id, total_capaian') 
+                .in('petugas_id', daftarEmailBinaan) 
+                .gte('tanggal', strFilterTanggal);
+
+            if (historicalLogs) {
+                setHistoryData(historicalLogs);
+                localStorage.setItem(`cache_pml_history_progress_${cleanPmlEmail}`, JSON.stringify(historicalLogs));
+            }
+
             const { data: rentangLogs } = await supabase
                 .from('log_checkin_pcl')
                 .select('petugas_email, tanggal, idsubsls, foto_bukti')
@@ -404,8 +429,6 @@ const checkOfflineInputQueueCount = async () => {
                 logsPclMap.get(emailKey).push(log);
             });
 
-            const daftarEmailBinaan = (petugasData || []).map(pcl => pcl.email.toLowerCase().trim());
-
             const slsKhususBinaan = allMasterSlsArray.filter(sls => {
                 if (!sls.petugas_id) return false;
                 return daftarEmailBinaan.includes(sls.petugas_id.toLowerCase().trim());
@@ -414,20 +437,23 @@ const checkOfflineInputQueueCount = async () => {
             setAllSlsFlat(slsKhususBinaan);
             setDesaList([...new Set(slsKhususBinaan.map(s => s.nmdesa))]);
             localStorage.setItem(`cache_pml_flat_sls_${cleanPmlEmail}`, JSON.stringify(slsKhususBinaan));
-// 🌟 AWAL SUNTIKAN: Tarik data volume realisasi otomatis (Approved, Submitted, dll)
-            // ====== PERBAIKAN SUNTIKAN 1B: QUERY HANYA KOLOM ID SUBSLS DAN STATUS PROGRES ======
+
             if (navigator.onLine && slsKhususBinaan.length > 0) {
                 try {
                     const idsubslsBinaanArray = slsKhususBinaan.map(s => String(s.idsubsls).trim());
                     const { data: progressData, error: progressError } = await supabase
-                        .from('progress_boyolali')
-                        .select('idsubsls, status_progres') // 🌟 Diperbaiki di sini
-                        .in('idsubsls', idsubslsBinaanArray);
+    .from('progress_boyolali')
+    .select(`
+        idsubsls, total, open, draft, 
+        submitted_pencacah, approved_pengawas, rejected_pengawas, 
+        revoked_pengawas, edited_pengawas, submitted_respondent
+    `)
+    .in('idsubsls', idsubslsBinaanArray);
 
                     if (!progressError && progressData) {
                         setRealtimeProgressData(progressData);
                         localStorage.setItem(`cache_pml_realtime_progress_${cleanPmlEmail}`, JSON.stringify(progressData));
-                        // ====== PERBAIKAN FORMAT: DD/MM/YYYY JAM LENGKAP PADA LOOKUP SINKRONISASI ======
+                        
                         try {
                             const { data: syncData } = await supabase
                                 .from('sync_status')
@@ -437,21 +463,12 @@ const checkOfflineInputQueueCount = async () => {
                                 
                             if (syncData?.last_update) {
                                 const d = new Date(syncData.last_update);
-                                
-                                // Helper internal untuk memaksa dua digit angka (pad zero)
                                 const pad = (num) => String(num).padStart(2, '0');
-                                
-                                // Ekstraksi komponen tanggal local waktu Asia/Jakarta
                                 const tanggalHari = pad(d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric" }));
                                 const bulanHari = pad(d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", month: "numeric" }));
                                 const tahunHari = d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", year: "numeric" });
-                                
-                                // Format jam: HH:MM:SS
                                 const jam = d.toLocaleTimeString("id-ID", { hour12: false, timeZone: "Asia/Jakarta" }).replace(/\./g, ':');
-                                
-                                // Gabungkan menjadi format DD/MM/YYYY HH:MM:SS
                                 const formatLengkap = `${tanggalHari}/${bulanHari}/${tahunHari} ${jam}`; 
-                                // Hasil akhir: 24/06/2026 21:32:22
                                 
                                 setLastSyncProgressTime(formatLengkap);
                                 localStorage.setItem(`cache_pml_last_sync_text_${cleanPmlEmail}`, formatLengkap);
@@ -459,14 +476,12 @@ const checkOfflineInputQueueCount = async () => {
                         } catch (errSync) {
                             console.warn("Gagal lookup timestamp sync_status:", errSync.message);
                         }
-// ====== AKHIR PERBAIKAN FORMAT ======
                     }
                 } catch (errProgress) {
                     console.warn("Gagal otomatisasi database progress dashboard:", errProgress.message);
                 }
             }
-// ====== AKHIR PERBAIKAN SUNTIKAN 1B ======
-            // 🌟 AKHIR SUNTIKAN
+
             let countAktif = 0;
             const combinedData = (petugasData || []).map(pcl => {
                 const cleanPclEmail = pcl.email.toLowerCase().trim();
@@ -479,7 +494,6 @@ const checkOfflineInputQueueCount = async () => {
                 
                 const checkInHariIni = semuaAbsenHariIni.length > 0 ? semuaAbsenHariIni[0] : null; 
                 const totalCheckInHariIni = semuaAbsenHariIni.length;
-                
                 const tanggalMasukList = logsPcl.map(l => l.tanggal ? l.tanggal.substring(0, 10) : "");
 
                 if (checkInHariIni) countAktif++;
@@ -533,8 +547,8 @@ const checkOfflineInputQueueCount = async () => {
             });
             setSlsInputs(initialSlsInputs);
 
-        } catch (err) {
-            console.error("Gagal memuat data online:", err.message);
+        } catch (globalErr) {
+            console.error("Gagal memuat data online:", globalErr.message);
         } finally {
             setLoading(false);
         }
@@ -1111,23 +1125,24 @@ const submitPmlCheckIn = async () => {
                 }
             }
 
-// ====== SUNTIKAN 4: AGREGASI OTOMATIS DATA REALISASI DARI JSONB DASHBOARD ======
+// ====== SUNTIKAN 4: AGREGASI OTOMATIS BERDASARKAN KOLOM NUMERIK DATABASE ======
             const dataRealisasiFormatted = filteredSlsInputs.map(sls => {
-                // Cari cocok data progress JSONB di memori untuk SLS ini
+                // Cari data progress ter-update di memori untuk SLS ini
                 const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
-                const statusObj = match?.status_progres || {};
 
-                // Hitung total akumulasi dokumen riil lapangan (Approved + Submitted + Draft + Rejected + Revoked)
+                // Akumulasikan seluruh dokumen non-open langsung dari properti objek
                 const totalAkumulasiOtomatis = 
-                    (statusObj["APPROVED BY Pengawas"] || 0) +
-                    (statusObj["SUBMITTED BY Pencacah"] || 0) +
-                    (statusObj["DRAFT"] || 0) +
-                    (statusObj["REJECTED BY Pengawas"] || 0) +
-                    (statusObj["REVOKED BY Pengawas"] || 0);
+                    (parseInt(match?.approved_pengawas) || 0) +
+                    (parseInt(match?.edited_pengawas) || 0) +
+                    (parseInt(match?.submitted_pencacah) || 0) +
+                    (parseInt(match?.submitted_respondent) || 0) +
+                    (parseInt(match?.draft) || 0) +
+                    (parseInt(match?.rejected_pengawas) || 0) +
+                    (parseInt(match?.revoked_pengawas) || 0);
 
                 return {
                     idsubsls: sls.idsubsls,
-                    realisasi: totalAkumulasiOtomatis // Otomatis menggunakan angka agregasi riil database
+                    realisasi: totalAkumulasiOtomatis // Menggunakan angka agregasi riil terpisah
                 };
             });
 // ====== AKHIR SUNTIKAN 4 ======
@@ -1386,6 +1401,58 @@ const handleSyncPmlOfflineInputs = async () => {
         const lowerSearch = searchTerm.toLowerCase();
         return pcls.filter(p => p.nama_pengguna.toLowerCase().includes(lowerSearch));
     }, [pcls, searchTerm]);
+
+
+    // =========================================================================
+    // MEMOIZATION ENGINE: HITUNG ANALISIS PRODUKTIVITAS H-1 S.D H-4 PER PCL
+    // =========================================================================
+// =========================================================================
+    // MEMOIZATION ENGINE: HITUNG ANALISIS PRODUKTIVITAS BERDASARKAN TOTAL DELTA H-1 s.d H-4
+    // =========================================================================
+    const pclsProductivityStatus = useMemo(() => {
+        const analysis = {};
+        
+        // Buat index pencarian cepat Map (Key: email_tanggal)
+        const historyMap = new Map();
+        historyData.forEach(log => {
+            const key = `${log.petugas_id.toLowerCase().trim()}_${log.tanggal}`;
+            historyMap.set(key, log.total_capaian || 0);
+        });
+
+        const getPastDateStr = (daysAgo) => {
+            const targetDate = new Date();
+            targetDate.setDate(targetDate.getDate() - daysAgo);
+            return targetDate.toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
+        };
+
+        const tglH1 = getPastDateStr(1);
+        const tglH4 = getPastDateStr(4);
+
+        pcls.forEach(pcl => {
+            const emailKey = pcl.email.toLowerCase().trim();
+
+            const capH1 = historyMap.get(`${emailKey}_${tglH1}`) || 0;
+            const capH4 = historyMap.get(`${emailKey}_${tglH4}`) || 0;
+
+            // Hitung total progres dokumen yang masuk dari H-4 ke H-1
+            const totalDelta = capH1 - capH4;
+
+            let status = "NORMAL";
+            
+            // JIKA H-1 dikurangi H-4 hasilnya 0 (Sama sekali tidak ada dokumen baru)
+            if (totalDelta === 0 && capH1 > 0) {
+                status = "TIDAK_AKTIF";
+            } 
+            // JIKA ada pergerakan tetapi penambahannya di bawah 10 dokumen
+            else if (totalDelta > 0 && totalDelta < 10) {
+                status = "MELAMBAT";
+            }
+
+            analysis[emailKey] = status;
+        });
+
+        return analysis;
+    }, [pcls, historyData]);
 
     const filteredSlsInputs = useMemo(() => {
         return selectedDesa === "SEMUA" ? allSlsFlat : allSlsFlat.filter(s => s.nmdesa === selectedDesa);
@@ -1725,94 +1792,161 @@ const handleSyncPmlOfflineInputs = async () => {
                                 </div>
                             </div>
 
-                            {filteredPcls.map((pcl) => {
-                                const isAktif = pcl.statusHariIni === 'AKTIF';
-                                const isPclLuarWilayah = isAktif && pcl.isLuarWilayahLast;
+{filteredPcls.map((pcl) => {
+    const isAktif = pcl.statusHariIni === 'AKTIF';
+    const isPclLuarWilayah = isAktif && pcl.isLuarWilayahLast;
+    const cleanEmail = pcl.email.toLowerCase().trim();
+    
+    // Ambil status analisis produktivitas yang diolah oleh useMemo
+    const statusProduktivitas = pclsProductivityStatus[cleanEmail] || "NORMAL";
 
-                                return (
-                                    <div 
-                                        key={pcl.email} 
-                                        className={`bg-white border rounded-2xl p-3 shadow-xs flex flex-col gap-2.5 transition-all ${
-                                            isPclLuarWilayah ? 'border-orange-200 bg-orange-50/10' : 'border-slate-200'
-                                        }`}
-                                    >
-                                        <div className="flex justify-between items-start gap-2">
-                                            <div className="min-w-0 flex-1">
-                                                <h4 className="font-black text-slate-800 text-xs uppercase truncate">
-                                                    {pcl.nama_pengguna}
-                                                </h4>
-                                                
-                                                {isAktif ? (
-                                                    <div className="space-y-0.5 mt-1">
-                                                        <p className="text-[10px] text-slate-600 font-bold truncate flex items-center gap-1.5">
-                                                            <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isPclLuarWilayah ? 'bg-orange-500' : 'bg-emerald-500'}`}></span>
-                                                            SLS: <span className="text-slate-800">{pcl.namaSlsLast || '-'}</span>
-                                                            {pcl.totalAbsenHariIni > 1 && (
-                                                                <span className="text-[8px] bg-slate-100 text-slate-500 px-1 py-0.2 rounded-sm font-mono">
-                                                                    +{pcl.totalAbsenHariIni - 1} lokasi lain
-                                                                </span>
-                                                            )}
-                                                        </p>
-                                                        <p className="text-[9px] text-slate-400 font-extrabold pl-3 uppercase tracking-tight">
-                                                            Desa / Kel: <span className="text-slate-500">{pcl.namaDesaLast || 'Kec. Ampel'}</span>
-                                                        </p>
-                                                    </div>
-                                                ) : (
-                                                    <p className="text-[9px] text-slate-400 font-mono truncate mt-0.5 pl-3">
-                                                        {pcl.email}
-                                                    </p>
-                                                )}
-                                            </div>
+    // ENGINE EKSTRAKSI DATA HISTORI UNTUK TAMPILAN TREN (H-4 s.d H-1)
+    const getPastDateStr = (daysAgo) => {
+        const targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() - daysAgo);
+        return targetDate.toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
+    };
 
-                                            <div className="shrink-0 flex flex-col items-end gap-1">
-                                                {isAktif ? (
-                                                    isPclLuarWilayah ? (
-                                                        <span className="text-[8px] font-black text-orange-600 bg-orange-100 border border-orange-200/60 px-2 py-0.5 rounded-md uppercase tracking-tight animate-pulse">
-                                                            ⚠️ Luar Wilayah
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 uppercase tracking-tight">
-                                                            ✓ Jalan Lapangan
-                                                        </span>
-                                                    )
-                                                ) : (
-                                                    <span className="text-[9px] font-black text-rose-500 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100 uppercase tracking-tight">
-                                                        🗙 Belum Lapangan
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
+    const historyMap = new Map();
+    historyData.forEach(log => {
+        if (log.petugas_id) {
+            // Bersihkan email dari spasi, huruf kapital, dan karakter whitespace aneh (\s)
+            const sanitizedPclId = log.petugas_id.replace(/\s+/g, '').toLowerCase();
+            historyMap.set(`${sanitizedPclId}_${log.tanggal}`, log.total_capaian || 0);
+        }
+    });
 
-                                        {/* KOTAK HISTORI MINI KALENDER */}
-                                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-tight">History Absensi Lapangan:</span>
-                                            <div className="flex gap-1">
-                                                {last7Dates.map((tgl, idx) => {
-                                                    const masukPadaTanggalIni = pcl.history7Hari.includes(tgl);
-                                                    const isHariIni = idx === 6;
-                                                    const angkaTanggal = tgl.split('-')[2];
-                                                    
-                                                    return (
-                                                        <div
-                                                            key={tgl}
-                                                            title={`Tanggal: ${tgl}`}
-                                                            className={`w-[19px] h-[19px] rounded-md text-[9px] font-black flex items-center justify-center border transition-all ${
-                                                                masukPadaTanggalIni
-                                                                    ? 'bg-emerald-500 border-emerald-600 text-white shadow-xs' 
-                                                                    : isHariIni && !isAktif
-                                                                        ? 'bg-rose-500 border-rose-600 text-white animate-pulse' 
-                                                                        : 'bg-slate-100 border-slate-200 text-slate-400' 
-                                                            }`}
-                                                        >
-                                                            {angkaTanggal}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+    // Bersihkan juga email pembanding dari data petugas utama
+
+    const capH1 = historyMap.get(`${cleanEmail}_${getPastDateStr(1)}`) || 0;
+    const capH2 = historyMap.get(`${cleanEmail}_${getPastDateStr(2)}`) || 0;
+    const capH3 = historyMap.get(`${cleanEmail}_${getPastDateStr(3)}`) || 0;
+    const capH4 = historyMap.get(`${cleanEmail}_${getPastDateStr(4)}`) || 0;
+
+    const deltaH1 = capH1 - capH2; 
+    const deltaH2 = capH2 - capH3; 
+    const deltaH3 = capH3 - capH4; 
+    const totalDelta4Hari = capH1 - capH4;
+
+    return (
+        <div 
+            key={pcl.email} 
+            className={`bg-white border rounded-xl p-3 shadow-xs flex flex-col gap-2 transition-all ${
+                isPclLuarWilayah 
+                    ? 'border-orange-200 bg-orange-50/10' 
+                    : !isAktif 
+                        ? 'border-slate-100 bg-slate-50/30' 
+                        : 'border-slate-200'
+            }`}
+        >
+            {/* ====== BARIS 1: NAMA, EMAIL & STATUS ABSEN ====== */}
+            <div className="flex justify-between items-center gap-2">
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        <h4 className="font-extrabold text-slate-800 text-xs uppercase truncate max-w-[140px] xs:max-w-none">
+                            {pcl.nama_pengguna}
+                        </h4>
+                        {/* Status Badges tipis khusus Mobile */}
+                        {statusProduktivitas === "TIDAK_AKTIF" && (
+                            <span className="px-1.5 py-0.2 bg-rose-50 text-rose-600 border border-rose-200 text-[8px] font-black rounded-sm animate-pulse">
+                                🛑 MACET
+                            </span>
+                        )}
+                        {statusProduktivitas === "MELAMBAT" && (
+                            <span className="px-1.5 py-0.2 bg-amber-50 text-amber-600 border border-amber-200 text-[8px] font-black rounded-sm">
+                                ⚠️ LAMBAT
+                            </span>
+                        )}
+                    </div>
+                    <p className="text-[9px] text-slate-400 truncate font-mono">
+                        {pcl.email}
+                    </p>
+                </div>
+
+                {/* Indikator Status Absen Ringkas */}
+                <div className="shrink-0">
+                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-tight ${
+                        isAktif 
+                            ? isPclLuarWilayah 
+                                ? 'bg-orange-50 text-orange-600 border-orange-200 animate-pulse' 
+                                : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                            : 'bg-slate-50 text-slate-400 border-slate-200'
+                    }`}>
+                        {isAktif ? (isPclLuarWilayah ? 'Luar Wilayah' : 'Lapangan') : 'Belum Absen'}
+                    </span>
+                </div>
+            </div>
+
+            {/* ====== BARIS 2: INFO LOKASI (HANYA MUNCUL JIKA AKTIF) ====== */}
+            {isAktif && (
+                <div className="text-[10px] bg-slate-50 border border-slate-100 rounded-lg p-1.5 px-2 flex justify-between gap-2 text-slate-600">
+                    <div className="truncate flex-1">
+                        <span className="font-bold text-slate-400 text-[8px] uppercase mr-1">SLS:</span>
+                        <span className="font-semibold text-slate-700">{pcl.namaSlsLast || '-'}</span>
+                        {pcl.totalAbsenHariIni > 1 && (
+                            <span className="text-[8px] text-indigo-600 font-bold ml-1">
+                                (+{pcl.totalAbsenHariIni - 1} loc)
+                            </span>
+                        )}
+                    </div>
+                    <div className="truncate max-w-[120px] text-right border-l border-slate-200 pl-2">
+                        <span className="font-semibold text-slate-700 uppercase">{pcl.namaDesaLast || 'Ampel'}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* ====== BARIS 3: TREN HISTORI DOKUMEN SLIM ====== */}
+            <div className="bg-slate-900 text-white rounded-lg p-1.5 px-2 flex items-center justify-between text-[10px]">
+                <div className="flex items-center gap-1">
+                    <span className="text-slate-400 text-[8px] font-bold uppercase">Tren 3H:</span>
+                    <div className="flex gap-1.5 font-mono font-bold">
+                        <span title="3 Hari Lalu" className={deltaH3 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
+                            {deltaH3 > 0 ? `+${deltaH3}` : '0'}
+                        </span>
+                        <span className="text-slate-700">|</span>
+                        <span title="2 Hari Lalu" className={deltaH2 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
+                            {deltaH2 > 0 ? `+${deltaH2}` : '0'}
+                        </span>
+                        <span className="text-slate-700">|</span>
+                        <span title="Kemarin" className={deltaH1 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
+                            {deltaH1 > 0 ? `+${deltaH1}` : '0'}
+                        </span>
+                    </div>
+                </div>
+                <span className="text-[9px] font-bold bg-slate-800 text-slate-300 px-1 py-0.2 rounded font-mono">
+                    Total: {capH1} (Δ {totalDelta4Hari})
+                </span>
+            </div>
+
+            {/* ====== BARIS 4: LOG ABSENSI MINGGUAN MINI ====== */}
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                <span className="text-[8px] font-bold uppercase text-slate-400">Log 7 Hari:</span>
+                <div className="flex gap-1">
+                    {last7Dates.map((tgl, idx) => {
+                        const masukPadaTanggalIni = pcl.history7Hari.includes(tgl);
+                        const isHariIni = idx === 6;
+                        const angkaTanggal = tgl.split('-')[2];
+                        
+                        return (
+                            <div
+                                key={tgl}
+                                className={`w-4 h-4 rounded-sm text-[8px] font-bold flex items-center justify-center border transition-all ${
+                                    masukPadaTanggalIni
+                                        ? 'bg-emerald-500 border-emerald-600 text-white' 
+                                        : isHariIni && !isAktif
+                                            ? 'bg-rose-500 border-rose-600 text-white animate-pulse' 
+                                            : 'bg-slate-100 border-slate-200 text-slate-400' 
+                                }`}
+                            >
+                                {angkaTanggal}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+})}
                         </div>
                         
                         <div className="p-3 bg-slate-100/70 border border-slate-200 rounded-2xl flex flex-wrap gap-x-4 gap-y-1.5 text-[9px] font-black text-slate-500 uppercase tracking-wide justify-center">
@@ -1899,14 +2033,15 @@ const handleSyncPmlOfflineInputs = async () => {
                                 const persenPcl = totalMuatanPcl > 0 ? Math.min(Math.round((totalRealisasiPcl / totalMuatanPcl) * 100), 100) : 0;
 
                                 // Hitung akumulasi status dokumen dari JSONB per petugas untuk ringkasan
+// Hitung akumulasi status dokumen dari kolom numerik per petugas untuk ringkasan
                                 let draftPcl = 0, submitPcl = 0, appPcl = 0, rejPcl = 0;
                                 listSlsPetugas.forEach(sls => {
                                     const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
-                                    const obj = match?.status_progres || {};
-                                    draftPcl += (obj["DRAFT"] || 0);
-                                    submitPcl += (obj["SUBMITTED BY Pencacah"] || 0);
-                                    appPcl += (obj["APPROVED BY Pengawas"] || 0) + (obj["APPROVED BY PEMERIKSA"] || 0);
-                                    rejPcl += (obj["REJECTED BY Pengawas"] || 0) + (obj["REVOKED BY Pengawas"] || 0);
+                                    
+                                    draftPcl  += (parseInt(match?.draft) || 0);
+                                    submitPcl += (parseInt(match?.submitted_pencacah) || 0) + (parseInt(match?.submitted_respondent) || 0);
+                                    appPcl    += (parseInt(match?.approved_pengawas) || 0) + (parseInt(match?.edited_pengawas) || 0);
+                                    rejPcl    += (parseInt(match?.rejected_pengawas) || 0) + (parseInt(match?.revoked_pengawas) || 0);
                                 });
 
                                 return (
