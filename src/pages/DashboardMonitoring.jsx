@@ -753,6 +753,14 @@ const handleDownloadSlsExcel = () => {
 
     const totalSeluruhMuatan = dataPieStatus.reduce((sum, item) => sum + item.value, 0);
 
+    const totalTanpaOpen = dataPieStatus
+    .filter(item => item.name !== "OPEN")
+    .reduce((sum, item) => sum + item.value, 0);
+
+const persentaseTanpaOpen = totalSeluruhMuatan > 0 
+    ? ((totalTanpaOpen / totalSeluruhMuatan) * 100).toFixed(1) 
+    : "0.0";
+    
     const itemsPerPage = 20;
     const totalPages = Math.ceil(lowPerformersList.length / itemsPerPage);
     const indexOfLastItem = modalCurrentPage * itemsPerPage;
@@ -1108,76 +1116,93 @@ const handleDownloadSlsExcel = () => {
                         </div>
                     </div>
 
-                    {/* REKAP KANAN: DIAGRAM LINGKARAN & INDIKATOR TARGET SLS WILAYAH */}
-                    <div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4 flex flex-col justify-between h-full">
-                        <div>
-                            <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase">Status Keseluruhan Muatan</div>
-                            <div className="h-44 w-full relative mt-2">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart margin={{ top: 0, right: 0, bottom: 5, left: 0 }}>
-                                        <Pie
-                                            data={dataPieStatus}
-                                            cx="50%" cy="45%" innerRadius={45} outerRadius={58} paddingAngle={2} dataKey="value" stroke="none"
-                                        >
-                                            {dataPieStatus.map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={entry.color} />
-                                            ))}
-                                        </Pie>
-                                        <text x="50%" y="42%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-800 font-mono font-black text-[14px]">
-                                            {totalSeluruhMuatan.toLocaleString('id-ID')}
-                                        </text>
-                                        <text x="50%" y="54%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-400 font-sans font-bold text-[8px] uppercase tracking-wider">
-                                            Total Muatan
-                                        </text>
-                                        <Tooltip 
-                                            content={({ active, payload }) => {
-                                                if (active && payload && payload.length) {
-                                                    const pData = payload[0];
-                                                    const persentase = ((pData.value / totalSeluruhMuatan) * 100).toFixed(1);
-                                                    return (
-                                                        <div className="bg-slate-950 text-white px-2 py-1.5 rounded-lg text-[10px] font-sans shadow-xl">
-                                                            <span className="font-bold">{pData.name}</span>: <span className="font-mono text-indigo-300">{pData.value.toLocaleString('id-ID')} ({persentase}%)</span>
-                                                        </div>
-                                                    );
-                                                }
-                                                return null;
-                                            }}
-                                        />
-                                    </PieChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </div>
+{/* REKAP KANAN: DIAGRAM LINGKARAN & INDIKATOR TARGET SLS WILAYAH */}
+<div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4 flex flex-col justify-between h-full">
+    <div>
+        <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase">Status Assignment</div>
+        
+        {/* Kontainer Pie Chart */}
+        <div className="h-44 w-full relative mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+                <PieChart margin={{ top: 0, right: 0, bottom: 5, left: 0 }}>
+                    <Pie
+                        data={dataPieStatus}
+                        cx="50%" cy="45%" innerRadius={45} outerRadius={58} paddingAngle={2} dataKey="value" stroke="none"
+                    >
+                        {dataPieStatus.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                    </Pie>
+                    
+                    {/* HANYA PERSENTASE DI TENGAH PIE */}
+                    <text x="50%" y="42%" textAnchor="middle" dominantBaseline="middle" className="fill-indigo-600 font-mono font-black text-[15px]">
+                        {persentaseTanpaOpen}%
+                    </text>
+                    <text x="50%" y="54%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-400 font-sans font-bold text-[8px] uppercase tracking-wider">
+                        Realisasi
+                    </text>
 
-                        <div className="space-y-2 border-t border-slate-100 pt-4">
-                            <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase mb-1">Status Progres Wilayah SLS</div>
-                            {[
-                                { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
-                                { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
-                                { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
-                            ].map((item) => {
-                                const totalSls = dataMonitoringWilayah.statusSls.total || 1;
-                                const persenSls = ((item.count / totalSls) * 100).toFixed(1);
+                    <Tooltip 
+                        content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                                const pData = payload[0];
+                                const persentase = ((pData.value / totalSeluruhMuatan) * 100).toFixed(1);
                                 return (
-                                    <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px]">
-                                        <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                                            <span className={`w-1.5 h-1.5 rounded-full ${item.color}`}></span>
-                                            {item.label}
-                                        </span>
-                                        <span className="font-mono font-black text-slate-700">
-                                            {item.count} <span className="text-[9px] font-sans text-slate-400 font-normal">SLS ({persenSls}%)</span>
-                                        </span>
+                                    <div className="bg-slate-950 text-white px-2 py-1.5 rounded-lg text-[10px] font-sans shadow-xl">
+                                        <span className="font-bold">{pData.name}</span>: <span className="font-mono text-indigo-300">{pData.value.toLocaleString('id-ID')} ({persentase}%)</span>
                                     </div>
                                 );
-                            })}
-                            <button 
-                                onClick={handleDownloadSlsExcel} 
-                                className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition-all duration-150 mt-3 flex items-center justify-center gap-1.5"
-                                title="Unduh data volume realisasi saat ini dalam bentuk berkas Excel"
-                            >
-                                <span>📥</span> Export Data Realisasi
-                            </button>
-                        </div>
-                    </div>
+                            }
+                            return null;
+                        }}
+                    />
+                </PieChart>
+            </ResponsiveContainer>
+        </div>
+
+        {/* BAGIAN BARU: TOTAL MUATAN DI BAWAH PIE CHART */}
+<div className="mt-2 flex items-center justify-between bg-slate-900 border border-slate-950 px-3 py-2.5 rounded-xl">
+    <span className="font-black text-white text-[10px] uppercase tracking-wider flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+        Total Assignment
+    </span>
+    <span className="font-mono font-black text-[13px] text-white bg-slate-800 px-2.5 py-0.5 rounded-md border border-slate-700/60 shadow-inner">
+        {totalSeluruhMuatan.toLocaleString('id-ID')}
+    </span>
+</div>
+    </div>
+
+    {/* KELOMPOK STATUS PROGRES WILAYAH SLS */}
+    <div className="space-y-2 border-t border-slate-100 pt-4">
+        <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase mb-1">Status Progres Wilayah SLS</div>
+        {[
+            { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
+            { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
+            { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
+        ].map((item) => {
+            const totalSls = dataMonitoringWilayah.statusSls.total || 1;
+            const persenSls = ((item.count / totalSls) * 100).toFixed(1);
+            return (
+                <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px]">
+                    <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${item.color}`}></span>
+                        {item.label}
+                    </span>
+                    <span className="font-mono font-black text-slate-700">
+                        {item.count} <span className="text-[9px] font-sans text-slate-400 font-normal">SLS ({persenSls}%)</span>
+                    </span>
+                </div>
+            );
+        })}
+        <button 
+            onClick={handleDownloadSlsExcel} 
+            className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition-all duration-150 mt-3 flex items-center justify-center gap-1.5"
+            title="Unduh data volume realisasi saat ini dalam bentuk berkas Excel"
+        >
+            <span>📥</span> Export Data Realisasi
+        </button>
+    </div>
+</div>
                 </div>
             </div>
 
@@ -1265,7 +1290,7 @@ const handleDownloadSlsExcel = () => {
                     return (
                         <Area 
                             key={keyName} 
-                            type="monotone" 
+                            type="linear" 
                             dataKey={keyName} 
                             stroke={strokeColor} 
                             strokeWidth={isHovered ? 4 : 2} 
