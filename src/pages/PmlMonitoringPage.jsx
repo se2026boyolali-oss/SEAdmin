@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import {
     Users, MapPin, AlertTriangle, CheckCircle2,
-    Save, RefreshCw, Search, ChevronDown, ChevronUp, 
+    Save, RefreshCw, Search, ChevronDown, ChevronUp,
     Navigation, Camera, WifiOff, CloudLightning, Filter, LogOut, Send, HelpCircle, ShieldAlert, Image
 } from 'lucide-react';
 
@@ -49,38 +49,38 @@ const simpanAbsenKeOfflineDB = async (payload) => {
 const SlsCardRow = React.memo(({ sls, progressData }) => {
     // Cari data progress milik SLS ini
     const matchProgress = progressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
-    
+
     // 🚀 LANGSUNG EXTRACT DARI KOLOM NUMERIK SUPABASE
-    const approved        = parseInt(matchProgress?.approved_pengawas) || 0;
-    const edited          = parseInt(matchProgress?.edited_pengawas) || 0; // Status Baru
-    const submitted       = parseInt(matchProgress?.submitted_pencacah) || 0;
-    const submitted_resp  = parseInt(matchProgress?.submitted_respondent) || 0; // Status Baru
-    const draft           = parseInt(matchProgress?.draft) || 0;
-    const rejected        = parseInt(matchProgress?.rejected_pengawas) || 0; 
-    const revoked         = parseInt(matchProgress?.revoked_pengawas) || 0;
-    const open            = parseInt(matchProgress?.open) || 0;
-    
+    const approved = parseInt(matchProgress?.approved_pengawas) || 0;
+    const edited = parseInt(matchProgress?.edited_pengawas) || 0; // Status Baru
+    const submitted = parseInt(matchProgress?.submitted_pencacah) || 0;
+    const submitted_resp = parseInt(matchProgress?.submitted_respondent) || 0; // Status Baru
+    const draft = parseInt(matchProgress?.draft) || 0;
+    const rejected = parseInt(matchProgress?.rejected_pengawas) || 0;
+    const revoked = parseInt(matchProgress?.revoked_pengawas) || 0;
+    const open = parseInt(matchProgress?.open) || 0;
+
     // Target total diambil dari kolom 'total'
     const totalTarget = parseInt(matchProgress?.total) || sls.jml_muatan || 0;
 
     // Hitung total realisasi yang sudah dikerjakan (Semua dokumen non-OPEN)
     const totalRealisasi = approved + edited + submitted + submitted_resp + draft + rejected + revoked;
-    
+
     // Hitung persentase capaian riil terhadap target total
     const persen = totalTarget > 0 ? Math.min(Math.round((totalRealisasi / totalTarget) * 100), 100) : 0;
-    
+
     // SLS otomatis dianggap selesai mutlak jika total pengerjaan sudah memenuhi atau melebihi target
     const isSelesaiOtomatis = totalRealisasi >= totalTarget && totalTarget > 0;
 
-    const borderWarna = isSelesaiOtomatis 
-        ? 'border-l-emerald-500 bg-emerald-50/10' 
-        : totalRealisasi > 0 
-            ? 'border-l-amber-500' 
+    const borderWarna = isSelesaiOtomatis
+        ? 'border-l-emerald-500 bg-emerald-50/10'
+        : totalRealisasi > 0
+            ? 'border-l-amber-500'
             : 'border-l-slate-300';
 
     return (
         <div className={`bg-white border border-slate-200 border-l-4 ${borderWarna} rounded-2xl p-3 shadow-2xs flex flex-col gap-2.5 relative`}>
-            
+
             {/* Bagian Atas: Info SLS & Badge Status */}
             <div className="flex justify-between items-start gap-2">
                 <div className="min-w-0 flex-1">
@@ -94,7 +94,7 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
                         Desa: <span className="text-slate-600 font-black">{sls.nmdesa}</span>
                     </p>
                 </div>
-                
+
                 {/* Auto Badge Status Selesai */}
                 {isSelesaiOtomatis ? (
                     <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-black text-[8px] uppercase tracking-wider">
@@ -102,7 +102,7 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
                     </span>
                 ) : totalRealisasi > 0 ? (
                     <span className="px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-lg font-black text-[8px] uppercase tracking-wider">
-                    {totalRealisasi} Assignment
+                        {totalRealisasi} Assignment
                     </span>
                 ) : (
                     <span className="px-2 py-0.5 bg-slate-100 text-slate-400 border border-slate-200 rounded-lg font-black text-[8px] uppercase tracking-wider">
@@ -114,7 +114,7 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
             {/* Bagian Tengah: Progress Bar Capaian */}
             <div className="space-y-1">
                 <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                    <div 
+                    <div
                         className={`h-full rounded-full transition-all duration-300 ${isSelesaiOtomatis ? 'bg-emerald-500' : 'bg-amber-500'}`}
                         style={{ width: `${persen}%` }}
                     ></div>
@@ -132,7 +132,7 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
                 <span>Approve: <strong className="text-emerald-600 font-black">{approved + edited}</strong></span>
                 {(rejected + revoked) > 0 && <span>Reject: <strong className="text-rose-600 font-black">{rejected + revoked}</strong></span>}
             </div>
-            
+
         </div>
     );
 });
@@ -152,7 +152,7 @@ export default function PmlMonitoringPage() {
     const [historyData, setHistoryData] = useState([]);
     const [searchInputValue, setSearchInputValue] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
-    
+
     const [actionLoading, setActionLoading] = useState(null);
     const [pmlCheckingIn, setPmlCheckingIn] = useState(false);
     const [pmlCheckedInToday, setPmlCheckedInToday] = useState(false);
@@ -161,7 +161,7 @@ export default function PmlMonitoringPage() {
 
     // OPTIMALISASI MEMORI: Menggunakan Object URL Preview (Blob) untuk menggantikan Base64 di State
     const [pmlPhotoPreview, setPmlPhotoPreview] = useState(null);
-    const [rawPmlPhotoFile, setRawPmlPhotoFile] = useState(null); 
+    const [rawPmlPhotoFile, setRawPmlPhotoFile] = useState(null);
     const [pmlCoords, setPmlCoords] = useState(null);
     const [showPmlCameraCard, setShowPmlCameraCard] = useState(false);
 
@@ -177,12 +177,12 @@ export default function PmlMonitoringPage() {
     const [desaList, setDesaList] = useState([]);
     const [selectedDesa, setSelectedDesa] = useState("SEMUA");
     const [slsInputs, setSlsInputs] = useState({});
-// ====== SUNTIKAN 1A: TAMBAHKAN STATE BARU DI BAWAH DEKLARASI STATE FLAT SLS ======
-const [realtimeProgressData, setRealtimeProgressData] = useState([]);
-// ====== AKHIR SUNTIKAN 1A ======
-// ====== SUNTIKAN STATE BARU UNTUK WAKTU SINKRONISASI SERVER ======
-const [lastSyncProgressTime, setLastSyncProgressTime] = useState("Memuat...");
-// ====== AKHIR SUNTIKAN STATE BARU ======
+    // ====== SUNTIKAN 1A: TAMBAHKAN STATE BARU DI BAWAH DEKLARASI STATE FLAT SLS ======
+    const [realtimeProgressData, setRealtimeProgressData] = useState([]);
+    // ====== AKHIR SUNTIKAN 1A ======
+    // ====== SUNTIKAN STATE BARU UNTUK WAKTU SINKRONISASI SERVER ======
+    const [lastSyncProgressTime, setLastSyncProgressTime] = useState("Memuat...");
+    // ====== AKHIR SUNTIKAN STATE BARU ======
     const [last7Dates, setLast7Dates] = useState([]);
     const [touchStart, setTouchStart] = useState(null);
     const [touchEnd, setTouchEnd] = useState(null);
@@ -198,15 +198,15 @@ const [lastSyncProgressTime, setLastSyncProgressTime] = useState("Memuat...");
 
     const [showPmlValidationDialog, setShowPmlValidationDialog] = useState(false);
     const [isPmlOutsideBorder, setIsPmlOutsideBorder] = useState(false);
-    
+
     const [submitSiklusLoading, setSubmitSiklusLoading] = useState(false);
-    
+
     // Objek Canvas tersembunyi yang persisten untuk merender watermark on-demand saat kirim absen
     const canvasRef = useRef(null);
     if (!canvasRef.current) {
         canvasRef.current = document.createElement('canvas');
     }
-    
+
     const getTodayDateString = () => {
         return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
     };
@@ -239,10 +239,10 @@ const [lastSyncProgressTime, setLastSyncProgressTime] = useState("Memuat...");
         return match ? match[0] : null;
     }, [profile?.kecamatan_tugas]);
 
-const checkOfflineInputQueueCount = async () => {
+    const checkOfflineInputQueueCount = async () => {
         try {
             const db = await initPmlOfflineDB();
-            
+
             // 1. Hitung antrean realisasi SLS
             const countRealisasi = await new Promise((resolve) => {
                 const tx = db.transaction("pending_realisasi", "readonly");
@@ -273,7 +273,7 @@ const checkOfflineInputQueueCount = async () => {
         setPmlCoords(null);
         setSelectedManualSls("");
         setManualMode(false);
-        
+
         // Bersihkan memori object URL preview lama agar tidak terjadi memory leak di HP lapangan
         if (pmlPhotoPreview) {
             URL.revokeObjectURL(pmlPhotoPreview);
@@ -282,22 +282,22 @@ const checkOfflineInputQueueCount = async () => {
         setRawPmlPhotoFile(null);
         setIsPmlOutsideBorder(false);
         setShowPmlCameraCard(false);
-        setShowPmlValidationDialog(false); 
+        setShowPmlValidationDialog(false);
         setPmlCheckingIn(false);
-        
+
         if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
         if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
-        
+
         setSelectedManualDate(getTodayDateString());
     }, [pmlPhotoPreview]);
 
     // =========================================================================
     // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL
     // =========================================================================
-// =========================================================================
+    // =========================================================================
     // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL
     // =========================================================================
-// =========================================================================
+    // =========================================================================
     // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL
     // =========================================================================
     const fetchPmlData = async () => {
@@ -309,7 +309,7 @@ const checkOfflineInputQueueCount = async () => {
         const cleanPmlEmail = pmlEmail.toLowerCase().trim();
 
         const rentangTanggal = generateLast7Days();
-        setLast7Dates(rentangTanggal); 
+        setLast7Dates(rentangTanggal);
         const tglHMinus6 = rentangTanggal[0];
 
         await checkOfflineInputQueueCount();
@@ -356,7 +356,7 @@ const checkOfflineInputQueueCount = async () => {
                 const flatData = JSON.parse(cachedFlatSls);
                 setAllSlsFlat(flatData);
                 setDesaList([...new Set(flatData.map(s => s.nmdesa))]);
-                
+
                 const initialSlsInputs = {};
                 flatData.forEach(s => {
                     initialSlsInputs[s.idsubsls] = s.realisasi_pencacahan || 0;
@@ -399,8 +399,8 @@ const checkOfflineInputQueueCount = async () => {
 
             const { data: historicalLogs } = await supabase
                 .from('history_progress_petugas')
-                .select('tanggal, petugas_id, total_capaian') 
-                .in('petugas_id', daftarEmailBinaan) 
+                .select('tanggal, petugas_id, total_capaian')
+                .in('petugas_id', daftarEmailBinaan)
                 .gte('tanggal', strFilterTanggal);
 
             if (historicalLogs) {
@@ -442,25 +442,25 @@ const checkOfflineInputQueueCount = async () => {
                 try {
                     const idsubslsBinaanArray = slsKhususBinaan.map(s => String(s.idsubsls).trim());
                     const { data: progressData, error: progressError } = await supabase
-    .from('progress_boyolali')
-    .select(`
+                        .from('progress_boyolali')
+                        .select(`
         idsubsls, total, open, draft, 
         submitted_pencacah, approved_pengawas, rejected_pengawas, 
         revoked_pengawas, edited_pengawas, submitted_respondent
     `)
-    .in('idsubsls', idsubslsBinaanArray);
+                        .in('idsubsls', idsubslsBinaanArray);
 
                     if (!progressError && progressData) {
                         setRealtimeProgressData(progressData);
                         localStorage.setItem(`cache_pml_realtime_progress_${cleanPmlEmail}`, JSON.stringify(progressData));
-                        
+
                         try {
                             const { data: syncData } = await supabase
                                 .from('sync_status')
                                 .select('last_update')
                                 .eq('nama_tabel', 'progress_boyolali')
                                 .single();
-                                
+
                             if (syncData?.last_update) {
                                 const d = new Date(syncData.last_update);
                                 const pad = (num) => String(num).padStart(2, '0');
@@ -468,8 +468,8 @@ const checkOfflineInputQueueCount = async () => {
                                 const bulanHari = pad(d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", month: "numeric" }));
                                 const tahunHari = d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", year: "numeric" });
                                 const jam = d.toLocaleTimeString("id-ID", { hour12: false, timeZone: "Asia/Jakarta" }).replace(/\./g, ':');
-                                const formatLengkap = `${tanggalHari}/${bulanHari}/${tahunHari} ${jam}`; 
-                                
+                                const formatLengkap = `${tanggalHari}/${bulanHari}/${tahunHari} ${jam}`;
+
                                 setLastSyncProgressTime(formatLengkap);
                                 localStorage.setItem(`cache_pml_last_sync_text_${cleanPmlEmail}`, formatLengkap);
                             }
@@ -486,13 +486,13 @@ const checkOfflineInputQueueCount = async () => {
             const combinedData = (petugasData || []).map(pcl => {
                 const cleanPclEmail = pcl.email.toLowerCase().trim();
                 const logsPcl = logsPclMap.get(cleanPclEmail) || [];
-                
+
                 const semuaAbsenHariIni = logsPcl.filter(l => {
                     const stringTanggalLog = l.tanggal ? l.tanggal.substring(0, 10) : "";
                     return stringTanggalLog === tglHariIni;
                 });
-                
-                const checkInHariIni = semuaAbsenHariIni.length > 0 ? semuaAbsenHariIni[0] : null; 
+
+                const checkInHariIni = semuaAbsenHariIni.length > 0 ? semuaAbsenHariIni[0] : null;
                 const totalCheckInHariIni = semuaAbsenHariIni.length;
                 const tanggalMasukList = logsPcl.map(l => l.tanggal ? l.tanggal.substring(0, 10) : "");
 
@@ -513,7 +513,7 @@ const checkOfflineInputQueueCount = async () => {
                 const logTerpilih = checkInHariIni || logsPcl[0];
                 const idSlsPetugas = logTerpilih?.idsubsls;
                 const infoSlsGlobal = idSlsPetugas ? masterSlsMap.get(String(idSlsPetugas).trim()) : null;
-                
+
                 let isLuarWilayahLast = false;
                 if (infoSlsGlobal && infoSlsGlobal.petugas_id) {
                     if (infoSlsGlobal.petugas_id.toLowerCase().trim() !== cleanPclEmail) {
@@ -529,10 +529,10 @@ const checkOfflineInputQueueCount = async () => {
                     lastSls: idSlsPetugas || 'Belum Masuk SLS',
                     namaSlsLast: infoSlsGlobal?.nmsls || idSlsPetugas || 'Belum Masuk SLS',
                     namaDesaLast: infoSlsGlobal?.nmdesa || 'Kec. Ampel',
-                    isLuarWilayahLast: isLuarWilayahLast, 
+                    isLuarWilayahLast: isLuarWilayahLast,
                     totalAbsenHariIni: totalCheckInHariIni,
                     absenDays: hariTanpaKabar,
-                    history7Hari: tanggalMasukList, 
+                    history7Hari: tanggalMasukList,
                     fotoBuktiHariIni: checkInHariIni?.foto_bukti || null
                 };
             });
@@ -558,16 +558,16 @@ const checkOfflineInputQueueCount = async () => {
         if (!authLoading) {
             fetchPmlData();
         }
-    }, [authLoading]); 
+    }, [authLoading]);
 
-useEffect(() => {
+    useEffect(() => {
         const handlePmlSignalToggle = () => {
             checkOfflineInputQueueCount();
         };
-        
+
         window.addEventListener('online', handlePmlSignalToggle);
         window.addEventListener('offline', handlePmlSignalToggle);
-        
+
         // Jalankan sekali saat pertama kali aplikasi dimuat
         checkOfflineInputQueueCount();
 
@@ -592,7 +592,7 @@ useEffect(() => {
         reader.onload = (event) => {
             const img = new window.Image();
             img.onload = () => {
-                const MAX_WIDTH = 700; 
+                const MAX_WIDTH = 700;
                 let width = img.width;
                 let height = img.height;
 
@@ -623,140 +623,140 @@ useEffect(() => {
     // =========================================================================
     // OPTIMALISASI 2: WATERMARK ENGINE RAMAH MEMORI (OBJECT URL PREVIEW BLOB)
     // =========================================================================
-// =========================================================================
-// OPTIMALISASI LIVE WATERMARK ENGINE - LEAN OBJECT URL (ANTI-STUCK GALERI)
-// =========================================================================
-useEffect(() => {
-    if (!rawPmlPhotoFile || pmlCheckingIn) return;
+    // =========================================================================
+    // OPTIMALISASI LIVE WATERMARK ENGINE - LEAN OBJECT URL (ANTI-STUCK GALERI)
+    // =========================================================================
+    useEffect(() => {
+        if (!rawPmlPhotoFile || pmlCheckingIn) return;
 
-    const batalkanKarenaError = (pesan) => {
-        alert(pesan);
-        setRawPmlPhotoFile(null);
-        if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
-        setPmlPhotoPreview(null);
-        if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
-        if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
-    };
-
-    const generateLivePmlWatermark = () => {
-        // 🌟 PERBAIKAN UTAMA: Gunakan CreateObjectURL menggantikan FileReader raksasa
-        const blobObjectUrl = URL.createObjectURL(rawPmlPhotoFile);
-        const img = new window.Image();
-        
-        img.onerror = () => {
-            URL.revokeObjectURL(blobObjectUrl);
-            batalkanKarenaError("Berkas galeri tidak dapat didecode atau memori webview HP penuh. Silakan coba foto lain.");
+        const batalkanKarenaError = (pesan) => {
+            alert(pesan);
+            setRawPmlPhotoFile(null);
+            if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
+            setPmlPhotoPreview(null);
+            if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+            if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
         };
 
-        img.onload = () => {
-            try {
-                // Keamanan dimensi: Mencegah canvas 0x0 jika file korup
-                const MAX_WIDTH = 800;
-                let width = img.width || MAX_WIDTH;
-                let height = img.height || MAX_WIDTH;
+        const generateLivePmlWatermark = () => {
+            // 🌟 PERBAIKAN UTAMA: Gunakan CreateObjectURL menggantikan FileReader raksasa
+            const blobObjectUrl = URL.createObjectURL(rawPmlPhotoFile);
+            const img = new window.Image();
 
-                if (width > MAX_WIDTH) {
-                    height = Math.round((height * MAX_WIDTH) / width);
-                    width = MAX_WIDTH;
-                }
+            img.onerror = () => {
+                URL.revokeObjectURL(blobObjectUrl);
+                batalkanKarenaError("Berkas galeri tidak dapat didecode atau memori webview HP penuh. Silakan coba foto lain.");
+            };
 
-                const canvas = canvasRef.current;
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                
-                if (!ctx) {
+            img.onload = () => {
+                try {
+                    // Keamanan dimensi: Mencegah canvas 0x0 jika file korup
+                    const MAX_WIDTH = 800;
+                    let width = img.width || MAX_WIDTH;
+                    let height = img.height || MAX_WIDTH;
+
+                    if (width > MAX_WIDTH) {
+                        height = Math.round((height * MAX_WIDTH) / width);
+                        width = MAX_WIDTH;
+                    }
+
+                    const canvas = canvasRef.current;
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+
+                    if (!ctx) {
+                        URL.revokeObjectURL(blobObjectUrl);
+                        batalkanKarenaError("Gagal menginisialisasi sistem rendering grafis canvas.");
+                        return;
+                    }
+
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Setelah berhasil digambar ke canvas, langsung bebaskan pointer memori blob
                     URL.revokeObjectURL(blobObjectUrl);
-                    batalkanKarenaError("Gagal menginisialisasi sistem rendering grafis canvas.");
-                    return; 
-                }
-                
-                ctx.drawImage(img, 0, 0, width, height);
 
-                // Setelah berhasil digambar ke canvas, langsung bebaskan pointer memori blob
-                URL.revokeObjectURL(blobObjectUrl);
+                    let nmsls = pmlCoords?.nmsls || "";
+                    let nmdesa = pmlCoords?.nmdesa || "";
+                    let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
 
-                let nmsls = pmlCoords?.nmsls || "";
-                let nmdesa = pmlCoords?.nmdesa || "";
-                let nmkec = profile?.kecamatan_tugas ? profile.kecamatan_tugas.replace(/^\d+\s*/, '') : "";
-
-                if (manualMode && selectedManualSls) {
-                    const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(selectedManualSls).trim());
-                    if (match) {
-                        nmsls = match.nmsls;
-                        nmdesa = match.nmdesa;
-                    } else {
-                        nmsls = "PENGAWASAN MANUAL";
+                    if (manualMode && selectedManualSls) {
+                        const match = allSlsFlat.find(s => String(s.idsubsls).trim() === String(selectedManualSls).trim());
+                        if (match) {
+                            nmsls = match.nmsls;
+                            nmdesa = match.nmdesa;
+                        } else {
+                            nmsls = "PENGAWASAN MANUAL";
+                        }
                     }
-                }
 
-                // Antisipasi jika user upload foto di awal sebelum memilih dropdown SLS manual
-                let wilayahTeks = "MEMINDAI WILAYAH...";
-                if (manualMode) {
-                    wilayahTeks = nmsls || "PENGAWASAN MANUAL (SLS BELUM DIPILIH)";
-                    if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
-                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                } else if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
-                    wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
-                    if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
-                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                } else if (nmsls) {
-                    wilayahTeks = nmsls;
-                    if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
-                    if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
-                }
-
-                const tglTeks = manualMode 
-                    ? `${selectedManualDate} (UPLOAD MANUAL)` 
-                    : new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
-
-                const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
-                const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
-                                
-                const panelHeight = 135;
-                ctx.fillStyle = "rgba(15, 23, 42, 0.88)"; 
-                ctx.fillRect(0, height - panelHeight, width, panelHeight);
-                ctx.fillStyle = "#f97316"; 
-                ctx.fillRect(0, height - panelHeight, width, 4);
-
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "bold 15px sans-serif";
-                ctx.fillText(`PENGAWASAN SENSUS EKONOMI 2026`, 20, height - 105);
-
-                ctx.fillStyle = "#38bdf8"; 
-                ctx.font = "bold 12px sans-serif";
-                ctx.fillText(`NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`, 20, height - 82);
-
-                ctx.fillStyle = "#fbbf24"; 
-                ctx.font = "bold 12px sans-serif";
-                ctx.fillText(`LOKASI    : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
-
-                ctx.fillStyle = "#cbd5e1"; 
-                ctx.font = "11px monospace";
-                ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
-                ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
-
-                canvas.toBlob((blob) => {
-                    if (blob) {
-                        if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
-                        const previewUrl = URL.createObjectURL(blob);
-                        setPmlPhotoPreview(previewUrl);
+                    // Antisipasi jika user upload foto di awal sebelum memilih dropdown SLS manual
+                    let wilayahTeks = "MEMINDAI WILAYAH...";
+                    if (manualMode) {
+                        wilayahTeks = nmsls || "PENGAWASAN MANUAL (SLS BELUM DIPILIH)";
+                        if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                        if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                    } else if (pmlCoords?.idsubsls === 'WILAYAH-PML' || isPmlOutsideBorder) {
+                        wilayahTeks = nmsls || "DI LUAR WILAYAH TUGAS RESMI";
+                        if (nmdesa && nmdesa !== "Desa Terdeteksi") wilayahTeks += ` - DESA ${nmdesa}`;
+                        if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
+                    } else if (nmsls) {
+                        wilayahTeks = nmsls;
+                        if (nmdesa) wilayahTeks += ` - DESA ${nmdesa}`;
+                        if (nmkec) wilayahTeks += ` - KEC. ${nmkec}`;
                     }
-                }, "image/jpeg", 0.6);
 
-            } catch (canvasErr) {
-                URL.revokeObjectURL(blobObjectUrl);
-                console.error("Canvas Crash:", canvasErr);
-                batalkanKarenaError("Gagal menempelkan watermark karena batasan memori HP.");
-            }
+                    const tglTeks = manualMode
+                        ? `${selectedManualDate} (UPLOAD MANUAL)`
+                        : new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+
+                    const latTeks = pmlCoords?.latitude ? pmlCoords.latitude.toFixed(6) : "TIDAK TERDETEKSI";
+                    const lonTeks = pmlCoords?.longitude ? pmlCoords.longitude.toFixed(6) : "TIDAK TERDETEKSI";
+
+                    const panelHeight = 135;
+                    ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+                    ctx.fillRect(0, height - panelHeight, width, panelHeight);
+                    ctx.fillStyle = "#f97316";
+                    ctx.fillRect(0, height - panelHeight, width, 4);
+
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "bold 15px sans-serif";
+                    ctx.fillText(`PENGAWASAN SENSUS EKONOMI 2026`, 20, height - 105);
+
+                    ctx.fillStyle = "#38bdf8";
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.fillText(`NAMA PETUGAS : ${String(profile?.nama_pengguna || 'PENGAWAS LAPANGAN').toUpperCase()}`, 20, height - 82);
+
+                    ctx.fillStyle = "#fbbf24";
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.fillText(`LOKASI    : ${String(wilayahTeks).toUpperCase()}`, 20, height - 60);
+
+                    ctx.fillStyle = "#cbd5e1";
+                    ctx.font = "11px monospace";
+                    ctx.fillText(`WAKTU    : ${tglTeks} WIB`, 20, height - 38);
+                    ctx.fillText(`KOORDINAT: LAT ${latTeks} | LON ${lonTeks}`, 20, height - 18);
+
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
+                            const previewUrl = URL.createObjectURL(blob);
+                            setPmlPhotoPreview(previewUrl);
+                        }
+                    }, "image/jpeg", 0.6);
+
+                } catch (canvasErr) {
+                    URL.revokeObjectURL(blobObjectUrl);
+                    console.error("Canvas Crash:", canvasErr);
+                    batalkanKarenaError("Gagal menempelkan watermark karena batasan memori HP.");
+                }
+            };
+
+            // Pasang pointer virtual langsung ke src objek image
+            img.src = blobObjectUrl;
         };
 
-        // Pasang pointer virtual langsung ke src objek image
-        img.src = blobObjectUrl;
-    };
-
-    generateLivePmlWatermark();
-}, [rawPmlPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder, manualMode, selectedManualSls, selectedManualDate]);
+        generateLivePmlWatermark();
+    }, [rawPmlPhotoFile, pmlCheckingIn, pmlCoords, profile, allSlsFlat, isPmlOutsideBorder, manualMode, selectedManualSls, selectedManualDate]);
 
     const isPointInPolygon = (point, vs) => {
         const x = point[0], y = point[1];
@@ -774,7 +774,7 @@ useEffect(() => {
     // =========================================================================
     // OPTIMALISASI 1: FUNGSIONAL PROSES GEOJSON DENGAN INTERNAL IN-MEMORY CACHE
     // =========================================================================
- // =========================================================================
+    // =========================================================================
     // OPTIMALISASI 1: FUNGSIONAL PROSES GEOJSON DENGAN INTERNAL IN-MEMORY CACHE
     // =========================================================================
     const prosesPencarianGeojson = async (latitude, longitude) => {
@@ -810,7 +810,7 @@ useEffect(() => {
                     if (isPointInPolygon([longitude, latitude], koordinatPoligon)) {
                         return formatOutput(props);
                     }
-                } 
+                }
                 else if (geometri.type === "MultiPolygon") {
                     for (let polygon of geometri.coordinates) {
                         if (isPointInPolygon([longitude, latitude], polygon[0])) {
@@ -825,7 +825,7 @@ useEffect(() => {
         return null;
     };
 
-const handleTriggerPmlLocation = () => {
+    const handleTriggerPmlLocation = () => {
         if (!navigator.geolocation) {
             alert("HP Anda memblokir fitur lokasi.");
             return;
@@ -842,13 +842,13 @@ const handleTriggerPmlLocation = () => {
         if (pmlPhotoPreview) URL.revokeObjectURL(pmlPhotoPreview);
         setPmlPhotoPreview(null);
         setRawPmlPhotoFile(null);
-        setShowPmlCameraCard(true); 
+        setShowPmlCameraCard(true);
 
         navigator.geolocation.getCurrentPosition(
             async (position) => {
                 const { latitude, longitude } = position.coords;
                 const hasilSlsMandiri = await prosesPencarianGeojson(latitude, longitude);
-                const kodeKecTugas = getKecamatanCode(); 
+                const kodeKecTugas = getKecamatanCode();
 
                 if (hasilSlsMandiri) {
                     setPmlCoords({
@@ -866,7 +866,7 @@ const handleTriggerPmlLocation = () => {
 
                     if (kecTerdeteksi !== kecTugasClean) {
                         setIsPmlOutsideBorder(true);
-                        setShowPmlValidationDialog(true); 
+                        setShowPmlValidationDialog(true);
                     } else {
                         setIsPmlOutsideBorder(false);
                         setShowPmlValidationDialog(false);
@@ -880,7 +880,7 @@ const handleTriggerPmlLocation = () => {
                         nmdesa: 'Desa Terdeteksi'
                     });
                     setIsPmlOutsideBorder(true);
-                    setShowPmlValidationDialog(true); 
+                    setShowPmlValidationDialog(true);
                 }
                 setPmlCheckingIn(false);
             },
@@ -896,149 +896,149 @@ const handleTriggerPmlLocation = () => {
         pmlCameraInputRef.current?.click();
     };
 
-const submitPmlCheckIn = async () => {
-    if (submitSiklusLoading) return; 
+    const submitPmlCheckIn = async () => {
+        if (submitSiklusLoading) return;
 
-    const pmlEmail = user?.email || profile?.email;
-    if (!pmlEmail) {
-        alert("Email pengguna tidak terdeteksi. Silakan masuk log kembali.");
-        return;
-    }
+        const pmlEmail = user?.email || profile?.email;
+        if (!pmlEmail) {
+            alert("Email pengguna tidak terdeteksi. Silakan masuk log kembali.");
+            return;
+        }
 
-    const tglHariIni = manualMode ? selectedManualDate : getTodayDateString();
-    const tglRealtimeHariIni = getTodayDateString(); // Kunci penentu realtime hari ini
+        const tglHariIni = manualMode ? selectedManualDate : getTodayDateString();
+        const tglRealtimeHariIni = getTodayDateString(); // Kunci penentu realtime hari ini
 
-    if (!pmlPhotoPreview) {
-        alert("Wajib mengambil foto bukti pengawasan lapangan atau tunggu hingga sistem selesai memproses gambar!");
-        return;
-    }
+        if (!pmlPhotoPreview) {
+            alert("Wajib mengambil foto bukti pengawasan lapangan atau tunggu hingga sistem selesai memproses gambar!");
+            return;
+        }
 
-    setSubmitSiklusLoading(true);
+        setSubmitSiklusLoading(true);
 
-    const idSlsClean = manualMode ? String(selectedManualSls).trim() : (pmlCoords?.idsubsls ? String(pmlCoords.idsubsls).trim() : 'WILAYAH-PML');
-    const namaClean = profile?.nama_pengguna ? profile.nama_pengguna.replace(/\s+/g, '_').toUpperCase() : 'PENGAWAS';
-    const tglClean = tglHariIni.replace(/-/g, ''); 
-    
-    const namaFileUnik = `SE26_PML_${idSlsClean}_${namaClean}_${tglClean}.jpg`;
-    
-    // Ambil data Base64 dari canvas persisten untuk diamankan ke IndexedDB jika luring/gagal
-    const canvas = canvasRef.current;
-    const livePhotoBase64 = canvas ? canvas.toDataURL("image/jpeg", 0.6) : null;
+        const idSlsClean = manualMode ? String(selectedManualSls).trim() : (pmlCoords?.idsubsls ? String(pmlCoords.idsubsls).trim() : 'WILAYAH-PML');
+        const namaClean = profile?.nama_pengguna ? profile.nama_pengguna.replace(/\s+/g, '_').toUpperCase() : 'PENGAWAS';
+        const tglClean = tglHariIni.replace(/-/g, '');
 
-    // Siapkan struktur data offline terpadu (Sesuai skema tabel Supabase + metadata pendukung)
-    const payloadOffline = {
-        tanggal: tglHariIni,
-        pml_email: pmlEmail.toLowerCase().trim(),
-        idsubsls: idSlsClean,
-        latitude: pmlCoords?.latitude || null,
-        longitude: pmlCoords?.longitude || null,
-        foto_base64: livePhotoBase64, // Disimpan lokal untuk diupload saat online nanti
-        nama_file: namaFileUnik,
-        created_at: new Date().toISOString()
-    };
+        const namaFileUnik = `SE26_PML_${idSlsClean}_${namaClean}_${tglClean}.jpg`;
 
-    // Helper internal untuk mengunci data absen ke IndexedDB secara aman
-    const simpanAbsenKeIndexedDB = async () => {
-        try {
-            const db = await initPmlOfflineDB();
-            const tx = db.transaction("pending_absen_pml", "readwrite");
-            await tx.objectStore("pending_absen_pml").add(payloadOffline);
-            
-            // Perbarui jumlah antrean di dashboard (pastikan fungsi ini eksis di state utama)
-            if (typeof checkOfflineInputQueueCount === "function") {
-                await checkOfflineInputQueueCount();
+        // Ambil data Base64 dari canvas persisten untuk diamankan ke IndexedDB jika luring/gagal
+        const canvas = canvasRef.current;
+        const livePhotoBase64 = canvas ? canvas.toDataURL("image/jpeg", 0.6) : null;
+
+        // Siapkan struktur data offline terpadu (Sesuai skema tabel Supabase + metadata pendukung)
+        const payloadOffline = {
+            tanggal: tglHariIni,
+            pml_email: pmlEmail.toLowerCase().trim(),
+            idsubsls: idSlsClean,
+            latitude: pmlCoords?.latitude || null,
+            longitude: pmlCoords?.longitude || null,
+            foto_base64: livePhotoBase64, // Disimpan lokal untuk diupload saat online nanti
+            nama_file: namaFileUnik,
+            created_at: new Date().toISOString()
+        };
+
+        // Helper internal untuk mengunci data absen ke IndexedDB secara aman
+        const simpanAbsenKeIndexedDB = async () => {
+            try {
+                const db = await initPmlOfflineDB();
+                const tx = db.transaction("pending_absen_pml", "readwrite");
+                await tx.objectStore("pending_absen_pml").add(payloadOffline);
+
+                // Perbarui jumlah antrean di dashboard (pastikan fungsi ini eksis di state utama)
+                if (typeof checkOfflineInputQueueCount === "function") {
+                    await checkOfflineInputQueueCount();
+                }
+            } catch (dbErr) {
+                console.error("Gagal mengunci database IndexedDB:", dbErr.message);
+                alert("⚠️ Memori browser/HP penuh, gagal menyimpan backup luring.");
             }
-        } catch (dbErr) {
-            console.error("Gagal mengunci database IndexedDB:", dbErr.message);
-            alert("⚠️ Memori browser/HP penuh, gagal menyimpan backup luring.");
-        }
-    };
+        };
 
-    // ==========================================
-    // BLOK KONDISI LURING / OFFLINE
-    // ==========================================
-    if (!navigator.onLine) {
-        // Amankan data menyeluruh beserta fotonya ke IndexedDB
-        await simpanAbsenKeIndexedDB();
+        // ==========================================
+        // BLOK KONDISI LURING / OFFLINE
+        // ==========================================
+        if (!navigator.onLine) {
+            // Amankan data menyeluruh beserta fotonya ke IndexedDB
+            await simpanAbsenKeIndexedDB();
 
-        localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
-        
-        if (tglHariIni === tglRealtimeHariIni) {
-            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
-            setPmlCheckedInToday(true);
-        }
-        
-        alert("💾 Absen & Foto Pendampingan PML berhasil dikunci offline di HP!");
-        resetPmlForm();
-        setSubmitSiklusLoading(false);
-        return;
-    }
+            localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
 
-    // ==========================================
-    // BLOK KONDISI DARING / ONLINE
-    // ==========================================
-    try {
-        let finalFotoUrl = "OFFLINE_LINK";
+            if (tglHariIni === tglRealtimeHariIni) {
+                localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+                setPmlCheckedInToday(true);
+            }
 
-        // 1. Unggah gambar ke server Google Drive via GAS
-        const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
-        const responseGas = await fetch(gasUrl, {
-            method: "POST",
-            body: JSON.stringify({
-                fotoBase64: livePhotoBase64,
-                namaFile: namaFileUnik
-            })
-        });
-        
-        const hasilGas = await responseGas.json();
-        
-        // Validasi respon dari sistem GAS agar tidak lolos saat kuota limit/error script Google
-        if (hasilGas && hasilGas.status === "success") {
-            finalFotoUrl = hasilGas.url;
-        } else {
-            throw new Error(hasilGas?.message || "Google Apps Script menolak unggahan berkas.");
+            alert("💾 Absen & Foto Pendampingan PML berhasil dikunci offline di HP!");
+            resetPmlForm();
+            setSubmitSiklusLoading(false);
+            return;
         }
 
-        // 2. Insert log koordinat dan URL gambar akhir ke Supabase
-        const { error } = await supabase
-            .from('log_checkin_pml')
-            .insert({
-                tanggal: tglHariIni,
-                pml_email: pmlEmail.toLowerCase().trim(),
-                idsubsls: idSlsClean,
-                latitude: pmlCoords?.latitude || null,
-                longitude: pmlCoords?.longitude || null,
-                foto_bukti: finalFotoUrl
+        // ==========================================
+        // BLOK KONDISI DARING / ONLINE
+        // ==========================================
+        try {
+            let finalFotoUrl = "OFFLINE_LINK";
+
+            // 1. Unggah gambar ke server Google Drive via GAS
+            const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
+            const responseGas = await fetch(gasUrl, {
+                method: "POST",
+                body: JSON.stringify({
+                    fotoBase64: livePhotoBase64,
+                    namaFile: namaFileUnik
+                })
             });
 
-        if (error) throw error;
+            const hasilGas = await responseGas.json();
 
-        if (tglHariIni === tglRealtimeHariIni) {
-            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
-            setPmlCheckedInToday(true);
+            // Validasi respon dari sistem GAS agar tidak lolos saat kuota limit/error script Google
+            if (hasilGas && hasilGas.status === "success") {
+                finalFotoUrl = hasilGas.url;
+            } else {
+                throw new Error(hasilGas?.message || "Google Apps Script menolak unggahan berkas.");
+            }
+
+            // 2. Insert log koordinat dan URL gambar akhir ke Supabase
+            const { error } = await supabase
+                .from('log_checkin_pml')
+                .insert({
+                    tanggal: tglHariIni,
+                    pml_email: pmlEmail.toLowerCase().trim(),
+                    idsubsls: idSlsClean,
+                    latitude: pmlCoords?.latitude || null,
+                    longitude: pmlCoords?.longitude || null,
+                    foto_bukti: finalFotoUrl
+                });
+
+            if (error) throw error;
+
+            if (tglHariIni === tglRealtimeHariIni) {
+                localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+                setPmlCheckedInToday(true);
+            }
+
+            alert("✅ Absen Pengawasan Lapangan Berhasil Tersimpan ke Server!");
+            resetPmlForm();
+        } catch (err) {
+            console.warn("Gangguan koneksi daring, mengalihkan ke sistem backup lokal:", err.message);
+
+            // Jika skrip macet di tengah jalan saat upload online, amankan ke antrean IndexedDB
+            await simpanAbsenKeIndexedDB();
+
+            localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
+
+            if (tglHariIni === tglRealtimeHariIni) {
+                localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
+                setPmlCheckedInToday(true);
+            }
+
+            alert("⚠️ Gagal mengirim data online, absen & FOTO disimpan aman di lokal HP!");
+            resetPmlForm();
+        } finally {
+            setSubmitSiklusLoading(false);
         }
-
-        alert("✅ Absen Pengawasan Lapangan Berhasil Tersimpan ke Server!");
-        resetPmlForm();
-    } catch (err) {
-        console.warn("Gangguan koneksi daring, mengalihkan ke sistem backup lokal:", err.message);
-        
-        // Jika skrip macet di tengah jalan saat upload online, amankan ke antrean IndexedDB
-        await simpanAbsenKeIndexedDB();
-
-        localStorage.setItem(`cache_pml_last_idsls_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, idSlsClean);
-        
-        if (tglHariIni === tglRealtimeHariIni) {
-            localStorage.setItem(`cache_pml_checkedin_${pmlEmail.toLowerCase().trim()}_${tglHariIni}`, 'true');
-            setPmlCheckedInToday(true);
-        }
-
-        alert("⚠️ Gagal mengirim data online, absen & FOTO disimpan aman di lokal HP!");
-        resetPmlForm();
-    } finally {
-        setSubmitSiklusLoading(false);
-    }
-};
+    };
 
     // =========================================================================
     // ACTION HANDLERS: SIMPAN REALISASI LANGSUNG PER SLS DAN VERIFIKASI SIKLUS
@@ -1110,7 +1110,7 @@ const submitPmlCheckIn = async () => {
                 const namaClean = profile?.nama_pengguna ? profile.nama_pengguna.replace(/\s+/g, '_').toUpperCase() : 'PML';
                 const namaFileEvaluasi = `EVAL_SE26_${namaClean}_${tglHariIni.replace(/-/g, '')}.jpg`;
                 const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
-                
+
                 const responseGas = await fetch(gasUrl, {
                     method: "POST",
                     body: JSON.stringify({
@@ -1119,19 +1119,19 @@ const submitPmlCheckIn = async () => {
                     })
                 });
                 const hasilGas = await responseGas.json();
-                
+
                 if (hasilGas.status === "success") {
                     finalFotoEvaluasiUrl = hasilGas.url;
                 }
             }
 
-// ====== SUNTIKAN 4: AGREGASI OTOMATIS BERDASARKAN KOLOM NUMERIK DATABASE ======
+            // ====== SUNTIKAN 4: AGREGASI OTOMATIS BERDASARKAN KOLOM NUMERIK DATABASE ======
             const dataRealisasiFormatted = filteredSlsInputs.map(sls => {
                 // Cari data progress ter-update di memori untuk SLS ini
                 const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
 
                 // Akumulasikan seluruh dokumen non-open langsung dari properti objek
-                const totalAkumulasiOtomatis = 
+                const totalAkumulasiOtomatis =
                     (parseInt(match?.approved_pengawas) || 0) +
                     (parseInt(match?.edited_pengawas) || 0) +
                     (parseInt(match?.submitted_pencacah) || 0) +
@@ -1145,7 +1145,7 @@ const submitPmlCheckIn = async () => {
                     realisasi: totalAkumulasiOtomatis // Menggunakan angka agregasi riil terpisah
                 };
             });
-// ====== AKHIR SUNTIKAN 4 ======
+            // ====== AKHIR SUNTIKAN 4 ======
             const { error } = await supabase
                 .from('log_realisasi_pml')
                 .upsert({
@@ -1158,9 +1158,9 @@ const submitPmlCheckIn = async () => {
                 }, { onConflict: 'tanggal,pml_email' });
 
             if (error) throw error;
-            
+
             alert("Laporan Evaluasi Lapangan Berhasil Dikirim ke Kabupaten!");
-            
+
             setKendalaLapangan("");
             setSolusiLapangan("");
             setFotoEvaluasiBase64(null);
@@ -1190,11 +1190,11 @@ const submitPmlCheckIn = async () => {
                     is_selesai: nextStatus,
                     pml_validator: pmlEmail.toLowerCase().trim(),
                     validated_at: tglSekarang,
-                    isStatusToggle: true 
+                    isStatusToggle: true
                 });
 
-                setAllSlsFlat(prev => prev.map(s => s.idsubsls === idsubsls ? { 
-                    ...s, 
+                setAllSlsFlat(prev => prev.map(s => s.idsubsls === idsubsls ? {
+                    ...s,
                     is_selesai: nextStatus,
                     pml_validator: pmlEmail.toLowerCase().trim(),
                     validated_at: tglSekarang
@@ -1202,10 +1202,10 @@ const submitPmlCheckIn = async () => {
 
                 alert(`💾 Status SLS Berhasil Ditandai ${nextStatus ? 'SELESAI' : 'BELUM SELESAI'} (Lokal/Offline)!`);
                 await checkOfflineInputQueueCount();
-            } catch (e) { 
-                alert("Gagal menyimpan offline: " + e.message); 
-            } finally { 
-                setActionLoading(null); 
+            } catch (e) {
+                alert("Gagal menyimpan offline: " + e.message);
+            } finally {
+                setActionLoading(null);
             }
             return;
         }
@@ -1213,7 +1213,7 @@ const submitPmlCheckIn = async () => {
         try {
             const { error } = await supabase
                 .from('muatan_sls')
-                .update({ 
+                .update({
                     is_selesai: nextStatus,
                     pml_validator: nextStatus ? pmlEmail.toLowerCase().trim() : null,
                     validated_at: nextStatus ? tglSekarang : null
@@ -1221,178 +1221,178 @@ const submitPmlCheckIn = async () => {
                 .eq('idsubsls', idsubsls);
 
             if (error) throw error;
-            setAllSlsFlat(prev => prev.map(s => s.idsubsls === idsubsls ? { 
-                ...s, 
+            setAllSlsFlat(prev => prev.map(s => s.idsubsls === idsubsls ? {
+                ...s,
                 is_selesai: nextStatus,
                 pml_validator: nextStatus ? pmlEmail.toLowerCase().trim() : null,
                 validated_at: tglSekarang
             } : s));
             alert(`SLS Berhasil Diperbarui Menjadi: ${nextStatus ? 'SELESAI' : 'BELUM SELESAI'}`);
-        } catch (err) { 
-            alert(err.message); 
-        } finally { 
-            setActionLoading(null); 
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            setActionLoading(null);
         }
     }, [user, profile]);
 
     // =========================================================================
     // OPTIMALISASI 3: PROSES SINKRONISASI MASSAL MENGGUNAKAN TEKNIK BULK UPSERT
     // =========================================================================
-const handleSyncPmlOfflineInputs = async () => {
-    setIsSyncingInput(true);
-    try {
-        const db = await initPmlOfflineDB();
-        let totalSuksesCount = 0;
+    const handleSyncPmlOfflineInputs = async () => {
+        setIsSyncingInput(true);
+        try {
+            const db = await initPmlOfflineDB();
+            let totalSuksesCount = 0;
 
-        // =========================================================================
-        // SINKRONISASI 1: AMBIL & PROSES ANTREAN REALISASI SLS (STORE: pending_realisasi)
-        // =========================================================================
-        const recordsRealisasi = await new Promise((resolve) => {
-            const txRead = db.transaction("pending_realisasi", "readonly");
-            const storeRead = txRead.objectStore("pending_realisasi");
-            const req = storeRead.getAll();
-            req.onsuccess = () => resolve(req.result || []);
-            req.onerror = () => resolve([]);
-        });
+            // =========================================================================
+            // SINKRONISASI 1: AMBIL & PROSES ANTREAN REALISASI SLS (STORE: pending_realisasi)
+            // =========================================================================
+            const recordsRealisasi = await new Promise((resolve) => {
+                const txRead = db.transaction("pending_realisasi", "readonly");
+                const storeRead = txRead.objectStore("pending_realisasi");
+                const req = storeRead.getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => resolve([]);
+            });
 
-        const bulkProgressRecords = [];
-        const statusToggleRecords = [];
-        const idRealisasiToDelete = [];
+            const bulkProgressRecords = [];
+            const statusToggleRecords = [];
+            const idRealisasiToDelete = [];
 
-        recordsRealisasi.forEach(record => {
-            if (record.isDirectSls) {
-                bulkProgressRecords.push({
-                    idsubsls: record.idsubsls,
-                    realisasi_pencacahan: record.realisasi_pencacahan,
-                    pml_updater: record.pml_updater,
-                    updated_at: record.updated_at
-                });
-                idRealisasiToDelete.push(record.id);
-            } else if (record.isStatusToggle) {
-                statusToggleRecords.push(record);
-                idRealisasiToDelete.push(record.id);
-            }
-        });
+            recordsRealisasi.forEach(record => {
+                if (record.isDirectSls) {
+                    bulkProgressRecords.push({
+                        idsubsls: record.idsubsls,
+                        realisasi_pencacahan: record.realisasi_pencacahan,
+                        pml_updater: record.pml_updater,
+                        updated_at: record.updated_at
+                    });
+                    idRealisasiToDelete.push(record.id);
+                } else if (record.isStatusToggle) {
+                    statusToggleRecords.push(record);
+                    idRealisasiToDelete.push(record.id);
+                }
+            });
 
-        // Eksekusi Bulk Upsert Realisasi ke Supabase
-        if (bulkProgressRecords.length > 0) {
-            const { error: progressBulkError } = await supabase
-                .from('muatan_sls')
-                .upsert(bulkProgressRecords, { onConflict: 'idsubsls' });
-            
-            if (!progressBulkError) {
-                totalSuksesCount += bulkProgressRecords.length;
-            } else {
-                console.error("Gagal melakukan bulk progress:", progressBulkError.message);
-            }
-        }
-
-        // Eksekusi Update Status Selesai SLS satu per satu
-        for (let statusRecord of statusToggleRecords) {
-            try {
-                const { error: statusErr } = await supabase
+            // Eksekusi Bulk Upsert Realisasi ke Supabase
+            if (bulkProgressRecords.length > 0) {
+                const { error: progressBulkError } = await supabase
                     .from('muatan_sls')
-                    .update({
-                        is_selesai: statusRecord.is_selesai,
-                        pml_validator: statusRecord.is_selesai ? statusRecord.pml_validator : null,
-                        validated_at: statusRecord.is_selesai ? statusRecord.validated_at : null
-                    })
-                    .eq('idsubsls', statusRecord.idsubsls);
+                    .upsert(bulkProgressRecords, { onConflict: 'idsubsls' });
 
-                if (!statusErr) totalSuksesCount++;
-            } catch (err) {
-                console.error("Gagal sync status selesai SLS:", err);
-            }
-        }
-
-        // Bersihkan data antrean realisasi yang sukses terunggah dari IndexedDB
-        if (idRealisasiToDelete.length > 0) {
-            const txDelete = db.transaction("pending_realisasi", "readwrite");
-            const storeDelete = txDelete.objectStore("pending_realisasi");
-            idRealisasiToDelete.forEach(id => storeDelete.delete(id));
-        }
-
-        // =========================================================================
-        // SINKRONISASI 2: AMBIL & PROSES ANTREAN ABSEN PML (STORE: pending_absen_pml)
-        // =========================================================================
-        const recordsAbsen = await new Promise((resolve) => {
-            if (!db.objectStoreNames.contains("pending_absen_pml")) return resolve([]);
-            const txAbsenRead = db.transaction("pending_absen_pml", "readonly");
-            const storeAbsenRead = txAbsenRead.objectStore("pending_absen_pml");
-            const req = storeAbsenRead.getAll();
-            req.onsuccess = () => resolve(req.result || []);
-            req.onerror = () => resolve([]);
-        });
-
-        const idAbsenToDelete = [];
-
-        // Loop berurutan (for...of) untuk mencegah lonjakan request upload gambar (antrean ramah memori)
-        for (let absenRecord of recordsAbsen) {
-            try {
-                let finalFotoUrl = "OFFLINE_LINK";
-
-                // 1. Kirim ulang gambar Base64 ke Google Apps Script
-                if (absenRecord.foto_base64) {
-                    const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
-                    const responseGas = await fetch(gasUrl, {
-                        method: "POST",
-                        body: JSON.stringify({
-                            fotoBase64: absenRecord.foto_base64,
-                            namaFile: absenRecord.nama_file
-                        })
-                    });
-                    const hasilGas = await responseGas.json();
-                    if (hasilGas && hasilGas.status === "success") {
-                        finalFotoUrl = hasilGas.url;
-                    }
-                }
-
-                // 2. Lempar rekap koordinat dan URL gambar Google Drive ke Supabase
-                const { error: supabaseAbsenErr } = await supabase
-                    .from('log_checkin_pml')
-                    .insert({
-                        tanggal: absenRecord.tanggal,
-                        pml_email: absenRecord.pml_email,
-                        idsubsls: absenRecord.idsubsls,
-                        latitude: absenRecord.latitude,
-                        longitude: absenRecord.longitude,
-                        foto_bukti: finalFotoUrl
-                    });
-
-                if (!supabaseAbsenErr) {
-                    totalSuksesCount++;
-                    idAbsenToDelete.push(absenRecord.id);
+                if (!progressBulkError) {
+                    totalSuksesCount += bulkProgressRecords.length;
                 } else {
-                    console.error("Supabase menolak log checkin absen:", supabaseAbsenErr.message);
+                    console.error("Gagal melakukan bulk progress:", progressBulkError.message);
                 }
-            } catch (singleAbsenErr) {
-                console.error("Gagal menyinkronkan 1 item absen PML:", singleAbsenErr.message);
             }
+
+            // Eksekusi Update Status Selesai SLS satu per satu
+            for (let statusRecord of statusToggleRecords) {
+                try {
+                    const { error: statusErr } = await supabase
+                        .from('muatan_sls')
+                        .update({
+                            is_selesai: statusRecord.is_selesai,
+                            pml_validator: statusRecord.is_selesai ? statusRecord.pml_validator : null,
+                            validated_at: statusRecord.is_selesai ? statusRecord.validated_at : null
+                        })
+                        .eq('idsubsls', statusRecord.idsubsls);
+
+                    if (!statusErr) totalSuksesCount++;
+                } catch (err) {
+                    console.error("Gagal sync status selesai SLS:", err);
+                }
+            }
+
+            // Bersihkan data antrean realisasi yang sukses terunggah dari IndexedDB
+            if (idRealisasiToDelete.length > 0) {
+                const txDelete = db.transaction("pending_realisasi", "readwrite");
+                const storeDelete = txDelete.objectStore("pending_realisasi");
+                idRealisasiToDelete.forEach(id => storeDelete.delete(id));
+            }
+
+            // =========================================================================
+            // SINKRONISASI 2: AMBIL & PROSES ANTREAN ABSEN PML (STORE: pending_absen_pml)
+            // =========================================================================
+            const recordsAbsen = await new Promise((resolve) => {
+                if (!db.objectStoreNames.contains("pending_absen_pml")) return resolve([]);
+                const txAbsenRead = db.transaction("pending_absen_pml", "readonly");
+                const storeAbsenRead = txAbsenRead.objectStore("pending_absen_pml");
+                const req = storeAbsenRead.getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => resolve([]);
+            });
+
+            const idAbsenToDelete = [];
+
+            // Loop berurutan (for...of) untuk mencegah lonjakan request upload gambar (antrean ramah memori)
+            for (let absenRecord of recordsAbsen) {
+                try {
+                    let finalFotoUrl = "OFFLINE_LINK";
+
+                    // 1. Kirim ulang gambar Base64 ke Google Apps Script
+                    if (absenRecord.foto_base64) {
+                        const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
+                        const responseGas = await fetch(gasUrl, {
+                            method: "POST",
+                            body: JSON.stringify({
+                                fotoBase64: absenRecord.foto_base64,
+                                namaFile: absenRecord.nama_file
+                            })
+                        });
+                        const hasilGas = await responseGas.json();
+                        if (hasilGas && hasilGas.status === "success") {
+                            finalFotoUrl = hasilGas.url;
+                        }
+                    }
+
+                    // 2. Lempar rekap koordinat dan URL gambar Google Drive ke Supabase
+                    const { error: supabaseAbsenErr } = await supabase
+                        .from('log_checkin_pml')
+                        .insert({
+                            tanggal: absenRecord.tanggal,
+                            pml_email: absenRecord.pml_email,
+                            idsubsls: absenRecord.idsubsls,
+                            latitude: absenRecord.latitude,
+                            longitude: absenRecord.longitude,
+                            foto_bukti: finalFotoUrl
+                        });
+
+                    if (!supabaseAbsenErr) {
+                        totalSuksesCount++;
+                        idAbsenToDelete.push(absenRecord.id);
+                    } else {
+                        console.error("Supabase menolak log checkin absen:", supabaseAbsenErr.message);
+                    }
+                } catch (singleAbsenErr) {
+                    console.error("Gagal menyinkronkan 1 item absen PML:", singleAbsenErr.message);
+                }
+            }
+
+            // Bersihkan data antrean absen yang sukses terunggah dari IndexedDB
+            if (idAbsenToDelete.length > 0) {
+                const txAbsenDelete = db.transaction("pending_absen_pml", "readwrite");
+                const storeAbsenDelete = txAbsenDelete.objectStore("pending_absen_pml");
+                idAbsenToDelete.forEach(id => storeAbsenDelete.delete(id));
+            }
+
+            // =========================================================================
+            // FINALISASI: SELESAI SINKRONISASI MASAL
+            // =========================================================================
+            alert(`📡 Sinkronisasi Selesai! Berhasil mengunggah total ${totalSuksesCount} perubahan data lapangan (SLS & Absen) ke server.`);
+
+            // Refresh indikator antrean dan rekap dashboard
+            if (typeof checkOfflineInputQueueCount === "function") await checkOfflineInputQueueCount();
+            if (typeof fetchPmlData === "function") await fetchPmlData();
+
+        } catch (err) {
+            console.error("Kegagalan total sistem sinkronisasi masal:", err.message);
+            alert("Gagal sinkronisasi data: " + err.message);
+        } finally {
+            setIsSyncingInput(false);
         }
-
-        // Bersihkan data antrean absen yang sukses terunggah dari IndexedDB
-        if (idAbsenToDelete.length > 0) {
-            const txAbsenDelete = db.transaction("pending_absen_pml", "readwrite");
-            const storeAbsenDelete = txAbsenDelete.objectStore("pending_absen_pml");
-            idAbsenToDelete.forEach(id => storeAbsenDelete.delete(id));
-        }
-
-        // =========================================================================
-        // FINALISASI: SELESAI SINKRONISASI MASAL
-        // =========================================================================
-        alert(`📡 Sinkronisasi Selesai! Berhasil mengunggah total ${totalSuksesCount} perubahan data lapangan (SLS & Absen) ke server.`);
-        
-        // Refresh indikator antrean dan rekap dashboard
-        if (typeof checkOfflineInputQueueCount === "function") await checkOfflineInputQueueCount();
-        if (typeof fetchPmlData === "function") await fetchPmlData();
-
-    } catch (err) {
-        console.error("Kegagalan total sistem sinkronisasi masal:", err.message);
-        alert("Gagal sinkronisasi data: " + err.message);
-    } finally {
-        setIsSyncingInput(false);
-    }
-};
+    };
 
     // =========================================================================
     // FILTERING & MEMOIZATION DATA FILTER ARRAY
@@ -1406,17 +1406,30 @@ const handleSyncPmlOfflineInputs = async () => {
     // =========================================================================
     // MEMOIZATION ENGINE: HITUNG ANALISIS PRODUKTIVITAS H-1 S.D H-4 PER PCL
     // =========================================================================
-// =========================================================================
+    // =========================================================================
     // MEMOIZATION ENGINE: HITUNG ANALISIS PRODUKTIVITAS BERDASARKAN TOTAL DELTA H-1 s.d H-4
     // =========================================================================
     const pclsProductivityStatus = useMemo(() => {
         const analysis = {};
-        
+
         // Buat index pencarian cepat Map (Key: email_tanggal)
         const historyMap = new Map();
         historyData.forEach(log => {
-            const key = `${log.petugas_id.toLowerCase().trim()}_${log.tanggal}`;
-            historyMap.set(key, log.total_capaian || 0);
+            if (log.petugas_id) {
+                const sanitizedPclId = log.petugas_id.replace(/\s+/g, '').toLowerCase();
+                const key = `${sanitizedPclId}_${log.tanggal}`;
+                const capaianBaru = log.total_capaian || 0;
+
+                // Cek apakah kunci email_tanggal sudah ada di Map
+                if (historyMap.has(key)) {
+                    // Jika sudah ada, tambahkan capaian dari desa baru ke capaian desa sebelumnya
+                    historyMap.set(key, historyMap.get(key) + capaianBaru);
+                } else {
+                    // Jika belum ada, masukkan data pertama kali
+                    historyMap.set(key, capaianBaru);
+                }
+            }
+
         });
 
         const getPastDateStr = (daysAgo) => {
@@ -1438,11 +1451,11 @@ const handleSyncPmlOfflineInputs = async () => {
             const totalDelta = capH1 - capH4;
 
             let status = "NORMAL";
-            
+
             // JIKA H-1 dikurangi H-4 hasilnya 0 (Sama sekali tidak ada dokumen baru)
             if (totalDelta === 0 && capH1 > 0) {
                 status = "TIDAK_AKTIF";
-            } 
+            }
             // JIKA ada pergerakan tetapi penambahannya di bawah 10 dokumen
             else if (totalDelta > 0 && totalDelta < 10) {
                 status = "MELAMBAT";
@@ -1467,7 +1480,7 @@ const handleSyncPmlOfflineInputs = async () => {
 
         const pclsMap = new Map(pcls.map(p => [p.email.toLowerCase().trim(), p.nama_pengguna]));
         const groups = {};
-        
+
         sortedSls.forEach((sls) => {
             const petugasKey = sls.petugas_id ? sls.petugas_id.toLowerCase().trim() : "BELUM ADA PETUGAS";
             const namaTampil = pclsMap.get(petugasKey) || sls.petugas_id || "BELUM ADA PETUGAS";
@@ -1507,22 +1520,22 @@ const handleSyncPmlOfflineInputs = async () => {
             onTouchEnd={handleTouchEnd}
         >
             {/* HIDDEN INPUT UTAMA: Selalu dipaksa membuka hardware kamera secara mutlak */}
-            <input 
-                type="file" 
-                ref={pmlCameraInputRef} 
-                accept="image/*" 
-                capture="user" 
-                className="hidden" 
-                onChange={handlePmlCapturePhoto} 
+            <input
+                type="file"
+                ref={pmlCameraInputRef}
+                accept="image/*"
+                capture="user"
+                className="hidden"
+                onChange={handlePmlCapturePhoto}
             />
 
             {/* HIDDEN INPUT GALERI: Polosan tanpa capture untuk memberikan akses ke album media galeri */}
-            <input 
-                type="file" 
-                ref={pmlGalleryInputRef} 
-                accept="image/*" 
-                className="hidden" 
-                onChange={handlePmlCapturePhoto} 
+            <input
+                type="file"
+                ref={pmlGalleryInputRef}
+                accept="image/*"
+                className="hidden"
+                onChange={handlePmlCapturePhoto}
             />
 
             <div className="flex-1 overflow-y-auto px-4 pt-4 pb-24">
@@ -1541,7 +1554,7 @@ const handleSyncPmlOfflineInputs = async () => {
                                 Kecamatan: <span className="text-indigo-400">{profile?.kecamatan_tugas}</span>
                             </p>
                         </div>
-                        
+
                         <div className="flex items-center gap-1.5 shrink-0">
                             <button
                                 disabled={!navigator.onLine}
@@ -1551,9 +1564,9 @@ const handleSyncPmlOfflineInputs = async () => {
                             >
                                 <RefreshCw size={16} />
                             </button>
-                            
+
                             <button
-                                onClick={logout} 
+                                onClick={logout}
                                 className="p-2 bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 text-rose-400 rounded-xl border border-rose-500/20 transition-all"
                                 title="Keluar Akun"
                             >
@@ -1563,155 +1576,155 @@ const handleSyncPmlOfflineInputs = async () => {
                     </div>
 
                     {/* ABSEN PENGAWASAN */}
-<div className="mt-4 pt-4 border-t border-slate-800/60 space-y-3">
-    {/* 1. Tampilkan Banner Sukses secara Mandiri (Hanya muncul jika sudah absen hari ini) */}
-    {pmlCheckedInToday && (
-        <div className="w-full bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-2xl py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wide">
-            <CheckCircle2 size={14} className="text-emerald-400" />
-            <span>Anda Sudah Melakukan Pengawasan Hari Ini</span>
-        </div>
-    )}
+                    <div className="mt-4 pt-4 border-t border-slate-800/60 space-y-3">
+                        {/* 1. Tampilkan Banner Sukses secara Mandiri (Hanya muncul jika sudah absen hari ini) */}
+                        {pmlCheckedInToday && (
+                            <div className="w-full bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-2xl py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wide">
+                                <CheckCircle2 size={14} className="text-emerald-400" />
+                                <span>Anda Sudah Melakukan Pengawasan Hari Ini</span>
+                            </div>
+                        )}
 
-    {/* 2. Logika Alur Kamera / Form Manual & Tombol Utama (Sekarang terbuka bebas) */}
-    {!showPmlCameraCard ? (
-        <button
-            onClick={handleTriggerPmlLocation}
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3 px-4 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all"
-        >
-            <Navigation size={14} className="fill-white" />
-            <span>{pmlCheckedInToday ? "Tambah Lokasi / Absen Lagi" : "Absen Pendampingan Lapangan"}</span>
-        </button>
-    ) : (
-        <div className="bg-slate-800 border border-slate-700 p-3 rounded-2xl space-y-3 animate-fadeIn">
-            <span className="text-[9px] font-black uppercase text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded block text-center">
-                {manualMode ? "Form Input Pendampingan Manual" : "Rangkuman Foto & Deteksi Lokasi"}
-            </span>
+                        {/* 2. Logika Alur Kamera / Form Manual & Tombol Utama (Sekarang terbuka bebas) */}
+                        {!showPmlCameraCard ? (
+                            <button
+                                onClick={handleTriggerPmlLocation}
+                                className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3 px-4 text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 active:scale-[0.98] transition-all"
+                            >
+                                <Navigation size={14} className="fill-white" />
+                                <span>{pmlCheckedInToday ? "Tambah Lokasi / Absen Lagi" : "Absen Pendampingan Lapangan"}</span>
+                            </button>
+                        ) : (
+                            <div className="bg-slate-800 border border-slate-700 p-3 rounded-2xl space-y-3 animate-fadeIn">
+                                <span className="text-[9px] font-black uppercase text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded block text-center">
+                                    {manualMode ? "Form Input Pendampingan Manual" : "Rangkuman Foto & Deteksi Lokasi"}
+                                </span>
 
-            {pmlPhotoPreview ? (
-                <div className="relative rounded-xl overflow-hidden border border-slate-600">
-                    <img src={pmlPhotoPreview} alt="PML Bukti" className="w-full h-32 object-cover" />
-                    <div className="absolute bottom-2 right-2 flex gap-1.5">
-                        <button 
-                            onClick={() => {
-                                if(pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
-                                pmlCameraInputRef.current?.click();
-                            }} 
-                            className="bg-orange-500/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
-                        >
-                            <Camera size={10} /> Kamera
-                        </button>
-                        <button 
-                            onClick={() => {
-                                if(pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
-                                pmlGalleryInputRef.current?.click();
-                            }} 
-                            className="bg-indigo-600/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
-                        >
-                            <Image size={10} /> Galeri
-                        </button>
+                                {pmlPhotoPreview ? (
+                                    <div className="relative rounded-xl overflow-hidden border border-slate-600">
+                                        <img src={pmlPhotoPreview} alt="PML Bukti" className="w-full h-32 object-cover" />
+                                        <div className="absolute bottom-2 right-2 flex gap-1.5">
+                                            <button
+                                                onClick={() => {
+                                                    if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+                                                    pmlCameraInputRef.current?.click();
+                                                }}
+                                                className="bg-orange-500/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
+                                            >
+                                                <Camera size={10} /> Kamera
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+                                                    pmlGalleryInputRef.current?.click();
+                                                }}
+                                                className="bg-indigo-600/90 text-white px-2 py-1.5 rounded-xl text-[9px] font-black cursor-pointer uppercase flex items-center gap-1"
+                                            >
+                                                <Image size={10} /> Galeri
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : rawPmlPhotoFile ? (
+                                    <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
+                                        <RefreshCw className="animate-spin text-orange-500" size={14} />
+                                        <span>Membuat Watermark Spasial...</span>
+                                    </div>
+                                ) : manualMode ? (
+                                    <div className="p-4 bg-slate-900 border border-slate-700 rounded-xl text-center space-y-2.5 animate-fadeIn">
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Dokumen Bukti Diperlukan</p>
+                                        <div className="flex gap-2 justify-center">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
+                                                    pmlCameraInputRef.current?.click();
+                                                }}
+                                                className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
+                                            >
+                                                <Camera size={14} />
+                                                <span>Kamera</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
+                                                    pmlGalleryInputRef.current?.click();
+                                                }}
+                                                className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
+                                            >
+                                                <Image size={14} />
+                                                <span>Galeri</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
+                                        <RefreshCw className="animate-spin text-orange-500" size={14} />
+                                        <span>{pmlCheckingIn ? "Mengunci Satelit..." : "Membuat Watermark Spasial..."}</span>
+                                    </div>
+                                )}
+
+                                {!pmlCheckingIn && pmlCoords && !manualMode && (
+                                    <div className="text-[10px] text-slate-300 font-bold px-1 space-y-0.5 text-left">
+                                        <p>SLS Terkunci: <span className="text-orange-400 font-black uppercase">{pmlCoords.nmsls}</span></p>
+                                    </div>
+                                )}
+
+                                {manualMode && (
+                                    <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 text-left space-y-2.5 animate-fadeIn">
+                                        <div>
+                                            <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Tanggal Pengawasan</label>
+                                            <input
+                                                type="date"
+                                                max={getTodayDateString()}
+                                                className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
+                                                value={selectedManualDate}
+                                                onChange={(e) => setSelectedManualDate(e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Target SLS Pendampingan</label>
+                                            <select
+                                                className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
+                                                value={selectedManualSls}
+                                                onChange={(e) => setSelectedManualSls(e.target.value)}
+                                            >
+                                                <option value="">-- Pilih SLS Pengawasan Anda --</option>
+                                                {allSlsFlat.map(s => (
+                                                    <option key={s.idsubsls} value={s.idsubsls}>
+                                                        ({s.kdsls}) {s.nmsls} - {s.nmdesa}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="flex gap-2">
+                                    <button
+                                        disabled={submitSiklusLoading}
+                                        onClick={resetPmlForm}
+                                        className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase disabled:opacity-40"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button
+                                        disabled={(manualMode ? !selectedManualSls : !pmlCoords) || !pmlPhotoPreview || pmlCheckingIn || submitSiklusLoading}
+                                        onClick={submitPmlCheckIn}
+                                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-xl text-xs uppercase disabled:bg-slate-700 disabled:text-slate-500 flex items-center justify-center gap-1"
+                                    >
+                                        {submitSiklusLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
+                                        <span>Kirim Absen</span>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                </div>
-            ) : rawPmlPhotoFile ? (
-                <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
-                    <RefreshCw className="animate-spin text-orange-500" size={14} />
-                    <span>Membuat Watermark Spasial...</span>
-                </div>
-            ) : manualMode ? (
-                <div className="p-4 bg-slate-900 border border-slate-700 rounded-xl text-center space-y-2.5 animate-fadeIn">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Dokumen Bukti Diperlukan</p>
-                    <div className="flex gap-2 justify-center">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if(pmlCameraInputRef.current) pmlCameraInputRef.current.value = "";
-                                pmlCameraInputRef.current?.click();
-                            }}
-                            className="flex-1 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                            <Camera size={14} />
-                            <span>Kamera</span>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if(pmlGalleryInputRef.current) pmlGalleryInputRef.current.value = "";
-                                pmlGalleryInputRef.current?.click();
-                            }}
-                            className="flex-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                            <Image size={14} />
-                            <span>Galeri</span>
-                        </button>
-                    </div>
-                </div>
-            ) : (
-                <div className="flex items-center justify-center gap-2 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-900 rounded-xl border border-slate-700/50">
-                    <RefreshCw className="animate-spin text-orange-500" size={14} />
-                    <span>{pmlCheckingIn ? "Mengunci Satelit..." : "Membuat Watermark Spasial..."}</span>
-                </div>
-            )}
-
-            {!pmlCheckingIn && pmlCoords && !manualMode && (
-                <div className="text-[10px] text-slate-300 font-bold px-1 space-y-0.5 text-left">
-                    <p>SLS Terkunci: <span className="text-orange-400 font-black uppercase">{pmlCoords.nmsls}</span></p>
-                </div>
-            )}
-
-            {manualMode && (
-                <div className="bg-slate-900 border border-slate-700 rounded-xl p-3 text-left space-y-2.5 animate-fadeIn">
-                    <div>
-                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Tanggal Pengawasan</label>
-                        <input 
-                            type="date"
-                            max={getTodayDateString()}
-                            className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
-                            value={selectedManualDate}
-                            onChange={(e) => setSelectedManualDate(e.target.value)}
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Target SLS Pendampingan</label>
-                        <select
-                            className="w-full p-2 bg-slate-800 border border-slate-600 rounded-xl text-xs font-semibold text-slate-200 outline-none"
-                            value={selectedManualSls}
-                            onChange={(e) => setSelectedManualSls(e.target.value)}
-                        >
-                            <option value="">-- Pilih SLS Pengawasan Anda --</option>
-                            {allSlsFlat.map(s => (
-                                <option key={s.idsubsls} value={s.idsubsls}>
-                                    ({s.kdsls}) {s.nmsls} - {s.nmdesa}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-            )}
-
-            <div className="flex gap-2">
-                <button 
-                    disabled={submitSiklusLoading}
-                    onClick={resetPmlForm} 
-                    className="flex-1 bg-slate-700 text-slate-300 font-bold py-2 rounded-xl text-xs uppercase disabled:opacity-40"
-                >
-                    Batal
-                </button>
-                <button
-                    disabled={(manualMode ? !selectedManualSls : !pmlCoords) || !pmlPhotoPreview || pmlCheckingIn || submitSiklusLoading}
-                    onClick={submitPmlCheckIn}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 rounded-xl text-xs uppercase disabled:bg-slate-700 disabled:text-slate-500 flex items-center justify-center gap-1"
-                >
-                    {submitSiklusLoading ? <RefreshCw className="animate-spin" size={12} /> : null}
-                    <span>Kirim Absen</span>
-                </button>
-            </div>
-        </div>
-    )}
-</div>
                 </div>
 
                 {/* SAKELAR INTERAKTIF TOGGLE MODE MANUAL */}
                 {allowManualMode && (
-                    <div 
+                    <div
                         onClick={() => {
                             const nextState = !manualMode;
                             setPmlCoords(null);
@@ -1739,35 +1752,33 @@ const handleSyncPmlOfflineInputs = async () => {
                                 <p className="text-[10px] text-indigo-700/80 truncate font-medium">Klik untuk menggunakan Galeri Foto & Pilihan Tanggal/SLS manual</p>
                             </div>
                         </div>
-                        <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${
-                            manualMode ? 'bg-indigo-600' : 'bg-slate-300'
-                        }`}>
-                            <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out ${
-                                manualMode ? 'translate-x-4' : 'translate-x-0'
-                            }`} />
+                        <div className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors duration-200 ease-in-out flex items-center ${manualMode ? 'bg-indigo-600' : 'bg-slate-300'
+                            }`}>
+                            <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out ${manualMode ? 'translate-x-4' : 'translate-x-0'
+                                }`} />
                         </div>
                     </div>
                 )}
 
                 {/* NOTIFIKASI OFFLINE QUEUE */}
-{/* NOTIFIKASI OFFLINE QUEUE */}
-{offlineInputCount > 0 && (
-    <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl flex items-center justify-between text-xs font-bold animate-fadeIn">
-        <div className="flex items-center gap-2">
-            <WifiOff size={16} className="text-amber-600 shrink-0 animate-pulse" />
-            {/* PERBAIKAN TEKS BANNER */}
-            <span>Ada {offlineInputCount} Data Lapangan (Absen/SLS) Belum Diunggah</span>
-        </div>
-        <button
-            disabled={isSyncingInput || !navigator.onLine}
-            onClick={handleSyncPmlOfflineInputs}
-            className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-xl flex items-center gap-1 text-[11px] font-black transition-all disabled:bg-slate-300 disabled:text-slate-500"
-        >
-            {isSyncingInput ? <RefreshCw className="animate-spin" size={12} /> : <CloudLightning size={12} />}
-            {navigator.onLine ? "SINKRON" : "LURING"}
-        </button>
-    </div>
-)}
+                {/* NOTIFIKASI OFFLINE QUEUE */}
+                {offlineInputCount > 0 && (
+                    <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl flex items-center justify-between text-xs font-bold animate-fadeIn">
+                        <div className="flex items-center gap-2">
+                            <WifiOff size={16} className="text-amber-600 shrink-0 animate-pulse" />
+                            {/* PERBAIKAN TEKS BANNER */}
+                            <span>Ada {offlineInputCount} Data Lapangan (Absen/SLS) Belum Diunggah</span>
+                        </div>
+                        <button
+                            disabled={isSyncingInput || !navigator.onLine}
+                            onClick={handleSyncPmlOfflineInputs}
+                            className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-xl flex items-center gap-1 text-[11px] font-black transition-all disabled:bg-slate-300 disabled:text-slate-500"
+                        >
+                            {isSyncingInput ? <RefreshCw className="animate-spin" size={12} /> : <CloudLightning size={12} />}
+                            {navigator.onLine ? "SINKRON" : "LURING"}
+                        </button>
+                    </div>
+                )}
 
                 {/* TAB 0: DAFTAR PANTAU PETUGAS LAPANAGAN PCL */}
                 {activeTab === 0 && (
@@ -1792,163 +1803,168 @@ const handleSyncPmlOfflineInputs = async () => {
                                 </div>
                             </div>
 
-{filteredPcls.map((pcl) => {
-    const isAktif = pcl.statusHariIni === 'AKTIF';
-    const isPclLuarWilayah = isAktif && pcl.isLuarWilayahLast;
-    const cleanEmail = pcl.email.toLowerCase().trim();
-    
-    // Ambil status analisis produktivitas yang diolah oleh useMemo
-    const statusProduktivitas = pclsProductivityStatus[cleanEmail] || "NORMAL";
+                            {filteredPcls.map((pcl) => {
+                                const isAktif = pcl.statusHariIni === 'AKTIF';
+                                const isPclLuarWilayah = isAktif && pcl.isLuarWilayahLast;
+                                const cleanEmail = pcl.email.toLowerCase().trim();
 
-    // ENGINE EKSTRAKSI DATA HISTORI UNTUK TAMPILAN TREN (H-4 s.d H-1)
-    const getPastDateStr = (daysAgo) => {
-        const targetDate = new Date();
-        targetDate.setDate(targetDate.getDate() - daysAgo);
-        return targetDate.toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
-    };
+                                // Ambil status analisis produktivitas yang diolah oleh useMemo
+                                const statusProduktivitas = pclsProductivityStatus[cleanEmail] || "NORMAL";
 
-    const historyMap = new Map();
-    historyData.forEach(log => {
-        if (log.petugas_id) {
-            // Bersihkan email dari spasi, huruf kapital, dan karakter whitespace aneh (\s)
-            const sanitizedPclId = log.petugas_id.replace(/\s+/g, '').toLowerCase();
-            historyMap.set(`${sanitizedPclId}_${log.tanggal}`, log.total_capaian || 0);
+                                // ENGINE EKSTRAKSI DATA HISTORI UNTUK TAMPILAN TREN (H-4 s.d H-1)
+                                const getPastDateStr = (daysAgo) => {
+                                    const targetDate = new Date();
+                                    targetDate.setDate(targetDate.getDate() - daysAgo);
+                                    return targetDate.toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
+                                };
+
+const historyMap = new Map();
+historyData.forEach(log => {
+    if (log.petugas_id) {
+        const sanitizedPclId = log.petugas_id.replace(/\s+/g, '').toLowerCase();
+        const key = `${sanitizedPclId}_${log.tanggal}`;
+        const capaianBaru = log.total_capaian || 0;
+
+        // JIKA sudah ada data tanggal tersebut, TAMBAHKAN nilainya (Agregasi Multi-Desa)
+        if (historyMap.has(key)) {
+            historyMap.set(key, historyMap.get(key) + capaianBaru);
+        } else {
+            // JIKA belum ada, masukkan sebagai data awal
+            historyMap.set(key, capaianBaru);
         }
-    });
+    }
+});
 
-    // Bersihkan juga email pembanding dari data petugas utama
+                                // Bersihkan juga email pembanding dari data petugas utama
+                                const sanitizedCleanEmail = cleanEmail.replace(/\s+/g, '').toLowerCase();
+                                const capH1 = historyMap.get(`${cleanEmail}_${getPastDateStr(1)}`) || 0;
+                                const capH2 = historyMap.get(`${cleanEmail}_${getPastDateStr(2)}`) || 0;
+                                const capH3 = historyMap.get(`${cleanEmail}_${getPastDateStr(3)}`) || 0;
+                                const capH4 = historyMap.get(`${cleanEmail}_${getPastDateStr(4)}`) || 0;
 
-    const capH1 = historyMap.get(`${cleanEmail}_${getPastDateStr(1)}`) || 0;
-    const capH2 = historyMap.get(`${cleanEmail}_${getPastDateStr(2)}`) || 0;
-    const capH3 = historyMap.get(`${cleanEmail}_${getPastDateStr(3)}`) || 0;
-    const capH4 = historyMap.get(`${cleanEmail}_${getPastDateStr(4)}`) || 0;
+                                const deltaH1 = capH1 - capH2;
+                                const deltaH2 = capH2 - capH3;
+                                const deltaH3 = capH3 - capH4;
+                                const totalDelta4Hari = capH1 - capH4;
 
-    const deltaH1 = capH1 - capH2; 
-    const deltaH2 = capH2 - capH3; 
-    const deltaH3 = capH3 - capH4; 
-    const totalDelta4Hari = capH1 - capH4;
+                                return (
+                                    <div
+                                        key={pcl.email}
+                                        className={`bg-white border rounded-xl p-3 shadow-xs flex flex-col gap-2 transition-all ${isPclLuarWilayah
+                                                ? 'border-orange-200 bg-orange-50/10'
+                                                : !isAktif
+                                                    ? 'border-slate-100 bg-slate-50/30'
+                                                    : 'border-slate-200'
+                                            }`}
+                                    >
+                                        {/* ====== BARIS 1: NAMA, EMAIL & STATUS ABSEN ====== */}
+                                        <div className="flex justify-between items-center gap-2">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <h4 className="font-extrabold text-slate-800 text-xs uppercase truncate max-w-[140px] xs:max-w-none">
+                                                        {pcl.nama_pengguna}
+                                                    </h4>
+                                                    {/* Status Badges tipis khusus Mobile */}
+                                                    {statusProduktivitas === "TIDAK_AKTIF" && (
+                                                        <span className="px-1.5 py-0.2 bg-rose-50 text-rose-600 border border-rose-200 text-[8px] font-black rounded-sm animate-pulse">
+                                                            🛑 MACET
+                                                        </span>
+                                                    )}
+                                                    {statusProduktivitas === "MELAMBAT" && (
+                                                        <span className="px-1.5 py-0.2 bg-amber-50 text-amber-600 border border-amber-200 text-[8px] font-black rounded-sm">
+                                                            ⚠️ LAMBAT
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-[9px] text-slate-400 truncate font-mono">
+                                                    {pcl.email}
+                                                </p>
+                                            </div>
 
-    return (
-        <div 
-            key={pcl.email} 
-            className={`bg-white border rounded-xl p-3 shadow-xs flex flex-col gap-2 transition-all ${
-                isPclLuarWilayah 
-                    ? 'border-orange-200 bg-orange-50/10' 
-                    : !isAktif 
-                        ? 'border-slate-100 bg-slate-50/30' 
-                        : 'border-slate-200'
-            }`}
-        >
-            {/* ====== BARIS 1: NAMA, EMAIL & STATUS ABSEN ====== */}
-            <div className="flex justify-between items-center gap-2">
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                        <h4 className="font-extrabold text-slate-800 text-xs uppercase truncate max-w-[140px] xs:max-w-none">
-                            {pcl.nama_pengguna}
-                        </h4>
-                        {/* Status Badges tipis khusus Mobile */}
-                        {statusProduktivitas === "TIDAK_AKTIF" && (
-                            <span className="px-1.5 py-0.2 bg-rose-50 text-rose-600 border border-rose-200 text-[8px] font-black rounded-sm animate-pulse">
-                                🛑 MACET
-                            </span>
-                        )}
-                        {statusProduktivitas === "MELAMBAT" && (
-                            <span className="px-1.5 py-0.2 bg-amber-50 text-amber-600 border border-amber-200 text-[8px] font-black rounded-sm">
-                                ⚠️ LAMBAT
-                            </span>
-                        )}
-                    </div>
-                    <p className="text-[9px] text-slate-400 truncate font-mono">
-                        {pcl.email}
-                    </p>
-                </div>
+                                            {/* Indikator Status Absen Ringkas */}
+                                            <div className="shrink-0">
+                                                <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-tight ${isAktif
+                                                        ? isPclLuarWilayah
+                                                            ? 'bg-orange-50 text-orange-600 border-orange-200 animate-pulse'
+                                                            : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                                                        : 'bg-slate-50 text-slate-400 border-slate-200'
+                                                    }`}>
+                                                    {isAktif ? (isPclLuarWilayah ? 'Luar Wilayah' : 'Lapangan') : 'Belum Absen'}
+                                                </span>
+                                            </div>
+                                        </div>
 
-                {/* Indikator Status Absen Ringkas */}
-                <div className="shrink-0">
-                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-tight ${
-                        isAktif 
-                            ? isPclLuarWilayah 
-                                ? 'bg-orange-50 text-orange-600 border-orange-200 animate-pulse' 
-                                : 'bg-emerald-50 text-emerald-600 border-emerald-200'
-                            : 'bg-slate-50 text-slate-400 border-slate-200'
-                    }`}>
-                        {isAktif ? (isPclLuarWilayah ? 'Luar Wilayah' : 'Lapangan') : 'Belum Absen'}
-                    </span>
-                </div>
-            </div>
+                                        {/* ====== BARIS 2: INFO LOKASI (HANYA MUNCUL JIKA AKTIF) ====== */}
+                                        {isAktif && (
+                                            <div className="text-[10px] bg-slate-50 border border-slate-100 rounded-lg p-1.5 px-2 flex justify-between gap-2 text-slate-600">
+                                                <div className="truncate flex-1">
+                                                    <span className="font-bold text-slate-400 text-[8px] uppercase mr-1">SLS:</span>
+                                                    <span className="font-semibold text-slate-700">{pcl.namaSlsLast || '-'}</span>
+                                                    {pcl.totalAbsenHariIni > 1 && (
+                                                        <span className="text-[8px] text-indigo-600 font-bold ml-1">
+                                                            (+{pcl.totalAbsenHariIni - 1} loc)
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="truncate max-w-[120px] text-right border-l border-slate-200 pl-2">
+                                                    <span className="font-semibold text-slate-700 uppercase">{pcl.namaDesaLast || 'Ampel'}</span>
+                                                </div>
+                                            </div>
+                                        )}
 
-            {/* ====== BARIS 2: INFO LOKASI (HANYA MUNCUL JIKA AKTIF) ====== */}
-            {isAktif && (
-                <div className="text-[10px] bg-slate-50 border border-slate-100 rounded-lg p-1.5 px-2 flex justify-between gap-2 text-slate-600">
-                    <div className="truncate flex-1">
-                        <span className="font-bold text-slate-400 text-[8px] uppercase mr-1">SLS:</span>
-                        <span className="font-semibold text-slate-700">{pcl.namaSlsLast || '-'}</span>
-                        {pcl.totalAbsenHariIni > 1 && (
-                            <span className="text-[8px] text-indigo-600 font-bold ml-1">
-                                (+{pcl.totalAbsenHariIni - 1} loc)
-                            </span>
-                        )}
-                    </div>
-                    <div className="truncate max-w-[120px] text-right border-l border-slate-200 pl-2">
-                        <span className="font-semibold text-slate-700 uppercase">{pcl.namaDesaLast || 'Ampel'}</span>
-                    </div>
-                </div>
-            )}
+                                        {/* ====== BARIS 3: TREN HISTORI DOKUMEN SLIM ====== */}
+                                        <div className="bg-slate-900 text-white rounded-lg p-1.5 px-2 flex items-center justify-between text-[10px]">
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-slate-400 text-[8px] font-bold uppercase">Kirim 3H Terakhir:</span>
+                                                <div className="flex gap-1.5 font-mono font-bold">
+                                                    <span title="3 Hari Lalu" className={deltaH3 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
+                                                        {deltaH3 > 0 ? `+${deltaH3}` : '0'}
+                                                    </span>
+                                                    <span className="text-slate-700">|</span>
+                                                    <span title="2 Hari Lalu" className={deltaH2 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
+                                                        {deltaH2 > 0 ? `+${deltaH2}` : '0'}
+                                                    </span>
+                                                    <span className="text-slate-700">|</span>
+                                                    <span title="Kemarin" className={deltaH1 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
+                                                        {deltaH1 > 0 ? `+${deltaH1}` : '0'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <span className="text-[9px] font-bold bg-slate-800 text-slate-300 px-1 py-0.2 rounded font-mono">
+                                                (Total 3H: {totalDelta4Hari})
+                                            </span>
+                                        </div>
 
-            {/* ====== BARIS 3: TREN HISTORI DOKUMEN SLIM ====== */}
-            <div className="bg-slate-900 text-white rounded-lg p-1.5 px-2 flex items-center justify-between text-[10px]">
-                <div className="flex items-center gap-1">
-                    <span className="text-slate-400 text-[8px] font-bold uppercase">Tren 3H:</span>
-                    <div className="flex gap-1.5 font-mono font-bold">
-                        <span title="3 Hari Lalu" className={deltaH3 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
-                            {deltaH3 > 0 ? `+${deltaH3}` : '0'}
-                        </span>
-                        <span className="text-slate-700">|</span>
-                        <span title="2 Hari Lalu" className={deltaH2 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
-                            {deltaH2 > 0 ? `+${deltaH2}` : '0'}
-                        </span>
-                        <span className="text-slate-700">|</span>
-                        <span title="Kemarin" className={deltaH1 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
-                            {deltaH1 > 0 ? `+${deltaH1}` : '0'}
-                        </span>
-                    </div>
-                </div>
-                <span className="text-[9px] font-bold bg-slate-800 text-slate-300 px-1 py-0.2 rounded font-mono">
-                    Total: {capH1} (Δ {totalDelta4Hari})
-                </span>
-            </div>
+                                        {/* ====== BARIS 4: LOG ABSENSI MINGGUAN MINI ====== */}
+                                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                                            <span className="text-[8px] font-bold uppercase text-slate-400">Log 7 Hari:</span>
+                                            <div className="flex gap-1">
+                                                {last7Dates.map((tgl, idx) => {
+                                                    const masukPadaTanggalIni = pcl.history7Hari.includes(tgl);
+                                                    const isHariIni = idx === 6;
+                                                    const angkaTanggal = tgl.split('-')[2];
 
-            {/* ====== BARIS 4: LOG ABSENSI MINGGUAN MINI ====== */}
-            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
-                <span className="text-[8px] font-bold uppercase text-slate-400">Log 7 Hari:</span>
-                <div className="flex gap-1">
-                    {last7Dates.map((tgl, idx) => {
-                        const masukPadaTanggalIni = pcl.history7Hari.includes(tgl);
-                        const isHariIni = idx === 6;
-                        const angkaTanggal = tgl.split('-')[2];
-                        
-                        return (
-                            <div
-                                key={tgl}
-                                className={`w-4 h-4 rounded-sm text-[8px] font-bold flex items-center justify-center border transition-all ${
-                                    masukPadaTanggalIni
-                                        ? 'bg-emerald-500 border-emerald-600 text-white' 
-                                        : isHariIni && !isAktif
-                                            ? 'bg-rose-500 border-rose-600 text-white animate-pulse' 
-                                            : 'bg-slate-100 border-slate-200 text-slate-400' 
-                                }`}
-                            >
-                                {angkaTanggal}
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-        </div>
-    );
-})}
+                                                    return (
+                                                        <div
+                                                            key={tgl}
+                                                            className={`w-4 h-4 rounded-sm text-[8px] font-bold flex items-center justify-center border transition-all ${masukPadaTanggalIni
+                                                                    ? 'bg-emerald-500 border-emerald-600 text-white'
+                                                                    : isHariIni && !isAktif
+                                                                        ? 'bg-rose-500 border-rose-600 text-white animate-pulse'
+                                                                        : 'bg-slate-100 border-slate-200 text-slate-400'
+                                                                }`}
+                                                        >
+                                                            {angkaTanggal}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
-                        
+
                         <div className="p-3 bg-slate-100/70 border border-slate-200 rounded-2xl flex flex-wrap gap-x-4 gap-y-1.5 text-[9px] font-black text-slate-500 uppercase tracking-wide justify-center">
                             <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-emerald-500"></span> Sudah Absen Lapangan</div>
                             <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-rose-500"></span> Belum Absen Lapangan</div>
@@ -1960,9 +1976,9 @@ const handleSyncPmlOfflineInputs = async () => {
                 {/* TAB 1: INPUT CAPAIAN PER SLS */}
                 {activeTab === 1 && (
                     <div className="space-y-3 animate-fadeIn">
-                        
+
                         {/* BANNER PANDUAN UTAMA */}
-{/* BANNER PANDUAN UTAMA - VERSI MONITORING & LIVE SYNC */}
+                        {/* BANNER PANDUAN UTAMA - VERSI MONITORING & LIVE SYNC */}
                         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-2xl flex gap-2.5 items-start shadow-3xs">
                             <div className="bg-amber-100 p-1 rounded-xl text-amber-700 shrink-0 mt-0.5">
                                 <HelpCircle size={14} className="font-bold" />
@@ -1974,7 +1990,7 @@ const handleSyncPmlOfflineInputs = async () => {
 
                                     2. Tombol <strong className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">Kirim Rekap Untuk Evaluasi</strong> digunakan saat jadwal evaluasi berkala (pola 2-1-2-1) dan jadwal evaluasi lainnya untuk mengirim rekaman kendala dan solusi tim ke Kabupaten.
                                 </p>
-                                
+
                                 {/* INDIKATOR TERAKHIR SINKRONISASI SERVER */}
                                 <div className="mt-2 pt-1.5 border-t border-amber-200/60 flex items-center justify-between text-[9px] text-amber-800/80 font-mono font-bold">
                                     <span className="flex items-center gap-1">🔄 Pembaruan Data Terakhir:</span>
@@ -1996,7 +2012,7 @@ const handleSyncPmlOfflineInputs = async () => {
                                     value={selectedDesa}
                                     onChange={(e) => {
                                         setSelectedDesa(e.target.value);
-                                        setExpandedPetugasSls(null); 
+                                        setExpandedPetugasSls(null);
                                     }}
                                 >
                                     <option value="SEMUA">Semua Desa / Kelurahan</option>
@@ -2027,28 +2043,45 @@ const handleSyncPmlOfflineInputs = async () => {
                             {Object.keys(groupedSlsByPetugas).map((namaPetugas) => {
                                 const isExpanded = expandedPetugasSls === namaPetugas;
                                 const listSlsPetugas = groupedSlsByPetugas[namaPetugas];
-                                
+
+                                // 1. Hitung total muatan/target dari target SLS resmi
                                 const totalMuatanPcl = listSlsPetugas.reduce((acc, curr) => acc + (curr.jml_muatan || 0), 0);
-                                const totalRealisasiPcl = listSlsPetugas.reduce((acc, curr) => acc + (curr.realisasi_pencacahan || 0), 0);
+
+                                // 2. HITUNG ULANG TOTAL REALISASI BERDASARKAN AGREGASI STATUS DOKUMEN (KUNCI PERBAIKAN)
+                                const totalRealisasiPcl = listSlsPetugas.reduce((acc, sls) => {
+                                    const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
+
+                                    const approved = parseInt(match?.approved_pengawas) || 0;
+                                    const edited = parseInt(match?.edited_pengawas) || 0;
+                                    const submitted = parseInt(match?.submitted_pencacah) || 0;
+                                    const submitted_resp = parseInt(match?.submitted_respondent) || 0;
+                                    const draft = parseInt(match?.draft) || 0;
+                                    const rejected = parseInt(match?.rejected_pengawas) || 0;
+                                    const revoked = parseInt(match?.revoked_pengawas) || 0;
+
+                                    const totalSlsRiil = approved + edited + submitted + submitted_resp + draft + rejected + revoked;
+                                    return acc + totalSlsRiil;
+                                }, 0);
+
+                                // 3. Hitung persentase dinamis (opsional: hilangkan Math.min jika ingin mengakomodir over-target/muatan baru)
                                 const persenPcl = totalMuatanPcl > 0 ? Math.min(Math.round((totalRealisasiPcl / totalMuatanPcl) * 100), 100) : 0;
 
-                                // Hitung akumulasi status dokumen dari JSONB per petugas untuk ringkasan
-// Hitung akumulasi status dokumen dari kolom numerik per petugas untuk ringkasan
+                                // Hitung rekap status dokumen untuk ringkasan di bawah (tetap seperti kode awal Anda)
                                 let draftPcl = 0, submitPcl = 0, appPcl = 0, rejPcl = 0;
                                 listSlsPetugas.forEach(sls => {
                                     const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
-                                    
-                                    draftPcl  += (parseInt(match?.draft) || 0);
+
+                                    draftPcl += (parseInt(match?.draft) || 0);
                                     submitPcl += (parseInt(match?.submitted_pencacah) || 0) + (parseInt(match?.submitted_respondent) || 0);
-                                    appPcl    += (parseInt(match?.approved_pengawas) || 0) + (parseInt(match?.edited_pengawas) || 0);
-                                    rejPcl    += (parseInt(match?.rejected_pengawas) || 0) + (parseInt(match?.revoked_pengawas) || 0);
+                                    appPcl += (parseInt(match?.approved_pengawas) || 0) + (parseInt(match?.edited_pengawas) || 0);
+                                    rejPcl += (parseInt(match?.rejected_pengawas) || 0) + (parseInt(match?.revoked_pengawas) || 0);
                                 });
 
                                 return (
                                     <div key={namaPetugas} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs transition-all">
-                                        
+
                                         {/* HEADER AKORDION SIMPEL */}
-                                        <div 
+                                        <div
                                             onClick={() => setExpandedPetugasSls(isExpanded ? null : namaPetugas)}
                                             className={`p-3 flex flex-col gap-2 cursor-pointer transition-colors active:bg-slate-100 ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
                                         >
@@ -2064,7 +2097,7 @@ const handleSyncPmlOfflineInputs = async () => {
                                                         </p>
                                                     </div>
                                                 </div>
-                                                
+
                                                 <div className="shrink-0 flex items-center gap-2">
                                                     <span className="text-xs font-mono font-black text-indigo-600">
                                                         {persenPcl}%
@@ -2077,7 +2110,7 @@ const handleSyncPmlOfflineInputs = async () => {
 
                                             {/* SUNTIKAN 1: PROGRESS BAR HORIZONTAL */}
                                             <div className="w-full bg-slate-100 rounded-full h-1 overflow-hidden">
-                                                <div 
+                                                <div
                                                     className="h-full bg-indigo-600 rounded-full transition-all duration-300"
                                                     style={{ width: `${persenPcl}%` }}
                                                 ></div>
@@ -2096,7 +2129,7 @@ const handleSyncPmlOfflineInputs = async () => {
                                         {isExpanded && (
                                             <div className="p-2.5 bg-slate-50/50 space-y-2 animate-fadeIn border-t border-slate-100">
                                                 {listSlsPetugas.map((sls) => (
-                                                    <SlsCardRow 
+                                                    <SlsCardRow
                                                         key={sls.idsubsls}
                                                         sls={sls}
                                                         progressData={realtimeProgressData}
@@ -2126,7 +2159,7 @@ const handleSyncPmlOfflineInputs = async () => {
                         <div className="mx-auto w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center text-rose-500">
                             <AlertTriangle size={24} className="animate-bounce text-rose-600" />
                         </div>
-                        
+
                         <div>
                             <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Peringatan Wilayah Tugas</h3>
                             <p className="text-[11px] text-slate-500 leading-relaxed mt-1.5">
@@ -2160,19 +2193,19 @@ const handleSyncPmlOfflineInputs = async () => {
             )}
 
             {/* HIDDEN INPUT UNTUK FOTO EVALUASI KENDALA */}
-            <input 
-                type="file" 
-                ref={evaluasiCameraRef} 
-                accept="image/*" 
-                className="hidden" 
-                onChange={handleCaptureFotoEvaluasi} 
+            <input
+                type="file"
+                ref={evaluasiCameraRef}
+                accept="image/*"
+                className="hidden"
+                onChange={handleCaptureFotoEvaluasi}
             />
 
             {/* DIALOG FORM MODAL EVALUASI, KENDALA & SOLUSI */}
             {showEvaluasiModal && (
                 <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
                     <div className="bg-white rounded-3xl p-5 w-full max-w-md max-h-[85dvh] overflow-y-auto border border-slate-100 shadow-2xl flex flex-col gap-4">
-                        
+
                         <div className="text-center border-b border-slate-100 pb-2">
                             <h3 className="text-xs font-black text-slate-800 uppercase tracking-wide">Form Evaluasi Lapangan</h3>
                             <p className="text-[10px] text-slate-400 font-medium mt-0.5">Pelaporan Kegiatan Lapangan Sensus Ekonomi 2026</p>
@@ -2211,23 +2244,23 @@ const handleSyncPmlOfflineInputs = async () => {
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-tight block">
                                 3. Foto Kegiatan Evaluasi (Pendampingan Lapangan/Diskusi dengan Petugas) <span className="text-rose-500">*</span>
                             </label>
-                            
-{fotoEvaluasiBase64 ? (
-    <div className="relative rounded-xl overflow-hidden border border-slate-200 h-28 bg-slate-100">
-        <img src={fotoEvaluasiBase64} alt="Preview Evaluasi" className="w-full h-full object-cover" />
-        <button
-            type="button"
-            onClick={() => {
-                setFotoEvaluasiBase64(null);
-                // FIX: Bersihkan juga value input HTML-nya agar bisa langsung jepret ulang tanpa tutup modal
-                if (evaluasiCameraRef.current) evaluasiCameraRef.current.value = "";
-            }}
-            className="absolute top-2 right-2 bg-rose-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase tracking-wider shadow-xs"
-        >
-            Hapus
-        </button>
-    </div>
-) : (
+
+                            {fotoEvaluasiBase64 ? (
+                                <div className="relative rounded-xl overflow-hidden border border-slate-200 h-28 bg-slate-100">
+                                    <img src={fotoEvaluasiBase64} alt="Preview Evaluasi" className="w-full h-full object-cover" />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setFotoEvaluasiBase64(null);
+                                            // FIX: Bersihkan juga value input HTML-nya agar bisa langsung jepret ulang tanpa tutup modal
+                                            if (evaluasiCameraRef.current) evaluasiCameraRef.current.value = "";
+                                        }}
+                                        className="absolute top-2 right-2 bg-rose-500 text-white font-black text-[9px] px-2 py-1 rounded-lg uppercase tracking-wider shadow-xs"
+                                    >
+                                        Hapus
+                                    </button>
+                                </div>
+                            ) : (
                                 <button
                                     type="button"
                                     disabled={uploadFotoEvaluasiLoading}
@@ -2247,24 +2280,24 @@ const handleSyncPmlOfflineInputs = async () => {
                         </div>
 
                         {/* AKSI MODAL */}
-<div className="flex gap-2 pt-2 border-t border-slate-100 mt-1">
-    <button
-        type="button"
-        disabled={submitSiklusLoading}
-        onClick={() => {
-            // FIX UTAMA: Reset elemen input HTML kamera evaluasi agar cache filenya kosong kembali
-            if (evaluasiCameraRef.current) evaluasiCameraRef.current.value = "";
-            
-            // Reset state modal seperti biasa
-            setShowEvaluasiModal(false);
-            setKendalaLapangan("");
-            setSolusiLapangan("");
-            setFotoEvaluasiBase64(null);
-        }}
-        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
-    >
-        Kembali
-    </button>
+                        <div className="flex gap-2 pt-2 border-t border-slate-100 mt-1">
+                            <button
+                                type="button"
+                                disabled={submitSiklusLoading}
+                                onClick={() => {
+                                    // FIX UTAMA: Reset elemen input HTML kamera evaluasi agar cache filenya kosong kembali
+                                    if (evaluasiCameraRef.current) evaluasiCameraRef.current.value = "";
+
+                                    // Reset state modal seperti biasa
+                                    setShowEvaluasiModal(false);
+                                    setKendalaLapangan("");
+                                    setSolusiLapangan("");
+                                    setFotoEvaluasiBase64(null);
+                                }}
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
+                            >
+                                Kembali
+                            </button>
                             <button
                                 type="button"
                                 disabled={submitSiklusLoading || uploadFotoEvaluasiLoading}
