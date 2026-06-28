@@ -18,11 +18,10 @@ const handleLogin = async (e) => {
     setLoading(true);
 
     const inputEmail = email.toLowerCase().trim();
-    console.log("=== MEMULAI PROSES LOGIN DENGAN PROTEKSI ARSITEKTUR ===");
+  
 
     try {
-      // 1. Coba login secara normal ke Supabase Auth Baru
-      console.log("Langkah 1: Mencoba login biasa...");
+
       const { data, error: loginError } = await supabase.auth.signInWithPassword({ 
         email: inputEmail, 
         password 
@@ -30,7 +29,6 @@ const handleLogin = async (e) => {
 
       // Jika sukses langsung tanpa error (Berarti sudah pernah migrasi/klik kedua)
       if (!loginError && data?.user) {
-        console.log("Akses Diterima! Mengalihkan ke Dashboard Utama...");
         navigate('/', { replace: true });
         return;
       }
@@ -39,7 +37,6 @@ const handleLogin = async (e) => {
       if (loginError) throw loginError;
 
     } catch (error) {
-      console.log("Login baru ditolak/belum terdaftar. Memasuki jalur interceptor RPC...", error.message);
       
       try {
         // 2. JALUR UTAMA MIGRASI: Panggil RPC karena login biasa gagal/belum sinkron
@@ -54,7 +51,7 @@ const handleLogin = async (e) => {
         }
 
         if (migrationSuccess === true) {
-          console.log("✅ Akun sukses ditanam lewat RPC!");
+
           setSuccessMsg("Email dan kata sandi Anda BENAR! Sehubungan dengan adanya pembaruan sistem dan perpindahan basis data Sensus, silakan klik sekali lagi tombol 'Masuk Aplikasi' di bawah untuk langsung menuju ke Dashboard.");
           return;
         } else {

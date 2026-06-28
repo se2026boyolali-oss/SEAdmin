@@ -1103,8 +1103,10 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                 </div>
             </div>
 
-{/* BARIS DASHBOARD CONTROL CENTER SUMMARY CARD */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+{/* GRID UTAMA CRITICAL MONITORING (KINI 5 KOLOM) */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                
+                {/* 1. CARD PETUGAS TIDAK AKTIF */}
                 <div 
                     onClick={() => {
                         if (criticalPcl.macet.length === 0) return;
@@ -1136,9 +1138,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                                 const getDeltaGabungan = (targetDate, dateSebelumnya) => {
                                     if (logPetugasPaging[targetDate] === undefined) return 0;
                                     if (logPetugasPaging[dateSebelumnya] === undefined) return 0;
-                                    const capaianTarget = logPetugasPaging[targetDate] || 0;
-                                    const capaianSebelumnya = logPetugasPaging[dateSebelumnya] || 0;
-                                    return Math.max(capaianTarget - capaianSebelumnya, 0);
+                                    return Math.max((logPetugasPaging[targetDate] || 0) - (logPetugasPaging[dateSebelumnya] || 0), 0);
                                 };
 
                                 return {
@@ -1153,7 +1153,6 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                                 };
                             });
 
-                        // 🌟 URUTKAN BERDASARKAN KECAMATAN (A-Z)
                         listMacetMapped.sort((a, b) => a.kecamatan.localeCompare(b.kecamatan));
 
                         setCriticalCurrentPage(1);
@@ -1169,11 +1168,12 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                     <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Petugas Tidak Aktif (3 Hari)</div>
                     <div className="text-2xl font-mono font-black text-rose-600 mt-1 flex items-baseline gap-1">
                         {criticalPcl.macet.length} 
-                        <span className="text-xs text-slate-400 font-sans font-bold">{criticalPcl.macet.length > 0 ? 'Orang (klik untuk detail)' : 'Orang'}</span>
+                        <span className="text-xs text-slate-400 font-sans font-bold">{criticalPcl.macet.length > 0 ? 'Orang' : 'Orang'}</span>
                     </div>
-                    <p className="text-[8px] text-slate-400 mt-1 font-bold">Capaian stagnan (3 hari tidak kirim assignment baru)</p>
+                    <p className="text-[8px] text-slate-400 mt-1 font-bold">Capaian stagnan / 0 kirim dokumen</p>
                 </div>
 
+                {/* 2. CARD PETUGAS MELAMBAT */}
                 <div 
                     onClick={() => {
                         if (criticalPcl.melambat.length === 0) return;
@@ -1205,9 +1205,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                                 const getDeltaGabungan = (targetDate, dateSebelumnya) => {
                                     if (logPetugasPaging[targetDate] === undefined) return 0;
                                     if (logPetugasPaging[dateSebelumnya] === undefined) return 0;
-                                    const capaianTarget = logPetugasPaging[targetDate] || 0;
-                                    const capaianSebelumnya = logPetugasPaging[dateSebelumnya] || 0;
-                                    return Math.max(capaianTarget - capaianSebelumnya, 0);
+                                    return Math.max((logPetugasPaging[targetDate] || 0) - (logPetugasPaging[dateSebelumnya] || 0), 0);
                                 };
 
                                 return {
@@ -1222,14 +1220,13 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                                 };
                             });
 
-                        // 🌟 URUTKAN BERDASARKAN KECAMATAN (A-Z)
                         listMelambatMapped.sort((a, b) => a.kecamatan.localeCompare(b.kecamatan));
 
                         setCriticalCurrentPage(1);
                         setCriticalModalConfig({
                             show: true,
                             type: "melambat",
-                            title: "⚠️ Daftar Petugas Melambat (Produktivitas Rendah 3 hari kirim < 10 Assignment)",
+                            title: "⚠️ Daftar Petugas Melambat (Produktivitas Rendah < 10 Assignment)",
                             data: listMelambatMapped
                         });
                     }}
@@ -1238,22 +1235,97 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                     <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Petugas Melambat</div>
                     <div className="text-2xl font-mono font-black text-amber-600 mt-1 flex items-baseline gap-1">
                         {criticalPcl.melambat.length} 
-                        <span className="text-xs text-slate-400 font-sans font-bold">{criticalPcl.melambat.length > 0 ? 'Orang (klik untuk detail)' : 'Orang'}</span>
+                        <span className="text-xs text-slate-400 font-sans font-bold">{criticalPcl.melambat.length > 0 ? 'Orang' : 'Orang'}</span>
                     </div>
-                    <p className="text-[8px] text-slate-400 mt-1 font-bold">Produktivitas rendah (3 hari kirim kurang dari 10 Assignment)</p>
+                    <p className="text-[8px] text-slate-400 mt-1 font-bold">Produktivitas 3 hari terakhir di bawah 10 dokumen</p>
                 </div>
 
+                {/* 🌟 3. CARD BARU: PENGAWAS (PML) BERMASALAH */}
+                {(() => {
+                    // Petakan jumlah kasus bermasalah per PML
+                    const pmlMap = {} ;
+                    
+                    dataMonitoringWilayah.petugas.forEach(p => {
+                        if(p.email === "Tanpa Petugas") return;
+                        const pmlKey = p.emailPml || "tanpa pengawas";
+                        
+                        if(!pmlMap[pmlKey]) {
+                            pmlMap[pmlKey] = {
+                                emailPml: pmlKey,
+                                namaPml: staffLookup[pmlKey] || (pmlKey === "tanpa pengawas" ? "Tanpa Pengawas" : pmlKey),
+                                kecamatan: p.namaKec || "-",
+                                jmlMacet: 0,
+                                jmlMelambat: 0
+                            };
+                        }
+                        
+                        if(criticalPcl.macet.includes(p.email)) pmlMap[pmlKey].jmlMacet += 1;
+                        if(criticalPcl.melambat.includes(p.email)) pmlMap[pmlKey].jmlMelambat += 1;
+                    });
+
+                    // Ubah ke array & filter yang hanya memiliki minimal 1 kasus masalah
+                    const listPmlBermasalah = Object.values(pmlMap).filter(pml => pml.jmlMacet > 0 || pml.jmlMelambat > 0);
+                    
+                    // Urutkan berdasarkan total akumulasi terbanyak (Macet + Melambat)
+                    listPmlBermasalah.sort((a, b) => (b.jmlMacet + b.jmlMelambat) - (a.jmlMacet + a.jmlMelambat));
+                    const totalPmlBermasalah = listPmlBermasalah.length;
+
+                    return (
+                        <div
+ onClick={() => {
+                                if (totalPmlBermasalah === 0) return;
+                                
+                                const formatUntukModal = listPmlBermasalah.map(item => {
+                                    // Pastikan properti emailPml terisi dan tidak undefined
+                                    return {
+                                        nama: item.namaPml,
+                                        emailPml: item.emailPml, // <--- Pastikan ini terlempar ke dalam modal
+                                        pengawas: "PENGONTROL WILAYAH", 
+                                        kecamatan: item.kecamatan,
+                                        h3: item.jmlMacet,      
+                                        h2: item.jmlMelambat,   
+                                        h1: item.jmlMacet + item.jmlMelambat, 
+                                        totalRealisasi: item.jmlMacet + item.jmlMelambat,
+                                        target: 0, 
+                                        isModePml: true 
+                                    };
+                                });
+
+                                setCriticalCurrentPage(1);
+                                setCriticalModalConfig({
+                                    show: true,
+                                    type: "pml_critical",
+                                    title: "🚨 Daftar Pengawas (PML) dengan Petugas Macet & Melambat Terbanyak",
+                                    data: formatUntukModal
+                                });
+                            }}
+                            className={`bg-white border-l-4 border-indigo-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${totalPmlBermasalah > 0 ? 'cursor-pointer hover:bg-indigo-50/40 active:scale-[0.99]' : ''}`}
+                        >
+                            <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">TIM Perlu Atensi</div>
+                            <div className="text-2xl font-mono font-black text-indigo-600 mt-1 flex items-baseline gap-1">
+                                {totalPmlBermasalah}
+                                <span className="text-xs text-slate-400 font-sans font-bold">{totalPmlBermasalah > 0 ? 'Tim PML' : 'Tim PML'}</span>
+                            </div>
+                            <p className="text-[8px] text-slate-400 mt-1 font-bold">Tim yang memiliki beban petugas macet / melambat</p>
+                        </div>
+                    );
+                })()}
+
+                {/* 4. CARD SUBMITTED / PROSES */}
                 <div className="bg-white border-l-4 border-blue-500 p-4 rounded-2xl shadow-xs">
                     <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Perlu di Review (Submitted/Proses)</div>
                     <div className="text-2xl font-mono font-black text-blue-600 mt-1">
-                        {(dataMonitoringWilayah.muatanStatus.submitted + dataMonitoringWilayah.muatanStatus.draft + dataMonitoringWilayah.muatanStatus.rejected + dataMonitoringWilayah.muatanStatus.revoked).toLocaleString('id-ID')} <span className="text-xs text-slate-400 font-sans font-bold">Assignment</span>
+                        {(dataMonitoringWilayah.muatanStatus.submitted + dataMonitoringWilayah.muatanStatus.draft + dataMonitoringWilayah.muatanStatus.rejected + dataMonitoringWilayah.muatanStatus.revoked).toLocaleString('id-ID')} <span className="text-xs text-slate-400 font-sans font-bold">Dok</span>
                     </div>
                     <p className="text-[8px] text-slate-400 mt-1 font-bold">Status Draft / Submitted / Rejected / Revoked</p>
                 </div>
                 
+                {/* 5. CARD APPROVE PENGAWAS */}
                 <div className="bg-white border-l-4 border-emerald-500 p-4 rounded-2xl shadow-xs">
                     <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Approve Pengawas</div>
-                    <div className="text-2xl font-mono font-black text-emerald-600 mt-1">{dataMonitoringWilayah.muatanStatus.approved.toLocaleString('id-ID')} <span className="text-xs text-slate-400 font-sans font-bold">Assignment</span></div>
+                    <div className="text-2xl font-mono font-black text-emerald-600 mt-1">
+                        {dataMonitoringWilayah.muatanStatus.approved.toLocaleString('id-ID')} <span className="text-xs text-slate-400 font-sans font-bold">Dok</span>
+                    </div>
                     <p className="text-[8px] text-slate-400 mt-1 font-bold">Assignment yang telah diapprove pengawas</p>
                 </div>
             </div>
@@ -1686,7 +1758,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
             )}
 
             {/* MODAL DRILL-DOWN BARU: DETAIL PETUGAS CRITICAL (MACET/MELAMBAT) */}
-            {criticalModalConfig.show && (
+{criticalModalConfig.show && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[110] p-4 animate-fade-in">
                     <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden transform transition-all duration-300 scale-100">
                         
@@ -1696,14 +1768,26 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                                     {criticalModalConfig.title}
                                 </h3>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">
-                                    Menampilkan rekam pengiriman assignment harian petugas dalam 3 hari terakhir ($H-1$ s.d $H-3$)
+                                    {criticalModalConfig.type === "pml_critical" 
+                                        ? "Menampilkan pengawas (PML) yang memiliki jumlah petugas macet & melambat terbanyak"
+                                        : "Menampilkan rekam pengiriman assignment harian petugas dalam 3 hari terakhir (H-1 s.d H-3)"}
                                 </p>
                             </div>
+                            {/* Tombol Back / Tutup yang adaptif */}
                             <button 
-                                onClick={() => setCriticalModalConfig({ show: false, type: "", title: "", data: [] })}
+                                onClick={() => {
+                                    // Jika sedang di dalam detail PCL milik PML, klik tombol ini akan mengembalikan ke list PML utama
+                                    if (criticalModalConfig.type === "detil_pml_pcl") {
+                                        // Trigger ulang klik card PML otomatis untuk me-recreate data map PML awal
+                                        const pmlCardElement = document.querySelector('[class*="border-indigo-500"]');
+                                        if (pmlCardElement) pmlCardElement.click();
+                                    } else {
+                                        setCriticalModalConfig({ show: false, type: "", title: "", data: [] });
+                                    }
+                                }}
                                 className="bg-slate-200 hover:bg-slate-300 text-slate-600 font-black text-xs px-2.5 py-1.5 rounded-xl transition-all uppercase tracking-wide"
                             >
-                                ✕ Tutup
+                                {criticalModalConfig.type === "detil_pml_pcl" ? "◀ Kembali" : "✕ Tutup"}
                             </button>
                         </div>
 
@@ -1713,13 +1797,28 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                                     <thead>
                                         <tr className="bg-slate-800 text-white text-[9px] font-black uppercase tracking-wider border-b border-slate-700">
                                             <th className="p-3 text-center w-12 sticky top-0 bg-slate-800">No</th>
-                                            <th className="p-3 sticky top-0 bg-slate-800">Nama Petugas (PCL)</th>
-                                            <th className="p-3 sticky top-0 bg-slate-800">Pengawas (PML)</th>
-                                            <th className="p-3 sticky top-0 bg-slate-800">Kecamatan</th>
-                                            <th className="p-3 text-center bg-amber-900 text-amber-200 sticky top-0 font-bold">H-3 (3 Hari Lalu)</th>
-                                            <th className="p-3 text-center bg-amber-800 text-amber-100 sticky top-0 font-bold">H-2 (2 Hari Lalu)</th>
-                                            <th className="p-3 text-center bg-amber-700 text-amber-50 sticky top-0 font-bold">H-1 (Kemarin)</th>
-                                            <th className="p-3 text-right pr-6 sticky top-0 bg-slate-800">Total Progress</th>
+                                            {/* 🌟 PERBAIKAN HEADER: Pisahkan pml_critical secara absolut */}
+                                            {criticalModalConfig.type === "pml_critical" ? (
+                                                <>
+                                                    <th className="p-3 sticky top-0 bg-slate-800">Nama Pengawas (PML)</th>
+                                                    <th className="p-3 sticky top-0 bg-slate-800">Role Jabatan</th>
+                                                    <th className="p-3 sticky top-0 bg-slate-800">Kecamatan</th>
+                                                    <th className="p-3 text-center bg-rose-900 text-rose-100 sticky top-0 font-bold">Petugas Macet (0 Kirim)</th>
+                                                    <th className="p-3 text-center bg-amber-900 text-amber-100 sticky top-0 font-bold">Petugas Melambat</th>
+                                                    <th className="p-3 text-center bg-indigo-900 text-indigo-100 sticky top-0 font-bold">Total Petugas</th>
+                                                    <th className="p-3 text-right pr-6 sticky top-0 bg-slate-800">Lihat Petugas</th>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <th className="p-3 sticky top-0 bg-slate-800">Nama Petugas (PCL)</th>
+                                                    <th className="p-3 sticky top-0 bg-slate-800">Pengawas (PML)</th>
+                                                    <th className="p-3 sticky top-0 bg-slate-800">Kecamatan</th>
+                                                    <th className="p-3 text-center bg-amber-900 text-amber-200 sticky top-0 font-bold">H-3 (3 Hari Lalu)</th>
+                                                    <th className="p-3 text-center bg-amber-800 text-amber-100 sticky top-0 font-bold">H-2 (2 Hari Lalu)</th>
+                                                    <th className="p-3 text-center bg-amber-700 text-amber-50 sticky top-0 font-bold">H-1 (Kemarin)</th>
+                                                    <th className="p-3 text-right pr-6 sticky top-0 bg-slate-800">Total Progress</th>
+                                                </>
+                                            )}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-200 text-[11px] font-medium text-slate-600 bg-white">
@@ -1733,29 +1832,114 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                                                 return (
                                                     <tr>
                                                         <td colSpan="8" className="p-8 text-center text-slate-400 font-bold uppercase tracking-wide">
-                                                            Tidak ada data petugas di kategori ini.
+                                                            Tidak ada data di kategori ini.
                                                         </td>
                                                     </tr>
                                                 );
                                             }
 
+                                            const isPmlMode = criticalModalConfig.type === "pml_critical";
+
                                             return pagedData.map((item, idx) => {
+if (isPmlMode) {
+                                                    return (
+                                                        <tr 
+                                                            key={idx} 
+                                                            onClick={() => {
+
+                                                                const emailPmlTerpilih = (item.emailPml || item.email || "").toLowerCase().trim();
+  
+
+                                                                const tglHariIni = new Date();
+                                                                const tglH1 = new Date(); tglH1.setDate(tglHariIni.getDate() - 1);
+                                                                const tglH2 = new Date(); tglH2.setDate(tglHariIni.getDate() - 2);
+                                                                const tglH3 = new Date(); tglH3.setDate(tglHariIni.getDate() - 3);
+                                                                const tglH4 = new Date(); tglH4.setDate(tglHariIni.getDate() - 4);
+                                                                
+                                                                const strH1 = tglH1.toISOString().split('T')[0];
+                                                                const strH2 = tglH2.toISOString().split('T')[0];
+                                                                const strH3 = tglH3.toISOString().split('T')[0];
+                                                                const strH4 = tglH4.toISOString().split('T')[0];
+
+                                                                // 🪵 LOG 4: Cek total master data petugas yang tersedia di dashboard saat ini
+
+                                                                const petugasBermasalahPmlIni = dataMonitoringWilayah.petugas
+                                                                    .filter(p => {
+                                                                        const pmlPetugasClean = (p.emailPml || "").toLowerCase().trim();
+                                                                        const isAnggotaPmlIni = pmlPetugasClean === emailPmlTerpilih;
+                                                                        const isBermasalah = criticalPcl.macet.includes(p.email) || criticalPcl.melambat.includes(p.email);
+                                                                        
+                                                                        return isAnggotaPmlIni && isBermasalah;
+                                                                    })
+                                                                    .map(p => {
+                                                                        const emailClean = p.email.toLowerCase().trim();
+                                                                        const logPetugasPaging = {};
+                                                                        
+                                                                        historyData.forEach(h => {
+                                                                            if (h.petugas_id?.toLowerCase().trim() === emailClean) {
+                                                                                logPetugasPaging[h.tanggal] = (logPetugasPaging[h.tanggal] || 0) + (h.total_capaian || 0);
+                                                                            }
+                                                                        });
+
+                                                                        const getDeltaGabungan = (targetDate, dateSebelumnya) => {
+                                                                            if (logPetugasPaging[targetDate] === undefined || logPetugasPaging[dateSebelumnya] === undefined) return 0;
+                                                                            return Math.max((logPetugasPaging[targetDate] || 0) - (logPetugasPaging[dateSebelumnya] || 0), 0);
+                                                                        };
+
+                                                                        return {
+                                                                            nama: p.nama_asli,
+                                                                            pengawas: item.nama,
+                                                                            kecamatan: p.namaKec,
+                                                                            totalRealisasi: p.total_realisasi,
+                                                                            target: p.total_target,
+                                                                            h1: getDeltaGabungan(strH1, strH2),
+                                                                            h2: getDeltaGabungan(strH2, strH3),
+                                                                            h3: getDeltaGabungan(strH3, strH4),
+                                                                        };
+                                                                    });
+
+
+                                                                setCriticalCurrentPage(1);
+                                                                setCriticalModalConfig({
+                                                                    show: true,
+                                                                    type: "detil_pml_pcl",
+                                                                    title: `🔍 Daftar Petugas Bermasalah di Bawah Pengawas: ${item.nama}`,
+                                                                    data: petugasBermasalahPmlIni
+                                                                });
+                                                            }}
+                                                            className="hover:bg-indigo-50/50 cursor-pointer transition-colors odd:bg-white even:bg-slate-50/20 group"
+                                                        >
+                                                            {/* Konten td bawaan Anda... */}
+                                                            <td className="p-3 text-center font-mono font-bold text-slate-400 group-hover:text-indigo-600">{cIdxFirst + idx + 1}</td>
+                                                            <td className="p-3 font-black text-slate-800 uppercase text-indigo-950 group-hover:text-indigo-600">{item.nama} <span className="text-[9px] text-slate-400 font-normal lowercase opacity-0 group-hover:opacity-100 transition-opacity ml-1">(klik detail)</span></td>
+                                                            <td className="p-3 text-slate-400 font-bold uppercase tracking-wider text-[10px]">PML Pengawas</td>
+                                                            <td className="p-3 font-bold text-slate-500">{item.kecamatan}</td>
+                                                            <td className={`p-3 text-center font-mono font-black ${item.h3 > 0 ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-slate-50/50 text-slate-400'}`}>{item.h3} Petugas</td>
+                                                            <td className={`p-3 text-center font-mono font-black ${item.h2 > 0 ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-slate-50/50 text-slate-400'}`}>{item.h2} Petugas</td>
+                                                            <td className="p-3 text-center font-mono font-black bg-indigo-50 text-indigo-700 group-hover:bg-indigo-100">{item.h1} Petugas</td>
+                                                            <td className="p-3 text-right pr-6">
+                                                                <span className="inline-block bg-indigo-600 text-white font-sans text-[9px] font-black uppercase px-2 py-0.5 rounded-md tracking-wider group-hover:bg-indigo-700">👁️ Lihat</span>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                }
+
                                                 const totalPersen = item.target > 0 ? Math.round((item.totalRealisasi / item.target) * 100) : 0;
+                                                const getCellClassName = (val) => {
+                                                    return val === 0 || val === "0"
+                                                        ? "p-3 text-center font-mono bg-rose-100 text-rose-700 font-black border border-rose-200"
+                                                        : "p-3 text-center font-mono font-bold bg-slate-50/50 text-slate-700";
+                                                };
+
                                                 return (
                                                     <tr key={idx} className="hover:bg-slate-50 transition-colors odd:bg-white even:bg-slate-50/20">
                                                         <td className="p-3 text-center font-mono font-bold text-slate-400">{cIdxFirst + idx + 1}</td>
                                                         <td className="p-3 font-black text-slate-800 uppercase">{item.nama}</td>
                                                         <td className="p-3 text-slate-500 font-semibold">{item.pengawas}</td>
                                                         <td className="p-3 font-bold text-slate-500">{item.kecamatan}</td>
-                                                        <td className="p-3 text-center font-mono font-bold bg-slate-50/50 text-slate-700">
-                                                            {item.h3 > 0 ? `+${item.h3}` : '0'}
-                                                        </td>
-                                                        <td className="p-3 text-center font-mono font-bold bg-slate-50/50 text-slate-700">
-                                                            {item.h2 > 0 ? `+${item.h2}` : '0'}
-                                                        </td>
-                                                        <td className="p-3 text-center font-mono font-bold bg-slate-50/50 text-slate-700">
-                                                            {item.h1 > 0 ? `+${item.h1}` : '0'}
-                                                        </td>
+                                                        <td className={getCellClassName(item.h3)}>{item.h3 > 0 ? `+${item.h3}` : '0'}</td>
+                                                        <td className={getCellClassName(item.h2)}>{item.h2 > 0 ? `+${item.h2}` : '0'}</td>
+                                                        <td className={getCellClassName(item.h1)}>{item.h1 > 0 ? `+${item.h1}` : '0'}</td>
                                                         <td className="p-3 text-right pr-6">
                                                             <div className="font-mono font-black text-slate-800">{item.totalRealisasi} / {item.target} <span className="text-[9px] font-sans font-normal text-slate-400">Dok</span></div>
                                                             <div className="text-[9px] font-bold text-indigo-600 mt-0.5">{totalPersen}% Telah Terisi</div>
@@ -1769,10 +1953,10 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                             </div>
                         </div>
 
-                        {/* Pagination Modal internal */}
+                        {/* 🌟 FIX PERBAIKAN PADA FOOTER PAGINATION */}
                         <div className="p-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3 bg-slate-50">
                             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                                Menampilkan <span className="font-mono text-slate-700">{criticalModalConfig.data.length > 0 ? ((criticalCurrentPage - 1) * 15) + 1 : 0}</span> - <span className="font-mono text-slate-700">{Math.min(criticalCurrentPage * 15, criticalModalConfig.data.length)}</span> dari <span className="font-mono text-indigo-600">{criticalModalConfig.data.length}</span> Petugas Terdeteksi
+                                Menampilkan <span className="font-mono text-slate-700">{criticalModalConfig.data.length > 0 ? ((criticalCurrentPage - 1) * 15) + 1 : 0}</span> - <span className="font-mono text-slate-700">{Math.min(criticalCurrentPage * 15, criticalModalConfig.data.length)}</span> dari <span className="font-mono text-indigo-600">{criticalModalConfig.data.length}</span> {criticalModalConfig.type === "pml_critical" ? "Pengawas" : "Petugas"} Terdeteksi
                             </div>
                             
                             {Math.ceil(criticalModalConfig.data.length / 15) > 1 && (
