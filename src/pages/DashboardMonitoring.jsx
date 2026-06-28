@@ -619,6 +619,82 @@ const dataChartTanpaHariPertama = dataChartGaris.slice(1);
     // =========================================================================
     // =========================================================================
 
+    // =========================================================================
+    // 🔮 METRIK PREDIKTIF ESTIMASI SELESAI PROYEK (PREDICTIVE KPI)
+    // =========================================================================
+// =========================================================================
+    // 🔮 PREDICTIVE KPI (VERSI ANTISIPASI EKOR PROYEK SEJAK AWAL)
+    // =========================================================================
+    const metrikEstimasiProyek = useMemo(() => {
+        const masterPetugasWilayah = dataMonitoringWilayah.petugas.filter(p => 
+            p.email !== "Tanpa Petugas" && 
+            (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
+        );
+        
+        const totalSisaOpenAktif = masterPetugasWilayah.reduce((sum, p) => sum + (p.open || 0), 0);
+        const totalBebanAwal = masterPetugasWilayah.reduce((sum, p) => sum + (p.total_target || 0), 0) || 1;
+
+        // 1. Ambil Laju Riil 3 Hari Terakhir
+        const tglHariIni = new Date();
+        const dapatkanStrTgl = (minusHari) => {
+            const d = new Date();
+            d.setDate(tglHariIni.getDate() - minusHari);
+            return d.toISOString().split('T')[0];
+        };
+
+        const tglH1 = dapatkanStrTgl(1); const tglH2 = dapatkanStrTgl(2);
+        const tglH3 = dapatkanStrTgl(3); const tglH4 = dapatkanStrTgl(4);
+
+        const setValidEmails = new Set(masterPetugasWilayah.map(p => p.email.toLowerCase().trim()));
+        const logHarian = { [tglH1]: 0, [tglH2]: 0, [tglH3]: 0, [tglH4]: 0 };
+        
+        historyData.forEach(h => {
+            const petId = (h.petugas_id || "").toLowerCase().trim();
+            if (setValidEmails.has(petId) && logHarian[h.tanggal] !== undefined) {
+                logHarian[h.tanggal] += (h.total_capaian || 0);
+            }
+        });
+
+        const dW1 = Math.max((logHarian[tglH1] || 0) - (logHarian[tglH2] || 0), 0);
+        const dW2 = Math.max((logHarian[tglH2] || 0) - (logHarian[tglH3] || 0), 0);
+        const dW3 = Math.max((logHarian[tglH3] || 0) - (logHarian[tglH4] || 0), 0);
+        
+        // Ini adalah laju kencang saat ini (tanpa memperkirakan pelambatan akhir)
+        const lajuHarianSaatIni = Math.max(parseFloat(((dW1 + dW2 + dW3) / 3).toFixed(1)), 1);
+
+        // 🌟 KUNCI ANTISIPASI: HITUNG FAKTOR EKOR PROYEK (PROJECT TAIL FACTOR)
+        // Kita hitung persentase sisa dokumen yang belum selesai
+        const rasioSisaDokumen = totalSisaOpenAktif / totalBebanAwal; 
+
+        // Koefisien Ekor Proyek (Asumsi: Di akhir proyek, laju melambat hingga tersisa ~40% dari laju puncak)
+        // Rumus ini menjaga laju tetap realistis sejak awal dengan memberikan penalti pelambatan bertahap
+        const faktorPelambatanEkor = 0.4 + (0.6 * rasioSisaDokumen);
+        
+        // Laju kirim tertimbang yang sudah memperkirakan pelambatan masa depan
+        const lajuKirimPrediktif = Math.max(parseFloat((lajuHarianSaatIni * faktorPelambatanEkor).toFixed(1)), 1);
+
+        // 2. Hitung estimasi sisa hari yang lebih realistis
+        const sisaHariDibutuhkan = Math.ceil(totalSisaOpenAktif / lajuKirimPrediktif);
+
+        const tglPrediksiSelesai = new Date();
+        tglPrediksiSelesai.setDate(tglHariIni.getDate() + sisaHariDibutuhkan);
+
+        const stringPrediksiSelesai = tglPrediksiSelesai.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+        const DEADLINE_PROYEK = new Date("2026-08-31");
+        const isTerlambat = tglPrediksiSelesai > DEADLINE_PROYEK;
+        const selisihDariDeadline = Math.ceil(Math.abs((tglPrediksiSelesai - DEADLINE_PROYEK) / (1000 * 60 * 60 * 24)));
+
+        return {
+            rataKirimHarian: lajuHarianSaatIni, // Tetap tampilkan laju asli di sub-info
+            lajuPrediktif: lajuKirimPrediktif,
+            sisaHariDibutuhkan,
+            tanggalPrediksi: stringPrediksiSelesai,
+            isTerlambat,
+            selisihDariDeadline,
+            totalSisaOpenAktif
+        };
+    }, [dataMonitoringWilayah.petugas, historyData, selectedKecTab]);
+
     // Membekukan elemen Barchart agar tidak terpengaruh re-render tidak perlu
     const memoizedBarChartElement = useMemo(() => (
         <BarChart
@@ -628,7 +704,15 @@ const dataChartTanpaHariPertama = dataChartGaris.slice(1);
         >
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
             <XAxis dataKey="nama" stroke="#94a3b8" fontSize={8} tickLine={false} angle={-45} textAnchor="end" interval={0} height={50} tick={{ fontWeight: 700 }} />
-            <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} unit={unitSatuanYAxis} domain={isPetugasMode ? [0, 'auto'] : [0, 100]} />
+  {/* PERBAIKAN: Tambahkan allowDataOverflow untuk mengunci batas atas YAxis */}
+            <YAxis 
+                stroke="#94a3b8" 
+                fontSize={9} 
+                tickLine={false} 
+                unit={unitSatuanYAxis} 
+                domain={isPetugasMode ? [0, 'auto'] : [0, 100]} 
+                allowDataOverflow={!isPetugasMode} // Mengunci 100% saat mode persentase, tapi tetap dinamis saat mode petugas
+            />
             
             {/* GARIS REFERENSI TARGET BERDASARKAN HARI BERJALAN */}
             <ReferenceLine 
@@ -1505,19 +1589,51 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
             </div>
 
 {/* DIAGRAM TREN TIME-SERIES */}
-            <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
-                <div className="mb-4">
-                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                        📈 Grafik Penambahan Kirim Assignment per Hari (2 Minggu Terakhir)
-                    </h4>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
-                        Wilayah: {selectedKecTab === "SEMUA" ? "Satu Kabupaten Boyolali" : selectedPetugasEmail ? `PCL ${selectedPetugas}` : selectedDesaCode ? `Desa ${selectedDesaName}` : `Kecamatan ${namaKecamatanTerpilihText}`}
-                    </p>
+{/* DIAGRAM TREN TIME-SERIES DENGAN PREDICTIVE KPI */}
+<div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
+                
+                {/* HEADLINE BOX DENGAN BADGE PREDIKSI MINIMALIS */}
+                <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div>
+                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                            📈 Grafik Penambahan Kirim Assignment per Hari (2 Minggu Terakhir)
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                            Wilayah: {selectedKecTab === "SEMUA" ? "Satu Kabupaten Boyolali" : selectedPetugasEmail ? `PCL ${selectedPetugas}` : selectedDesaCode ? `Desa ${selectedDesaName}` : `Kecamatan ${namaKecamatanTerpilihText}`}
+                        </p>
+                    </div>
+
+                    {/* 🔮 INDIKATOR PREDIKSI ESTIMASI (CLEAN & INTEGRATED STYLE) */}
+                    <div className="flex flex-col sm:items-end justify-center select-none">
+                        <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wide">
+                            {/* Titik Status Berkedip (Pulse) */}
+                            <span className="relative flex h-2 w-2">
+                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${metrikEstimasiProyek.isTerlambat ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+                                <span className={`relative inline-flex rounded-full h-2 w-2 ${metrikEstimasiProyek.isTerlambat ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+                            </span>
+                            <span className={metrikEstimasiProyek.isTerlambat ? 'text-rose-600' : 'text-emerald-600'}>
+                                Perkiraan Selesai: {metrikEstimasiProyek.tanggalPrediksi}
+                            </span>
+                        </div>
+                        
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                            {metrikEstimasiProyek.isTerlambat ? (
+                                <span className="text-rose-500/90">⚠️ Terancam Mundur ±{metrikEstimasiProyek.selisihDariDeadline} Hari Dari Target</span>
+                            ) : (
+                                <span className="text-slate-400">Status Aman ({metrikEstimasiProyek.sisaHariDibutuhkan} Hari Kerja Tersisa)</span>
+                            )}
+                        </p>
+                        
+                        <div className="text-[9px] text-slate-400/80 font-mono mt-0.5">
+                            Laju Riil: +{metrikEstimasiProyek.rataKirimHarian.toLocaleString('id-ID')} dok/hari | Sisa: {metrikEstimasiProyek.totalSisaOpenAktif.toLocaleString('id-ID')} dok
+                        </div>
+                    </div>
                 </div>
 
+                {/* AREA GRAFIK DAN LEGENDA */}
                 <div className="flex flex-col lg:flex-row gap-4 h-64 w-full">
                     
-                    {/* Area Grafik (Kiri) - Tinggal panggil variabel memoized teratas */}
+                    {/* Area Grafik (Kiri) */}
                     <div className="flex-1 h-full">
                         <ResponsiveContainer width="100%" height="100%">
                             {memoizedAreaChartElement}
