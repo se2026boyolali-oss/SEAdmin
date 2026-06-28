@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, PieChart, Pie, Cell, AreaChart, Area, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, PieChart, Pie, Cell, AreaChart, Area, Legend, ReferenceLine } from 'recharts';
 import { supabase } from '../supabaseClient'; 
 import * as XLSX from 'xlsx';
+
 
 // Komponen dipisah ke luar agar tidak di-recreate oleh React setiap kali hover
 const CustomLabelTren = (props) => {
@@ -544,6 +545,9 @@ const dataChartTanpaHariPertama = dataChartGaris.slice(1);
     // ==========================================
     // 3. OPTIMISASI PERHITUNGAN DATA (useMemo)
     // ==========================================
+// =========================================================================
+    // 3. OPTIMISASI PERHITUNGAN DATA (useMemo)
+    // =========================================================================
     const barChartData = useMemo(() => {
         if (viewModeTab === "PETUGAS") {
             let filteredPetugas = dataMonitoringWilayah.petugas;
@@ -572,17 +576,77 @@ const dataChartTanpaHariPertama = dataChartGaris.slice(1);
     const unitSatuanYAxis = isPetugasMode ? "" : "%";
     const formatSuffixTooltip = isPetugasMode ? " Dokumen" : "%";
 
+    // =========================================================================
+    // 🌟 KUNCI PERBAIKAN: LOGIKA TARGET PINDAH KE DALAM SCOPE KOMPONEN
+    // =========================================================================
+    // =========================================================================
+    // 🌟 PERBAIKAN LOGIKA: TARGET DOKUMEN KIRIM SAMPAI HARI INI
+    // =========================================================================
+    const TANGGAL_MULAI = new Date("2026-06-15");
+    const TANGGAL_SELESAI = new Date("2026-08-31");
+    const TOTAL_HARI = Math.floor((TANGGAL_SELESAI - TANGGAL_MULAI) / (1000 * 60 * 60 * 24)) + 1; // 77 Hari
+    
+    const selisihHari = new Date() - TANGGAL_MULAI;
+    const HARI_KE = selisihHari > 0 ? Math.floor(selisihHari / (1000 * 60 * 60 * 24)) + 1 : 1;
+    
+    const RASIO_WAKTU = Math.min(HARI_KE / TOTAL_HARI, 1);
+
+    // 1. Target Persentase Wilayah (Kecamatan / Desa) -> Progresif %
+    const targetPersenWilayah = Math.round(RASIO_WAKTU * 100);
+
+    // 2. Target Volume Petugas -> Akumulasi Dokumen Seharusnya Kirim S/D Hari Ini
+    const targetVolumePetugas = (() => {
+        // Filter petugas di kecamatan terpilih
+        const petugasDiKecamatanIni = dataMonitoringWilayah.petugas.filter(p => 
+            p.email !== "Tanpa Petugas" && 
+            (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
+        );
+
+        // Hitung total beban target muatan awal di kecamatan tersebut
+        const totalTargetMuatanKec = petugasDiKecamatanIni.reduce((sum, p) => sum + (p.total_target || 0), 0);
+        const jumlahPetugasKecamatan = petugasDiKecamatanIni.length || 1;
+        
+        // Rata-rata beban target muatan per individu petugas
+        const rataBebanPerPetugas = totalTargetMuatanKec / jumlahPetugasKecamatan;
+        
+        // Akumulasi target ideal sampai hari ini (Beban * Rasio Waktu Berjalan)
+        return Math.round(rataBebanPerPetugas * RASIO_WAKTU);
+    })();
+
+    // Tentukan nilai & label garis target berdasarkan mode tab yang aktif
+    const nilaiTargetYAxis = isPetugasMode ? targetVolumePetugas : targetPersenWilayah;
+    const teksLabelTarget = isPetugasMode ? `${targetVolumePetugas.toLocaleString('id-ID')} Dokumen` : `${targetPersenWilayah}%`;
+    // =========================================================================
+    // =========================================================================
+
     // Membekukan elemen Barchart agar tidak terpengaruh re-render tidak perlu
     const memoizedBarChartElement = useMemo(() => (
         <BarChart
             data={barChartData}
-            margin={{ bottom: 40, left: -15, right: 10, top: 10 }}
+            margin={{ bottom: 40, left: -15, right: 10, top: 20 }} 
             barCategoryGap="25%"
         >
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
             <XAxis dataKey="nama" stroke="#94a3b8" fontSize={8} tickLine={false} angle={-45} textAnchor="end" interval={0} height={50} tick={{ fontWeight: 700 }} />
             <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} unit={unitSatuanYAxis} domain={isPetugasMode ? [0, 'auto'] : [0, 100]} />
             
+            {/* GARIS REFERENSI TARGET BERDASARKAN HARI BERJALAN */}
+            <ReferenceLine 
+                y={nilaiTargetYAxis} 
+                stroke="#f59e0b" 
+                strokeDasharray="4 4" 
+                strokeWidth={2}
+                className="z-30"
+                label={{ 
+                    value: `Target Hari ke-${HARI_KE}: ${teksLabelTarget}`, 
+                    position: 'top', 
+                    fill: '#d97706', 
+                    fontSize: 10, 
+                    fontWeight: 900,
+                    style: { textShadow: '1px 1px 2px white, -1px -1px 2px white' }
+                }} 
+            />
+
             <Tooltip
                 cursor={{ fill: '#f8fafc', opacity: 0.5 }}
                 content={({ active, payload }) => {
@@ -660,8 +724,128 @@ const dataChartTanpaHariPertama = dataChartGaris.slice(1);
                 </Bar>
             ))}
         </BarChart>
-    ), [barChartData, viewModeTab, selectedKecTab, isPetugasMode, unitSatuanYAxis, formatSuffixTooltip]);
+    ), [barChartData, viewModeTab, selectedKecTab, isPetugasMode, unitSatuanYAxis, formatSuffixTooltip, nilaiTargetYAxis, teksLabelTarget, HARI_KE]);
 
+    // ... batas akhir dari memoizedBarChartElement Anda ), [barChartData, ...]);
+
+    // =========================================================================
+    // 🎯 DEKLARASI AREA CHART DI LEVEL TERATAS (ATURAN HOOKS REACT)
+    // =========================================================================
+    const memoizedAreaChartElement = useMemo(() => {
+        // Ambil filter petugas secara dinamis
+        const petugasFilterGaris = dataMonitoringWilayah.petugas.filter(p => 
+            p.email !== "Tanpa Petugas" && 
+            (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
+        );
+        
+        const totalOpenAktif = petugasFilterGaris.reduce((sum, p) => sum + (p.open || 0), 0);
+        const jumlahPetugasAktif = petugasFilterGaris.length || 1;
+
+        const TANGGAL_MULAI_TREN = new Date("2026-06-15");
+        const TANGGAL_SELESAI_TREN = new Date("2026-08-31");
+        const TOTAL_HARI_TREN = Math.floor((TANGGAL_SELESAI_TREN - TANGGAL_MULAI_TREN) / (1000 * 60 * 60 * 24)) + 1;
+        const selisihHariTren = new Date() - TANGGAL_MULAI_TREN;
+        const HARI_KE_TREN = selisihHariTren > 0 ? Math.floor(selisihHariTren / (1000 * 60 * 60 * 24)) + 1 : 1;
+        const SISA_HARI_TREN = Math.max(TOTAL_HARI_TREN - HARI_KE_TREN + 1, 1);
+
+        const targetHarianGaris = viewModeTab === "PETUGAS" 
+            ? parseFloat(((totalOpenAktif / jumlahPetugasAktif) / SISA_HARI_TREN).toFixed(1))
+            : parseFloat((totalOpenAktif / SISA_HARI_TREN).toFixed(1));
+
+        return (
+            <AreaChart data={chartTrenData} margin={{ left: -20, right: 10, bottom: 5, top: 15 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="label" stroke="#94a3b8" fontSize={9} tickLine={false} tick={{ fontWeight: 600 }} />
+                <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} />
+                
+                <ReferenceLine 
+                    y={targetHarianGaris} 
+                    stroke="#ef4444" 
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                    className="z-40"
+                    label={{ 
+                        value: `⚠️ TARGET MINIMAL: +${targetHarianGaris.toLocaleString('id-ID')} DOKUMEN / HARI`, 
+                        position: 'insideLeftTop', 
+                        offset: 10,
+                        fill: '#b91c1c', 
+                        fontSize: 10,
+                        fontWeight: 900,
+                        style: { 
+                            textShadow: '2px 2px 0px #fff, -2px -2px 0px #fff, 2px -2px 0px #fff, -2px 2px 0px #fff',
+                            letterSpacing: '0.5px'
+                        }
+                    }} 
+                />
+
+                <Tooltip 
+                    shared={true}
+                    wrapperStyle={{ pointerEvents: 'auto' }} 
+                    content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                            const filteredPayload = hoveredTrend 
+                                ? payload.filter(entry => entry.name === hoveredTrend)
+                                : payload;
+
+                            if (filteredPayload.length === 0) return null;
+
+                            const sortedPayload = [...filteredPayload].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
+
+                            return (
+                                <div className="bg-slate-900 text-white p-3 rounded-xl text-[11px] font-mono shadow-xl border border-slate-800 min-w-[220px] max-w-[280px] z-50 flex flex-col select-text">
+                                    <div className="font-sans font-black border-b border-slate-700 pb-1.5 mb-2 text-slate-400 flex justify-between">
+                                        <span>Tanggal: {payload[0].payload.tanggalRaw}</span>
+                                    </div>
+                                    <div className="max-h-48 overflow-y-auto scrollbar-thin pr-1.5 flex flex-col gap-1.5">
+                                        {sortedPayload.map((entry, index) => (
+                                            <div key={index} className="flex justify-between items-center gap-4">
+                                                <span className="font-bold flex items-center gap-1.5 truncate max-w-[160px]" style={{ color: entry.color }}>
+                                                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }}></span>
+                                                    <span className="truncate uppercase">{entry.name}</span>
+                                                </span>
+                                                <strong className="text-white bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0 font-bold">
+                                                    +{entry.value.toLocaleString('id-ID')}
+                                                </strong>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        }
+                        return null;
+                    }}
+                />
+
+                <Legend content={() => null} />
+
+                {trendKeys.map((keyName, index) => {
+                    const palette = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#06b6d4", "#8b5cf6", "#ec4899", "#84cc16", "#f43f5e", "#3b82f6"];
+                    const strokeColor = palette[index % palette.length];
+                    const isHovered = hoveredTrend === keyName;
+                    const isDimmed = hoveredTrend && !isHovered;
+                    
+                    return (
+                        <Area 
+                            key={keyName} 
+                            type="linear" 
+                            dataKey={keyName} 
+                            stroke={strokeColor}
+                            strokeWidth={isHovered ? 4 : 2} 
+                            strokeOpacity={isDimmed ? 0.08 : 1}
+                            fillOpacity={trendKeys.length > 1 ? 0 : isHovered ? 0.2 : 0.05} 
+                            fill={strokeColor} 
+                            style={{ transition: 'stroke-width 0.15s, stroke-opacity 0.15s' }}
+                        >
+                            <LabelList 
+                                dataKey={keyName} 
+                                content={<CustomLabelTren strokeColor={strokeColor} isDimmed={isDimmed} />} 
+                            />
+                        </Area>
+                    );
+                })}
+            </AreaChart>
+        );
+    }, [chartTrenData, dataMonitoringWilayah.petugas, viewModeTab, selectedKecTab, trendKeys, hoveredTrend]);
     // ==========================================
     // 4. ACTION FUNCTIONS (Excel Handler dll)
     // ==========================================
@@ -1248,7 +1432,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                 </div>
             </div>
 
-            {/* DIAGRAM TREN TIME-SERIES */}
+{/* DIAGRAM TREN TIME-SERIES */}
             <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
                 <div className="mb-4">
                     <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
@@ -1258,168 +1442,57 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                         Wilayah: {selectedKecTab === "SEMUA" ? "Satu Kabupaten Boyolali" : selectedPetugasEmail ? `PCL ${selectedPetugas}` : selectedDesaCode ? `Desa ${selectedDesaName}` : `Kecamatan ${namaKecamatanTerpilihText}`}
                     </p>
                 </div>
-{/* --- POTONGAN KODE BARU: GRAFIK TREN DENGAN LEGENDA KANAN SCROLLABLE & KLIK FOKUS --- */}
-<div className="flex flex-col lg:flex-row gap-4 h-64 w-full">
-    
-    {/* Area Grafik (Kiri) */}
-    <div className="flex-1 h-full">
-        <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartTrenData} margin={{ left: -20, right: 10, bottom: 5, top: 15 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="label" stroke="#94a3b8" fontSize={9} tickLine={false} tick={{ fontWeight: 600 }} />
-                <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} />
-                
-{/* --- POTONGAN KODE BARU: TOOLTIP TERURUT (RANKING HARIAN) + SCROLL AKTIF --- */}
-{/* --- PERBAIKAN UTAMA: MENAMBAHKAN wrapperStyle AGAR TOOLTIP BISA DI-SCROLL MOUSE --- */}
-<Tooltip 
-    shared={true}
-    // 🌟 KUNCI UTAMA: Mengizinkan interaksi mouse masuk ke dalam kotak Tooltip
-    wrapperStyle={{ pointerEvents: 'auto' }} 
-    
-    content={({ active, payload }) => {
-        if (active && payload && payload.length) {
-            const filteredPayload = hoveredTrend 
-                ? payload.filter(entry => entry.name === hoveredTrend)
-                : payload;
 
-            if (filteredPayload.length === 0) return null;
-
-            const sortedPayload = [...filteredPayload].sort((a, b) => {
-                const valA = Number(a.value) || 0;
-                const valB = Number(b.value) || 0;
-                return valB - valA;
-            });
-
-            return (
-                // 🌟 TIPS TAMBAHAN: Gunakan class 'select-text' jika ingin teks nama petugas di dalam tooltip bisa diblok/dikopi
-                <div className="bg-slate-900 text-white p-3 rounded-xl text-[11px] font-mono shadow-xl border border-slate-800 min-w-[220px] max-w-[280px] z-50 flex flex-col select-text">
-                    <div className="font-sans font-black border-b border-slate-700 pb-1.5 mb-2 text-slate-400 flex justify-between">
-                        <span>Tanggal: {payload[0].payload.tanggalRaw}</span>
-                        {!hoveredTrend && <span className="text-[9px] text-indigo-400 font-sans font-normal">🔥 Urut Rank</span>}
-                    </div>
+                <div className="flex flex-col lg:flex-row gap-4 h-64 w-full">
                     
-                    {/* Area list dengan scroll aktif */}
-                    <div className="max-h-48 overflow-y-auto scrollbar-thin pr-1.5 flex flex-col gap-1.5">
-                        {sortedPayload.map((entry, index) => (
-                            <div key={index} className="flex justify-between items-center gap-4">
-                                <span className="font-bold flex items-center gap-1.5 truncate max-w-[160px]" style={{ color: entry.color }}>
-                                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }}></span>
-                                    <span className="truncate uppercase">{entry.name}</span>
-                                </span>
-                                <strong className="text-white bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0 font-bold">
-                                    +{entry.value.toLocaleString('id-ID')}
-                                </strong>
+                    {/* Area Grafik (Kiri) - Tinggal panggil variabel memoized teratas */}
+                    <div className="flex-1 h-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            {memoizedAreaChartElement}
+                        </ResponsiveContainer>
+                    </div>
+
+                    {/* Custom Legend Kanan */}
+                    {trendKeys.length > 1 && (
+                        <div className="w-full lg:w-64 h-full border border-slate-100 bg-slate-50/50 rounded-2xl p-3 flex flex-col justify-start">
+                            <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-200/60 pb-1 flex justify-between items-center">
+                                <span>Petugas ({trendKeys.length}) | H+ Terakhir</span>
+                                {hoveredTrend && (
+                                    <button onClick={() => setHoveredTrend(null)} className="text-indigo-600 hover:underline lowercase font-normal">[reset]</button>
+                                )}
                             </div>
-                        ))}
-                    </div>
+                            <div className="flex-1 overflow-y-auto scrollbar-thin space-y-1 pr-1 max-h-[190px] lg:max-h-none">
+                                {[...trendKeys].sort((a, b) => a.localeCompare(b)).map((keyName) => {
+                                    const originalIndex = trendKeys.indexOf(keyName);
+                                    const palette = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#06b6d4", "#8b5cf6", "#ec4899", "#84cc16", "#f43f5e", "#3b82f6"];
+                                    const color = palette[originalIndex % palette.length];
+                                    const isFocused = hoveredTrend === keyName;
+                                    const isDimmed = hoveredTrend && !isFocused;
+                                    const dataHariTerakhir = chartTrenData.length > 0 ? chartTrenData[chartTrenData.length - 1] : {};
+                                    const penambahanTerakhir = dataHariTerakhir[keyName] || 0;
+
+                                    return (
+                                        <div 
+                                            key={keyName}
+                                            onClick={() => setHoveredTrend(isFocused ? null : keyName)}
+                                            className={`flex items-center justify-between px-2 py-1.5 rounded-xl cursor-pointer transition-all duration-150 select-none ${
+                                                isFocused ? 'bg-slate-900 text-white shadow-sm scale-[1.02]' : isDimmed ? 'opacity-25 grayscale scale-[0.98]' : 'bg-white border border-slate-100 text-slate-700 hover:bg-slate-100 hover:scale-[1.01]'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-1.5 truncate mr-2">
+                                                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }}></span>
+                                                <span className="text-[10px] font-black uppercase tracking-wide truncate" title={keyName}>{keyName}</span>
+                                            </div>
+                                            <div className="flex-shrink-0 font-mono text-[10px] font-bold">
+                                                {isFocused ? <span className="text-indigo-400 text-[9px] font-sans">● Fokus</span> : <span className={penambahanTerakhir > 0 ? "text-emerald-600" : "text-slate-400"}>(+{penambahanTerakhir.toLocaleString('id-ID')})</span>}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
-            );
-        }
-        return null;
-    }}
-/>
-
-                {/* Sembunyikan komponen Legend bawaan Recharts karena kita buat custom di sebelah kanan */}
-                <Legend content={() => null} />
-
-                {trendKeys.map((keyName, index) => {
-                    const palette = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#06b6d4", "#8b5cf6", "#ec4899", "#84cc16", "#f43f5e", "#3b82f6"];
-                    const strokeColor = palette[index % palette.length];
-                    
-                    const isHovered = hoveredTrend === keyName;
-                    const isDimmed = hoveredTrend && !isHovered;
-                    
-                    return (
-                        <Area 
-                            key={keyName} 
-                            type="linear" 
-                            dataKey={keyName} 
-                            stroke={strokeColor}
-                            strokeWidth={isHovered ? 4 : 2} 
-                            strokeOpacity={isDimmed ? 0.08 : 1}
-                            fillOpacity={trendKeys.length > 1 ? 0 : isHovered ? 0.2 : 0.05} 
-                            fill={strokeColor} 
-                            style={{ transition: 'stroke-width 0.15s, stroke-opacity 0.15s' }}
-                        >
-                            <LabelList 
-                                dataKey={keyName} 
-                                content={<CustomLabelTren strokeColor={strokeColor} isDimmed={isDimmed} />} 
-                            />
-                        </Area>
-                    );
-                })}
-            </AreaChart>
-        </ResponsiveContainer>
-    </div>
-
-    {/* Custom Legend Kanan - Scrollable & Klik untuk Fokus (Kanan) */}
-{/* --- POTONGAN KODE BARU: LEGENDA KANAN ALFABETIS + INDIKATOR HARI TERAKHIR --- */}
-{trendKeys.length > 1 && (
-    <div className="w-full lg:w-64 h-full border border-slate-100 bg-slate-50/50 rounded-2xl p-3 flex flex-col justify-start">
-        <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider mb-2 border-b border-slate-200/60 pb-1 flex justify-between items-center">
-            <span>Petugas ({trendKeys.length}) | H+ Terakhir</span>
-            {hoveredTrend && (
-                <button 
-                    onClick={() => setHoveredTrend(null)}
-                    className="text-indigo-600 hover:underline lowercase font-normal"
-                >
-                    [reset]
-                </button>
-            )}
-        </div>
-        
-        {/* Container internal yang scrollable */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin space-y-1 pr-1 max-h-[190px] lg:max-h-none">
-            {/* 1. Urutkan trendKeys berdasarkan abjad sebelum di-render */}
-            {[...trendKeys].sort((a, b) => a.localeCompare(b)).map((keyName) => {
-                // Mencari indeks warna asli dari trendKeys awal agar warna garis di grafik tetap sinkron
-                const originalIndex = trendKeys.indexOf(keyName);
-                const palette = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#06b6d4", "#8b5cf6", "#ec4899", "#84cc16", "#f43f5e", "#3b82f6"];
-                const color = palette[originalIndex % palette.length];
-                
-                const isFocused = hoveredTrend === keyName;
-                const isDimmed = hoveredTrend && !isFocused;
-
-                // 2. Ambil data penambahan hari terakhir secara dinamis dari indeks paling akhir chartTrenData
-                const dataHariTerakhir = chartTrenData.length > 0 ? chartTrenData[chartTrenData.length - 1] : {};
-                const penambahanTerakhir = dataHariTerakhir[keyName] || 0;
-
-                return (
-                    <div 
-                        key={keyName}
-                        onClick={() => setHoveredTrend(isFocused ? null : keyName)}
-                        className={`flex items-center justify-between px-2 py-1.5 rounded-xl cursor-pointer transition-all duration-150 select-none ${
-                            isFocused 
-                                ? 'bg-slate-900 text-white shadow-sm scale-[1.02]' 
-                                : isDimmed 
-                                    ? 'opacity-25 grayscale scale-[0.98]' 
-                                    : 'bg-white border border-slate-100 text-slate-700 hover:bg-slate-100 hover:scale-[1.01]'
-                        }`}
-                    >
-                        <div className="flex items-center gap-1.5 truncate mr-2">
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }}></span>
-                            <span className="text-[10px] font-black uppercase tracking-wide truncate" title={keyName}>
-                                {keyName}
-                            </span>
-                        </div>
-
-                        {/* Indikator penambahan hari terakhir (+ x) */}
-                        <div className="flex-shrink-0 font-mono text-[10px] font-bold">
-                            {isFocused ? (
-                                <span className="text-indigo-400 text-[9px] font-sans">● Fokus</span>
-                            ) : (
-                                <span className={penambahanTerakhir > 0 ? "text-emerald-600" : "text-slate-400"}>
-                                    (+{penambahanTerakhir.toLocaleString('id-ID')})
-                                </span>
-                            )}
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    </div>
-)}
-</div>
             </div>
 
             {/* TABEL TOP & BOTTOM PCL */}
