@@ -695,6 +695,15 @@ const dataChartTanpaHariPertama = dataChartGaris.slice(1);
         };
     }, [dataMonitoringWilayah.petugas, historyData, selectedKecTab]);
 
+    const jumlahPetugasDiBawahTarget = useMemo(() => {
+        if (!dataMonitoringWilayah.petugas) return 0;
+        return dataMonitoringWilayah.petugas.filter(p => {
+            if (p.email === "Tanpa Petugas") return false;
+            const matchKec = selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab;
+            const matchPml = selectedPml === "SEMUA" || p.emailPml === selectedPml.toLowerCase().trim();
+            return matchKec && matchPml && (p.total_realisasi < nilaiTargetYAxis);
+        }).length;
+    }, [dataMonitoringWilayah.petugas, selectedKecTab, selectedPml, nilaiTargetYAxis]);
     // Membekukan elemen Barchart agar tidak terpengaruh re-render tidak perlu
     const memoizedBarChartElement = useMemo(() => (
         <BarChart
@@ -703,8 +712,65 @@ const dataChartTanpaHariPertama = dataChartGaris.slice(1);
             barCategoryGap="25%"
         >
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-            <XAxis dataKey="nama" stroke="#94a3b8" fontSize={8} tickLine={false} angle={-45} textAnchor="end" interval={0} height={50} tick={{ fontWeight: 700 }} />
-  {/* PERBAIKAN: Tambahkan allowDataOverflow untuk mengunci batas atas YAxis */}
+            
+            {/* 🌟 DIUBAH: Menggunakan kustom fungsi pada properti `tick` untuk mewarnai teks jadi merah */}
+           <XAxis 
+    dataKey="nama" 
+    stroke="#94a3b8" 
+    fontSize={8} 
+    tickLine={false} 
+    angle={-45} 
+    textAnchor="end" 
+    interval={0} 
+    height={50} 
+    tick={(props) => {
+        const { x, y, payload } = props;
+        const itemData = barChartData[payload.index];
+        
+        // Inisialisasi warna default (Aman / Memenuhi Target)
+        let warnaTeks = "#475569"; 
+        let ketebalanTeks = 700;
+
+        // Atur warna bertingkat hanya berlaku di mode PETUGAS
+        if (viewModeTab === "PETUGAS" && itemData) {
+            const realisasi = itemData.total_realisasi || 0;
+            const target = nilaiTargetYAxis || 0;
+
+            if (realisasi < target) {
+                // Kondisi 1: Jika kurang dari setengah target -> MERAH
+                if (realisasi < (target / 2)) {
+                    warnaTeks = "#ef4444";
+                    ketebalanTeks = 900; // Lebih tebal agar kontras
+                } 
+                // Kondisi 2: Di bawah target tapi sudah di atas atau sama dengan setengah target -> ORANYE
+                else {
+                    warnaTeks = "#f97316";
+                    ketebalanTeks = 800;
+                }
+            }
+        }
+
+        return (
+            <g transform={`translate(${x},${y})`}>
+                <text
+                    x={0}
+                    y={0}
+                    dy={10}
+                    textAnchor="end"
+                    transform="rotate(-45)"
+                    fill={warnaTeks} // Menggunakan warna hasil kalkulasi bertingkat
+                    style={{ 
+                        fontWeight: ketebalanTeks,
+                        fontSize: '8px',
+                        fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                    }}
+                >
+                    {payload.value ? payload.value.toUpperCase() : ""}
+                </text>
+            </g>
+        );
+    }} 
+/>  {/* PERBAIKAN: Tambahkan allowDataOverflow untuk mengunci batas atas YAxis */}
             <YAxis 
                 stroke="#94a3b8" 
                 fontSize={9} 
@@ -773,7 +839,7 @@ const dataChartTanpaHariPertama = dataChartGaris.slice(1);
                                 setSelectedKecamatan(matchKode[0]);
                                 setSelectedPetugas(null);
                                 setSelectedPetugasEmail(null);
-                                setViewModeTab("DESA");
+                                setViewModeTab("PETUGAS");
                             }
                         }
                         else if (viewModeTab === "DESA" && clickedItem.kodeDesa) {
@@ -1063,7 +1129,7 @@ const handleDownloadSlsExcel = () => {
 const persentaseTanpaOpen = totalSeluruhMuatan > 0 
     ? ((totalTanpaOpen / totalSeluruhMuatan) * 100).toFixed(1) 
     : "0.0";
-    
+
     const itemsPerPage = 20;
     const totalPages = Math.ceil(lowPerformersList.length / itemsPerPage);
     const indexOfLastItem = modalCurrentPage * itemsPerPage;
@@ -1092,7 +1158,7 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
                                 setSelectedDesaName("");
                                 setSelectedPetugas(null);
                                 setSelectedPetugasEmail(null);
-                                setViewModeTab("DESA");
+                                setViewModeTab("PETUGAS");
                             }}
                             className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-56 cursor-pointer"
                         >
@@ -1416,78 +1482,110 @@ const persentaseTanpaOpen = totalSeluruhMuatan > 0
 
 {/* BARIS GRAPH UTAMA: GRAFIK BATANG & REKAP BULAT */}
 <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                    <div>
-                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                            {selectedPetugasEmail 
-                                ? `Capaian Lapangan Petugas: ${selectedPetugas} - Per SLS`
-                                : selectedPml !== "SEMUA"
-                                    ? `Capaian Tim Pengawas: ${staffLookup[selectedPml] || selectedPml} (Per Petugas)`
-                                    : selectedKecTab === "SEMUA"
-                                        ? "Capaian Realisasi Lapangan Kabupaten (Per Kecamatan)"
-                                        : `Capaian Realisasi Lapangan Kec. ${namaKecamatanTerpilihText} (${viewModeTab === "DESA" ? "Per Desa" : "Per Petugas"})`}
-                        </h3>
-                    </div>
-                    <div className="flex items-center gap-3 self-end sm:self-auto">
-                        {selectedKecTab !== "SEMUA" && !selectedPetugasEmail && selectedPml === "SEMUA" && (
-                            <div className="bg-slate-100 p-1 rounded-xl flex gap-1 border border-slate-200/60 shadow-inner">
-                                <button onClick={() => { setViewModeTab("DESA"); setSelectedDesaCode(null); }} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "DESA" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>📍 Per Desa</button>
-                                <button onClick={() => setViewModeTab("PETUGAS")} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "PETUGAS" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>🏃‍♂️ Per Petugas</button>
-                            </div>
-                        )}
-                        {(selectedKecTab !== "SEMUA" || selectedPml !== "SEMUA") && (
-                            <button
-                                onClick={() => {
-                                    if (viewModeTab === "SLS") {
-                                        if (selectedPetugasEmail) {
-                                            setViewModeTab("PETUGAS");
-                                            setSelectedPetugasEmail(null);
-                                            setSelectedPetugas(null);
-                                        } else {
-                                            setViewModeTab("DESA");
-                                            setSelectedDesaCode(null);
-                                        }
-                                    } else {
-                                        setSelectedKecTab("SEMUA");
-                                        setSelectedKecamatan(null);
-                                        setSelectedPml("SEMUA");
-                                        setSelectedPetugas(null);
-                                        setSelectedPetugasEmail(null);
-                                        setViewModeTab("DESA");
-                                    }
-                                }}
-                                className="bg-slate-800 hover:bg-slate-900 text-white text-[9px] font-black px-4 py-1.5 rounded-xl transition-all uppercase tracking-wider shadow-sm flex items-center gap-1"
-                            >
-                                ← Kembali
-                            </button>
-                        )}
-                    </div>
+    {/* Perbaikan di Baris Ini: Tambahkan items-center dan min-h-[40px] agar tinggi header konsisten */}
+    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 min-h-[40px]">
+        <div>
+            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                {selectedPetugasEmail 
+                    ? `Capaian Lapangan Petugas: ${selectedPetugas} - Per SLS`
+                    : selectedPml !== "SEMUA"
+                        ? `Capaian Tim Pengawas: ${staffLookup[selectedPml] || selectedPml} (Per Petugas)`
+                        : selectedKecTab === "SEMUA"
+                            ? "Capaian Realisasi Lapangan Kabupaten (Per Kecamatan)"
+                            : `Capaian Realisasi Lapangan Kec. ${namaKecamatanTerpilihText} (${viewModeTab === "DESA" ? "Per Desa" : "Per Petugas"})`}
+            </h3>
+        </div>
+        
+        {/* 🌟 PERBAIKAN UTAMA: Bungkus kontainer tombol dengan tinggi fixed (h-9) */}
+        <div className="flex items-center gap-3 self-end sm:self-auto h-9">
+            {selectedKecTab !== "SEMUA" && !selectedPetugasEmail && selectedPml === "SEMUA" && (
+                <div className="bg-slate-100 p-1 rounded-xl flex gap-1 border border-slate-200/60 shadow-inner">
+                    <button onClick={() => { setViewModeTab("DESA"); setSelectedDesaCode(null); }} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "DESA" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>📍 Per Desa</button>
+                    <button onClick={() => setViewModeTab("PETUGAS")} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "PETUGAS" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>🏃‍♂️ Per Petugas</button>
                 </div>
+            )}
+            {(selectedKecTab !== "SEMUA" || selectedPml !== "SEMUA") && (
+                <button
+                    onClick={() => {
+                        if (viewModeTab === "SLS") {
+                            if (selectedPetugasEmail) {
+                                setViewModeTab("PETUGAS");
+                                setSelectedPetugasEmail(null);
+                                setSelectedPetugas(null);
+                            } else {
+                                setViewModeTab("PETUGAS"); // Sesuai perubahan sebelumnya langsung ke petugas
+                                setSelectedDesaCode(null);
+                            }
+                        } else {
+                            setSelectedKecTab("SEMUA");
+                            setSelectedKecamatan(null);
+                            setSelectedPml("SEMUA");
+                            setSelectedPetugas(null);
+                            setSelectedPetugasEmail(null);
+                            setViewModeTab("DESA");
+                        }
+                    }}
+                    className="bg-slate-800 hover:bg-slate-900 text-white text-[9px] font-black px-4 py-1.5 rounded-xl transition-all uppercase tracking-wider shadow-sm flex items-center gap-1"
+                >
+                    ← Kembali
+                </button>
+            )}
+        </div>
+    </div>
 
-                {/* AREA UTAMA LEGENDA WARNA GLOBAL STATUS ASSIGNMENT */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-slate-50 border border-slate-100 p-3 rounded-2xl mb-6">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider mr-1">Legenda Status:</span>
-                    {susunanBarStatus.map((b) => {
-                        const totalKategori = dataPieStatus.find(item => item.name === b.label)?.value || 0;
-                        const persenKategori = totalSeluruhMuatan > 0 ? ((totalKategori / totalSeluruhMuatan) * 100).toFixed(2) : "0.00";
-                        return (
-                            <div key={b.key} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs text-[10px]">
-                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: b.fill }}></span>
-                                {/* PERBAIKAN TEKS: Membersihkan imbuhan kata penanda agar tampilan UI seragam dan rapi */}
-                                <span className="font-bold text-slate-500 uppercase text-[9px]">
-                                    {b.label.toUpperCase()
-                                        .replace(" BY PENCACAH", "")
-                                        .replace(" BY PENGAWAS", "")
-                                        .replace("SUBMITTED ", "")
-                                    }
-                                </span>
-                                <span className="font-mono font-black text-slate-800 border-l border-slate-200 pl-1.5 ml-0.5">
-                                    {totalKategori.toLocaleString('id-ID')} <span className="text-[9px] font-sans font-bold text-slate-600 ml-0.5">({persenKategori}%)</span>
-                                </span>
-                            </div>
-                        );
-                    })}
+{/* AREA UTAMA LEGENDA WARNA GLOBAL STATUS ASSIGNMENT */}
+<div className="flex flex-col lg:flex-row lg:items-center justify-between gap-x-6 gap-y-3 bg-slate-50 border border-slate-100 p-3 rounded-2xl mb-6 text-[10px]">
+    
+    {/* SISI KIRI: Legenda Status Bar Chart (Bawaan Anda) */}
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider mr-1">Legenda Status:</span>
+        {dataMonitoringWilayah && susunanBarStatus.map((b) => {
+            const totalKategori = dataPieStatus.find(item => item.name === b.label)?.value || 0;
+            const persenKategori = totalSeluruhMuatan > 0 ? ((totalKategori / totalSeluruhMuatan) * 100).toFixed(2) : "0.00";
+            return (
+                <div key={b.key} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs text-[10px]">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: b.fill }}></span>
+                    <span className="font-bold text-slate-500 uppercase text-[9px]">
+                        {b.label.toUpperCase()
+                            .replace(" BY PENCACAH", "")
+                            .replace(" BY PENGAWAS", "")
+                            .replace("SUBMITTED ", "")
+                        }
+                    </span>
+                    <span className="font-mono font-black text-slate-800 border-l border-slate-200 pl-1.5 ml-0.5">
+                        {totalKategori.toLocaleString('id-ID')} <span className="text-[9px] font-sans font-bold text-slate-600 ml-0.5">({persenKategori}%)</span>
+                    </span>
                 </div>
+            );
+        })}
+    </div>
+
+    {/* 🌟 SISI KANAN: Indikator Sumbu X dengan Kontras Tinggi (Solid Badge & Blink) */}
+    {viewModeTab === "PETUGAS" && (
+        <div className="flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-wider border-t pt-2 w-full lg:w-auto lg:border-t-0 lg:pt-0 lg:border-l lg:border-slate-200 lg:pl-4 animate-fade-in">
+            <span className="text-slate-400 mr-1">Status Nama:</span>
+            
+            {/* AMAN */}
+            <div className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                <span>Sesuai Target</span>
+            </div>
+            
+            {/* DI BAWAH TARGET */}
+            <div className="flex items-center gap-1 bg-orange-100 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-md font-black">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
+                <span>&lt; Target</span>
+            </div>
+            
+            {/* KRITIS */}
+            <div className="flex items-center gap-1 bg-red-600 text-white px-2 py-0.5 rounded-md font-black shadow-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping absolute opacity-75"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-white relative"></span>
+                <span>&lt; 50%</span>
+            </div>
+        </div>
+    )}
+</div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
                     <div className="lg:col-span-3 w-full overflow-x-auto overflow-y-hidden scrollbar-thin">
