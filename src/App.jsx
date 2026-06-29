@@ -7,6 +7,9 @@ import LoginPage from './pages/LoginPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import Layout from './components/Layout';
 
+// 🤖 Impor komponen Chat Assistant AI global
+import ChatAssistant from './components/ChatAssistant';
+
 const KabupatenDashboardPage = lazy(() => import('./pages/KabupatenDashboardPage'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const AnomaliMonitoringPage = lazy(() => import('./pages/AnomaliMonitoringPage'));
@@ -133,6 +136,11 @@ function AppContent() {
 
   return (
     <Suspense fallback={<PageLoader />}>
+      
+      {/* 🤖 Menyuntikkan Chat Assistant AI secara global di semua halaman */}
+      {/* Komponen ini otomatis diabaikan jika user belum login di dalam logikanya */}
+      <ChatAssistant />
+
       <Routes>
         {/* Rute Publik Terbuka Bebas Tanpa Login */}
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
