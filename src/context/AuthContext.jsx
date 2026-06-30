@@ -1,156 +1,155 @@
-// src/context/AuthContext.jsx
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import { supabase } from '../supabaseClient'; 
 
 const AuthContext = createContext({});
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  
-  // ─── STATE SAKELAR GLOBAL ALOKASI ───────────────────────────────────
-  const [allowAllocation, setAllowAllocation] = useState(true);
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  // ─── STATE SAKELAR GLOBAL (TERINTEGRASI) ───────────────────────────
+  const [allowAllocation, setAllowAllocation] = useState(true);
+  const [allowManualMode, setAllowManualMode] = useState(false);
+  const [isMaintenance, setIsMaintenance] = useState(false);
 
-  // ─── FUNGSI AMBIL PENGATURAN SAKELAR DARI DATABASE / CACHE ───────────
-  const fetchSettings = async () => {
-    // INTERUPSI OFFLINE: Jika luring, ambil langsung dari LocalStorage
-    if (!navigator.onLine) {
-      const cachedSettings = localStorage.getItem('cache_allow_allocation');
-      if (cachedSettings !== null) {
-        setAllowAllocation(JSON.parse(cachedSettings));
-      }
-      return;
-    }
+  const isInitialFetched = useRef(false);
 
-    try {
-      const { data, error } = await supabase
-        .from('app_settings')
-        .select('value_boolean')
-        .eq('key', 'allow_allocation_changes')
-        .maybeSingle();
+  // ─── OPTIMASI ULTIMATE: FETCH SEMUA SETTING & PROFILE GABUNGAN ───
+  const initSessionData = async (currentUser) => {
+    if (isInitialFetched.current) return;
+    isInitialFetched.current = true;
 
-      if (error) throw error;
-      if (data) {
-        setAllowAllocation(data.value_boolean);
-        // Sinkronisasi Cache lokal
-        localStorage.setItem('cache_allow_allocation', JSON.stringify(data.value_boolean));
-      }
-    } catch (error) {
-      console.error('Error fetching global settings:', error.message);
-    }
-  };
+    const email = currentUser?.email;
+    const cleanEmail = email ? email.toLowerCase().trim() : null;
 
-  // ─── FUNGSI AMBIL PROFIL BERDASARKAN EMAIL DENGAN BACKUP OFFLINE ─────
-  const fetchUserProfile = async (userEmail) => {
-    if (!userEmail) return;
-    const cleanEmail = userEmail.toLowerCase().trim();
+    // 1. JALUR INTERUPSI OFFLINE TOTAL
+    if (!navigator.onLine) {
+      const cachedAlloc = localStorage.getItem('cache_allow_allocation');
+      if (cachedAlloc !== null) setAllowAllocation(JSON.parse(cachedAlloc));
 
-    // INTERUPSI OFFLINE: Jika luring, bypass query Supabase & baca LocalStorage
-    if (!navigator.onLine) {
-      console.warn("🌐 [AuthContext] Aplikasi luring. Memuat profil dari cache perangkat.");
-      const cachedProfile = localStorage.getItem(`cache_profile_${cleanEmail}`);
-      if (cachedProfile) {
-        setProfile(JSON.parse(cachedProfile));
-      }
-      setLoading(false);
-      return;
-    }
+      const cachedManual = localStorage.getItem('cache_allow_manual_upload');
+      if (cachedManual !== null) setAllowManualMode(cachedManual === 'true');
 
-    try {
-      const { data, error } = await supabase
-        .from('app_users')
-        .select('nama_pengguna, role, kecamatan_tugas, is_first_login')
-        .eq('email', cleanEmail)
-        .maybeSingle();
+      const cachedMaint = localStorage.getItem('cache_is_maintenance');
+      if (cachedMaint !== null) setIsMaintenance(JSON.parse(cachedMaint));
 
-      if (error) throw error;
-      
-      setProfile(data);
-      if (data) {
-        // Sinkronisasi Cache lokal agar data di HP selalu paling update saat online
-        localStorage.setItem(`cache_profile_${cleanEmail}`, JSON.stringify(data));
-      }
-    } catch (error) {
-      console.error('Error fetching user profile:', error.message);
-      // Fallback jika internet tiba-tiba putus di tengah-tengah query
-      const fallbackProfile = localStorage.getItem(`cache_profile_${cleanEmail}`);
-      if (fallbackProfile) setProfile(JSON.parse(fallbackProfile));
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (cleanEmail) {
+        const cachedProfile = localStorage.getItem(`cache_profile_${cleanEmail}`);
+        if (cachedProfile) setProfile(JSON.parse(cachedProfile));
+      }
+      setLoading(false);
+      return;
+    }
 
-  // Fungsi pembantu refresh data profil & settings
-  const refreshProfile = async () => {
-    await fetchSettings();
-    if (user?.email) {
-      await fetchUserProfile(user.email);
-    }
-  };
+    try {
+      // 2. TEMBAK 3 KEYS SEKALIGUS (Hemat Egress Masif 🚀)
+      const requests = [
+        supabase.from('app_settings')
+          .select('key, value_boolean')
+          .in('key', ['allow_allocation_changes', 'allow_manual_upload', 'is_maintenance']),
+      ];
 
-useEffect(() => {
-  // Ambil pengaturan global sekali di awal
-  fetchSettings();
+      if (cleanEmail) {
+        requests.push(supabase.from('app_users').select('nama_pengguna, role, kecamatan_tugas, is_first_login').eq('email', cleanEmail).maybeSingle());
+      }
 
-  // 1. Cek sesi login aktif pertama kali
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    const currentUser = session?.user ?? null;
-    setUser(currentUser);
-    if (currentUser?.email) {
-      fetchUserProfile(currentUser.email);
-    } else {
+      const [settingsRes, userRes] = await Promise.all(requests);
+
+      // Pemrosesan Array Setting Gabungan
+      if (settingsRes.data) {
+        // a. Key: allow_allocation_changes
+        const allocSetting = settingsRes.data.find(s => s.key === 'allow_allocation_changes');
+        if (allocSetting) {
+          setAllowAllocation(allocSetting.value_boolean);
+          localStorage.setItem('cache_allow_allocation', JSON.stringify(allocSetting.value_boolean));
+        }
+
+        // b. Key: allow_manual_upload
+        const manualSetting = settingsRes.data.find(s => s.key === 'allow_manual_upload');
+        if (manualSetting) {
+          const isAllowed = manualSetting.value_boolean === true;
+          setAllowManualMode(isAllowed);
+          localStorage.setItem('cache_allow_manual_upload', isAllowed ? 'true' : 'false');
+        }
+
+        // c. Key: is_maintenance
+        const maintSetting = settingsRes.data.find(s => s.key === 'is_maintenance');
+        if (maintSetting) {
+          setIsMaintenance(maintSetting.value_boolean);
+          localStorage.setItem('cache_is_maintenance', JSON.stringify(maintSetting.value_boolean));
+        }
+      }
+
+      // Proses hasil profil user
+      if (userRes && userRes.data) {
+        setProfile(userRes.data);
+        localStorage.setItem(`cache_profile_${cleanEmail}`, JSON.stringify(userRes.data));
+      }
+    } catch (err) {
+      console.error('Gagal sinkronisasi data awal auth:', err.message);
+      // Fallback local storage
+      if (cleanEmail) {
+        const fallback = localStorage.getItem(`cache_profile_${cleanEmail}`);
+        if (fallback) setProfile(JSON.parse(fallback));
+      }
+    } finally {
       setLoading(false);
     }
-  });
+  };
 
-  // 2. Dengarkan perubahan status auth (Hanya dipasang 1x)
-  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-    const currentUser = session?.user ?? null;
-    
-    // Optimasi: Hanya fetch profil jika user-nya memang berubah/baru login
-    setUser((prevUser) => {
-      if (currentUser?.email !== prevUser?.email) {
-        if (currentUser?.email) {
-          fetchUserProfile(currentUser.email);
-        } else {
-          setProfile(null);
-          setLoading(false);
-        }
-      } else {
-        // Jika user sama (misal hanya refresh token token), matikan loading langsung
+  const refreshProfile = async () => {
+    isInitialFetched.current = false;
+    if (user) await initSessionData(user);
+  };
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+      initSessionData(currentUser);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const currentUser = session?.user ?? null;
+
+      if (event === 'SIGNED_IN' && currentUser) {
+        setUser(currentUser);
+        initSessionData(currentUser);
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setProfile(null);
+        isInitialFetched.current = false;
         setLoading(false);
       }
-      return currentUser;
     });
-  });
 
-  return () => subscription.unsubscribe();
-}, []); // <-- DIKOSONGKAN agar berjalan sekali saja saat aplikasi dimuat
+    return () => subscription.unsubscribe();
+  }, []);
 
-  const logout = async () => {
-    // Bersihkan cache spesifik user saat logout agar tidak bertumpuk di HP orang lain
-    if (user?.email) {
-      localStorage.removeItem(`cache_profile_${user.email.toLowerCase().trim()}`);
-    }
-    await supabase.auth.signOut();
-    setProfile(null);
-    setUser(null);
-  };
+  const logout = async () => {
+    if (user?.email) {
+      localStorage.removeItem(`cache_profile_${user.email.toLowerCase().trim()}`);
+    }
+    await supabase.auth.signOut();
+  };
 
-  return (
-    <AuthContext.Provider value={{ 
-      user, 
-      profile, 
-      loading, 
-      allowAllocation,     
-      setAllowAllocation,  
-      logout, 
-      refreshProfile 
-    }}>
-      {!loading && children}
-    </AuthContext.Provider>
-  );
+  return (
+    <AuthContext.Provider value={{ 
+      user, 
+      profile, 
+      loading, 
+      allowAllocation,     
+      setAllowAllocation,  
+      allowManualMode,       // <--- SEBARKAN KE GLOBAL UI
+      setAllowManualMode,
+      isMaintenance,         // <--- SEBARKAN KE GLOBAL UI
+      logout, 
+      refreshProfile 
+    }}>
+      {!loading && children}
+    </AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => useContext(AuthContext);

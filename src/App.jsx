@@ -1,7 +1,6 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { supabase } from './supabaseClient';
 
 import LoginPage from './pages/LoginPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
@@ -16,7 +15,7 @@ const AnomaliMonitoringPage = lazy(() => import('./pages/AnomaliMonitoringPage')
 const AlokasiPage = lazy(() => import('./pages/AlokasiPage'));
 const PrioritasPage = lazy(() => import('./pages/PrioritasPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const PmlMonitoringPage = lazy(() => import('./pages/PmlMonitoringPage'));
+const PMLMonitoringPage = lazy(() => import('./pages/PmlMonitoringPage'));
 const PclAssignmentPage = lazy(() => import('./pages/PclAssignmentPage'));
 const DashboardMonitoring = lazy(() => import('./pages/DashboardMonitoring'));
 const OrangPentingPage = lazy(() => import('./pages/OrangPentingPage'));
@@ -80,46 +79,10 @@ const PublicRoute = ({ children }) => {
 };
 
 function AppContent() {
-  const { user, profile, loading: authLoading } = useAuth();
-  const [isMaintenance, setIsMaintenance] = useState(false);
-  const [checkingSettings, setCheckingSettings] = useState(true);
+  // ─── OPTIMASI MASTER: AMBIL DATA MAINTENANCE LANGSUNG DARI CONTEXT ───
+  const { user, profile, loading: authLoading, isMaintenance } = useAuth();
 
-  // 🔄 Ambil status maintenance dari database secara real-time
-  useEffect(() => {
-    async function fetchMaintenanceStatus() {
-      try {
-        const { data, error } = await supabase
-          .from('app_settings')
-          .select('value_boolean')
-          .eq('key', 'is_maintenance')
-          .single();
-        
-        if (data) {
-          setIsMaintenance(data.value_boolean);
-        }
-      } catch (err) {
-        console.error("Gagal memuat konfigurasi sistem:", err);
-      } finally {
-        setCheckingSettings(false);
-      }
-    }
-
-    fetchMaintenanceStatus();
-
-    // Opsional: Realtime subscription agar otomatis berubah jika Admin menekan switch on/off
-    const settingsSubscription = supabase
-      .channel('public:app_settings')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_settings', filter: 'key=eq.is_maintenance' }, (payload) => {
-        setIsMaintenance(payload.new.value_boolean);
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(settingsSubscription);
-    };
-  }, []);
-
-  if (authLoading || checkingSettings) {
+  if (authLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-100">
         <div className="text-sm font-black uppercase tracking-widest text-slate-500 animate-pulse">
@@ -129,30 +92,24 @@ function AppContent() {
     );
   }
 
-  // 🛡️ INTERCEPTOR MAINTENANCE: Jika sistem dikunci, dan yang login BUKAN Admin, tendang ke halaman Maintenance
+  // 🛡️ INTERCEPTOR MAINTENANCE: Jika dikunci, non-admin langsung ditendang
   if (isMaintenance && profile?.role !== 'admin') {
     return <MaintenancePage />;
   }
 
   return (
     <Suspense fallback={<PageLoader />}>
-      
-      {/* 🤖 Menyuntikkan Chat Assistant AI secara global di semua halaman */}
-      {/* Komponen ini otomatis diabaikan jika user belum login di dalam logikanya */}
       <ChatAssistant />
 
       <Routes>
-        {/* Rute Publik Terbuka Bebas Tanpa Login */}
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/entrise" element={<OrangPentingFormPublik />} />
         
         <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
         
-        {/* Rute Lapangan Mandiri */}
-        <Route path="/PML-Monitoring" element={<ProtectedRoute allowedRoles={['pml']}><PmlMonitoringPage /></ProtectedRoute>} />
+        <Route path="/PML-Monitoring" element={<ProtectedRoute allowedRoles={['pml']}><PMLMonitoringPage /></ProtectedRoute>} />
         <Route path="/PCL-Assignment" element={<ProtectedRoute allowedRoles={['pcl']}><PclAssignmentPage /></ProtectedRoute>} />
 
-        {/* Rute Internal Manajemen - Murni Admin & Pegawai */}
         <Route path="/" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><Layout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard-monitoring" replace />} />
           <Route path="dashboard-lapangan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><KabupatenDashboardPage /></ProtectedRoute>} />
@@ -166,7 +123,6 @@ function AppContent() {
           <Route path="pengaturan" element={<ProtectedRoute allowedRoles={['admin']}><SettingsPage /></ProtectedRoute>} />
         </Route>
 
-        {/* Wildcard Route */}
         <Route path="*" element={
           !user ? <Navigate to="/login" replace /> :
           profile?.role === 'pcl' ? <Navigate to="/PCL-Assignment" replace /> :

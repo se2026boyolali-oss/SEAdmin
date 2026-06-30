@@ -28,7 +28,7 @@ const initOfflineDB = () => {
 };
 
 export default function PclAssignmentPage() {
-    const { user, profile, loading: authLoading, logout } = useAuth();
+    const { user, profile, loading: authLoading, logout, allowManualMode } = useAuth();
 
     // DUAL INTENT REF: Memisahkan jalur Hardware Kamera dan Media Galeri secara absolut
     const cameraInputRef = useRef(null);
@@ -59,7 +59,6 @@ export default function PclAssignmentPage() {
     const [manualMode, setManualMode] = useState(false);
     const [selectedManualSls, setSelectedManualSls] = useState("");
 
-    const [allowManualMode, setAllowManualMode] = useState(false);
     const [selectedManualDate, setSelectedManualDate] = useState("");
 
     // BLOCKER JIKA PETUGAS DI LUAR WILAYAH KECAMATAN TUGAS
@@ -335,7 +334,7 @@ export default function PclAssignmentPage() {
         }
     }, [user, profile, currentCoords, manualMode, selectedManualDate, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading]);
 
-    const initPclPage = async () => {
+const initPclPage = async () => {
         const pclEmail = user?.email || profile?.email;
         if (!pclEmail) return;
 
@@ -344,26 +343,7 @@ export default function PclAssignmentPage() {
         const cleanEmail = pclEmail.toLowerCase().trim();
         await checkOfflineQueueCount();
 
-        if (navigator.onLine) {
-            try {
-                const { data: remoteConfig } = await supabase
-                    .from('app_settings')
-                    .select('value_boolean')
-                    .eq('key', 'allow_manual_upload')
-                    .single();
-                if (remoteConfig) {
-                    const isAllowed = remoteConfig.value_boolean === true;
-                    setAllowManualMode(isAllowed);
-                    localStorage.setItem('cache_allow_manual_upload', isAllowed ? 'true' : 'false');
-                }
-            } catch (cfgErr) {
-                console.warn("Gagal lookup remote admin config settings:", cfgErr.message);
-            }
-        } else {
-            const cachedConfig = localStorage.getItem('cache_allow_manual_upload');
-            setAllowManualMode(cachedConfig === 'true');
-        }
-
+        // ─── OPTIMASI 1: HAPUS QUERY APP_SETTINGS (SUDAH DI-HANDLE AUTHCONTEXT) ───
         const kodeKec = getKecamatanCode();
         if (kodeKec) downloadAndCacheGeoJson(kodeKec);
 
@@ -382,77 +362,83 @@ export default function PclAssignmentPage() {
         }
 
         try {
-const { data: slsData } = await supabase
-    .from('muatan_sls')
-    .select('idsubsls, kdsls, nmsls, nmdesa, nmkec') // Ambil yang dipakai saja
-    .eq('petugas_id', cleanEmail);
+            // JALUR UTAMA: Ambil wilayah SLS beban kerja petugas (Hanya kolom yang dipakai)
+            const { data: slsData } = await supabase
+                .from('muatan_sls')
+                .select('idsubsls, kdsls, nmsls, nmdesa, nmkec')
+                .eq('petugas_id', cleanEmail);
 
             const currentMySls = slsData || [];
             setAllMySls(currentMySls);
             localStorage.setItem(`cache_sls_beban_${cleanEmail}`, JSON.stringify(currentMySls));
 
-// JALUR 1: Hanya ambil log absen Khusus HARI INI (Sangat Hemat Egress)
-const { data: todayLogsRaw } = await supabase
-    .from('log_checkin_pcl')
-    .select('tanggal, idsubsls')
-    .eq('petugas_email', cleanEmail)
-    .eq('tanggal', tglHariIni); // Kunci di level server!
+            // JALUR 1: Hanya ambil log absen khusus HARI INI (Sangat Hemat Egress)
+            const { data: todayLogsRaw } = await supabase
+                .from('log_checkin_pcl')
+                .select('tanggal, idsubsls')
+                .eq('petugas_email', cleanEmail)
+                .eq('tanggal', tglHariIni);
 
-// JALUR 2: Mengambil tanggal unik untuk kalender (Gunakan RPC kustom jika bisa, atau ambil tanggalnya saja)
-const { data: dateLogs } = await supabase
-    .from('log_checkin_pcl')
-    .select('tanggal')
-    .eq('petugas_email', cleanEmail);
+            // ─── OPTIMASI 2: LOCK RANGE TANGGAL BULAN AKTIF UNTUK KALENDER (JALUR 2) ───
+            const awalBulanIni = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0];
+            const akhirBulanIni = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0];
 
-if (dateLogs) {
-            const uniqueDates = [...new Set(dateLogs.map(log => log.tanggal))];
-            setHistoryDates(uniqueDates);
-            localStorage.setItem(`cache_history_dates_${cleanEmail}`, JSON.stringify(uniqueDates));
-        }
+            const { data: dateLogs } = await supabase
+                .from('log_checkin_pcl')
+                .select('tanggal')
+                .eq('petugas_email', cleanEmail)
+                .gte('tanggal', awalBulanIni)   // Batasi tanggal awal bulan aktif
+                .lte('tanggal', akhirBulanIni);  // Batasi tanggal akhir bulan aktif
 
-        // Memproses data log hari ini yang didapat dari JALUR 1 (Sudah difilter di server)
-        const currentTodayLogs = todayLogsRaw || [];
-
-        const missingIds = [];
-        currentTodayLogs.forEach(log => {
-            const idString = String(log.idsubsls).trim();
-            const localMatch = currentMySls.find(s => String(s.idsubsls).trim() === idString);
-            if (!localMatch) missingIds.push(idString);
-        });
-
-        const globalSlsMap = new Map();
-        if (missingIds.length > 0) {
-            const { data: globalSlsData } = await supabase
-                .from('muatan_sls')
-                .select('idsubsls, nmsls, nmdesa, kdsls')
-                .in('idsubsls', missingIds);
-
-            if (globalSlsData) {
-                globalSlsData.forEach(s => globalSlsMap.set(String(s.idsubsls).trim(), s));
-            }
-        }
-
-        const formatHistoriHariIni = currentTodayLogs.map(log => {
-            const idString = String(log.idsubsls).trim();
-            let matchSls = currentMySls.find(s => String(s.idsubsls).trim() === idString);
-            let isLuarTugas = false;
-
-            if (!matchSls) {
-                isLuarTugas = true;
-                matchSls = globalSlsMap.get(idString);
+            if (dateLogs) {
+                const uniqueDates = [...new Set(dateLogs.map(log => log.tanggal))];
+                setHistoryDates(uniqueDates);
+                localStorage.setItem(`cache_history_dates_${cleanEmail}`, JSON.stringify(uniqueDates));
             }
 
-            return {
-                idsubsls: idString,
-                nmsls: matchSls?.nmsls || "SLS Tidak Dikenal Sistem",
-                nmdesa: matchSls?.nmdesa || "-",
-                kdsls: matchSls?.kdsls || "0000",
-                isLuarWilayah: isLuarTugas
-            };
-        });
+            // Memproses data log hari ini yang didapat dari JALUR 1
+            const currentTodayLogs = todayLogsRaw || [];
 
-        setTodayCheckIns(formatHistoriHariIni);
-        localStorage.setItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`, JSON.stringify(formatHistoriHariIni));
+            const missingIds = [];
+            currentTodayLogs.forEach(log => {
+                const idString = String(log.idsubsls).trim();
+                const localMatch = currentMySls.find(s => String(s.idsubsls).trim() === idString);
+                if (!localMatch) missingIds.push(idString);
+            });
+
+            const globalSlsMap = new Map();
+            if (missingIds.length > 0) {
+                const { data: globalSlsData } = await supabase
+                    .from('muatan_sls')
+                    .select('idsubsls, nmsls, nmdesa, kdsls')
+                    .in('idsubsls', missingIds);
+
+                if (globalSlsData) {
+                    globalSlsData.forEach(s => globalSlsMap.set(String(s.idsubsls).trim(), s));
+                }
+            }
+
+            const formatHistoriHariIni = currentTodayLogs.map(log => {
+                const idString = String(log.idsubsls).trim();
+                let matchSls = currentMySls.find(s => String(s.idsubsls).trim() === idString);
+                let isLuarTugas = false;
+
+                if (!matchSls) {
+                    isLuarTugas = true;
+                    matchSls = globalSlsMap.get(idString);
+                }
+
+                return {
+                    idsubsls: idString,
+                    nmsls: matchSls?.nmsls || "SLS Tidak Dikenal Sistem",
+                    nmdesa: matchSls?.nmdesa || "-",
+                    kdsls: matchSls?.kdsls || "0000",
+                    isLuarWilayah: isLuarTugas
+                };
+            });
+
+            setTodayCheckIns(formatHistoriHariIni);
+            localStorage.setItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`, JSON.stringify(formatHistoriHariIni));
         } catch (err) {
             console.error("Gagal memuat histori absensi:", err.message);
             const cachedSls = localStorage.getItem(`cache_sls_beban_${cleanEmail}`);
@@ -462,15 +448,17 @@ if (dateLogs) {
         }
     };
 
+const hasFetched = useRef(false);
+
 useEffect(() => {
-    if (!authLoading && (user?.email || profile?.email)) {
+    if (!authLoading && (user?.email || profile?.email) && !hasFetched.current) {
+        hasFetched.current = true; // Kunci agar tidak fetch ulang saat re-render
         initPclPage();
     }
-    // Tambahkan cleanup function saat unmount komponen:
     return () => {
         if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
     };
-}, [profile, authLoading, user]);
+}, [profile, authLoading, user]); // Pastikan fungsi di dalam initPclPage tidak memicu re-fetch di sini
 
     useEffect(() => {
         const handleSignalToggle = () => checkOfflineQueueCount();
