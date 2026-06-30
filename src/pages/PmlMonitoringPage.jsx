@@ -140,8 +140,8 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
 // ====== AKHIR DARI BG-6 ======
 
 export default function PmlMonitoringPage() {
-    const { user, profile, loading: authLoading, logout } = useAuth();
-
+    const { user, profile, loading: authLoading, logout, allowManualMode } = useAuth();
+const isDataFetchedRef = useRef(false);
     const pmlCameraInputRef = useRef(null);
     const pmlGalleryInputRef = useRef(null);
 
@@ -165,7 +165,6 @@ export default function PmlMonitoringPage() {
     const [pmlCoords, setPmlCoords] = useState(null);
     const [showPmlCameraCard, setShowPmlCameraCard] = useState(false);
 
-    const [allowManualMode, setAllowManualMode] = useState(false);
     const [manualMode, setManualMode] = useState(false);
     const [selectedManualSls, setSelectedManualSls] = useState("");
     const [selectedManualDate, setSelectedManualDate] = useState("");
@@ -300,9 +299,15 @@ export default function PmlMonitoringPage() {
     // =========================================================================
     // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL
     // =========================================================================
+// =========================================================================
+    // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL (OPTIMIZED)
+    // =========================================================================
     const fetchPmlData = async () => {
         const pmlEmail = user?.email || profile?.email;
         if (!pmlEmail) return;
+
+if (isDataFetchedRef.current) return;
+        isDataFetchedRef.current = true;
 
         setLoading(true);
         const tglHariIni = getTodayDateString();
@@ -314,25 +319,8 @@ export default function PmlMonitoringPage() {
 
         await checkOfflineInputQueueCount();
 
-        if (navigator.onLine) {
-            try {
-                const { data: remoteConfig } = await supabase
-                    .from('app_settings')
-                    .select('value_boolean')
-                    .eq('key', 'allow_manual_upload')
-                    .single();
-                if (remoteConfig) {
-                    const isAllowed = remoteConfig.value_boolean === true;
-                    setAllowManualMode(isAllowed);
-                    localStorage.setItem('cache_allow_manual_upload', isAllowed ? 'true' : 'false');
-                }
-            } catch (cfgErr) {
-                console.warn("Gagal lookup remote admin config settings:", cfgErr.message);
-            }
-        } else {
-            const cachedConfig = localStorage.getItem('cache_allow_manual_upload');
-            setAllowManualMode(cachedConfig === 'true');
-        }
+        // ─── OPTIMASI 1: AMBIL SAKELAR DARI GLOBAL AUTHCONTEXT (HAPUS FETCH APP_SETTINGS) ───
+        // Variabel allowManualMode kini disuplai langsung oleh useAuth() di tingkat atas halaman
 
         if (!navigator.onLine) {
             console.warn("⚠️ Mode Luring PML: Mengambil status pengawasan dari cache lokal HP.");
@@ -347,7 +335,6 @@ export default function PmlMonitoringPage() {
                 setRekapStatusTim({ aktif, absen: parsedPcls.length - aktif });
             }
 
-            // AMBIL CACHE RIWAYAT PROGRESS UNTUK USEMEMO SAAT OFFLINE
             const cachedHistory = localStorage.getItem(`cache_pml_history_progress_${cleanPmlEmail}`);
             if (cachedHistory) setHistoryData(JSON.parse(cachedHistory));
 
@@ -371,16 +358,7 @@ export default function PmlMonitoringPage() {
         }
 
         try {
-            const { data: pmlCheckInLog } = await supabase
-                .from('log_checkin_pml')
-                .select('id')
-                .eq('pml_email', cleanPmlEmail)
-                .eq('tanggal', tglHariIni);
-
-            const isCheckedIn = pmlCheckInLog && pmlCheckInLog.length > 0;
-            setPmlCheckedInToday(isCheckedIn);
-            localStorage.setItem(`cache_pml_checkedin_${cleanPmlEmail}_${tglHariIni}`, isCheckedIn);
-
+            // Fetch Awal: Dapatkan data PCL resmi di bawah naungan PML aktif
             const { data: petugasData, error: petugasError } = await supabase
                 .from('petugas')
                 .select('email, nama_petugas, kecamatan_tugas, posisi_tugas, id_pml_atasan')
@@ -392,7 +370,26 @@ export default function PmlMonitoringPage() {
 
             const daftarEmailBinaan = (petugasData || []).map(pcl => pcl.email.toLowerCase().trim());
 
-            // 🌟 TARIK DATA HISTORI DAN SIMPAN SECARA UTUH KE STATE & CACHE STORAGE
+            // Jika PML belum memiliki tim binaan terdaftar, hentikan proses untuk cegah eror query .in()
+            if (daftarEmailBinaan.length === 0) {
+                setPcls([]);
+                setAllSlsFlat([]);
+                setLoading(false);
+                return;
+            }
+
+            // 1. Cek status check-in PML hari ini
+            const { data: pmlCheckInLog } = await supabase
+                .from('log_checkin_pml')
+                .select('id')
+                .eq('pml_email', cleanPmlEmail)
+                .eq('tanggal', tglHariIni);
+
+            const isCheckedIn = pmlCheckInLog && pmlCheckInLog.length > 0;
+            setPmlCheckedInToday(isCheckedIn);
+            localStorage.setItem(`cache_pml_checkedin_${cleanPmlEmail}_${tglHariIni}`, isCheckedIn);
+
+            // 2. Tarik tren performa historis khusus untuk anggota binaan saja
             const duaMingguLalu = new Date();
             duaMingguLalu.setDate(duaMingguLalu.getDate() - 15);
             const strFilterTanggal = duaMingguLalu.toISOString().split('T')[0];
@@ -400,7 +397,7 @@ export default function PmlMonitoringPage() {
             const { data: historicalLogs } = await supabase
                 .from('history_progress_petugas')
                 .select('tanggal, petugas_id, total_capaian')
-                .in('petugas_id', daftarEmailBinaan)
+                .in('petugas_id', daftarEmailBinaan) // KUNCI 1: Khusus binaan
                 .gte('tanggal', strFilterTanggal);
 
             if (historicalLogs) {
@@ -408,16 +405,20 @@ export default function PmlMonitoringPage() {
                 localStorage.setItem(`cache_pml_history_progress_${cleanPmlEmail}`, JSON.stringify(historicalLogs));
             }
 
+            // ─── OPTIMASI 2: LOCK LOG ABSENSI HANYA UNTUK EMAIL BINAAN TIM ───
             const { data: rentangLogs } = await supabase
                 .from('log_checkin_pcl')
                 .select('petugas_email, tanggal, idsubsls, foto_bukti')
+                .in('petugas_email', daftarEmailBinaan) // KUNCI 2: Saring ketat di server Supabase
                 .gte('tanggal', tglHMinus6)
                 .lte('tanggal', tglHariIni)
                 .order('tanggal', { ascending: false });
 
+            // ─── OPTIMASI 3: LOCK DATA BEBAN MUATAN SLS HANYA UNTUK TIM BINAAN ───
             const { data: masterSls } = await supabase
                 .from('muatan_sls')
-                .select('idsubsls, kdsls, nmsls, nmdesa, petugas_id, jml_muatan, realisasi_pencacahan, is_selesai');
+                .select('idsubsls, kdsls, nmsls, nmdesa, petugas_id, jml_muatan, realisasi_pencacahan, is_selesai')
+                .in('petugas_id', daftarEmailBinaan); // KUNCI 3: Hapus query sapu jagat seluruh kabupaten!
 
             const allMasterSlsArray = masterSls || [];
             const masterSlsMap = new Map(allMasterSlsArray.map(m => [String(m.idsubsls).trim(), m]));
@@ -429,25 +430,21 @@ export default function PmlMonitoringPage() {
                 logsPclMap.get(emailKey).push(log);
             });
 
-            const slsKhususBinaan = allMasterSlsArray.filter(sls => {
-                if (!sls.petugas_id) return false;
-                return daftarEmailBinaan.includes(sls.petugas_id.toLowerCase().trim());
-            });
+            // Karena data masterSls sudah dikunci di level server lewat filter .in(), array ini otomatis berisi SLS binaan riil
+            setAllSlsFlat(allMasterSlsArray);
+            setDesaList([...new Set(allMasterSlsArray.map(s => s.nmdesa))]);
+            localStorage.setItem(`cache_pml_flat_sls_${cleanPmlEmail}`, JSON.stringify(allMasterSlsArray));
 
-            setAllSlsFlat(slsKhususBinaan);
-            setDesaList([...new Set(slsKhususBinaan.map(s => s.nmdesa))]);
-            localStorage.setItem(`cache_pml_flat_sls_${cleanPmlEmail}`, JSON.stringify(slsKhususBinaan));
-
-            if (navigator.onLine && slsKhususBinaan.length > 0) {
+            if (allMasterSlsArray.length > 0) {
                 try {
-                    const idsubslsBinaanArray = slsKhususBinaan.map(s => String(s.idsubsls).trim());
+                    const idsubslsBinaanArray = allMasterSlsArray.map(s => String(s.idsubsls).trim());
                     const { data: progressData, error: progressError } = await supabase
                         .from('progress_boyolali')
                         .select(`
-        idsubsls, total, open, draft, 
-        submitted_pencacah, approved_pengawas, rejected_pengawas, 
-        revoked_pengawas, edited_pengawas, submitted_respondent
-    `)
+                            idsubsls, total, open, draft, 
+                            submitted_pencacah, approved_pengawas, rejected_pengawas, 
+                            revoked_pengawas, edited_pengawas, submitted_respondent
+                        `)
                         .in('idsubsls', idsubslsBinaanArray);
 
                     if (!progressError && progressData) {
@@ -542,7 +539,7 @@ export default function PmlMonitoringPage() {
             localStorage.setItem(`cache_pml_monitoring_list_${cleanPmlEmail}`, JSON.stringify(combinedData));
 
             const initialSlsInputs = {};
-            slsKhususBinaan.forEach(s => {
+            allMasterSlsArray.forEach(s => {
                 initialSlsInputs[s.idsubsls] = s.realisasi_pencacahan || 0;
             });
             setSlsInputs(initialSlsInputs);
@@ -1556,14 +1553,16 @@ export default function PmlMonitoringPage() {
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                                disabled={!navigator.onLine}
-                                onClick={fetchPmlData}
-                                className="p-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-400 rounded-xl transition-all disabled:opacity-30"
-                                title="Sinkron Data"
-                            >
-                                <RefreshCw size={16} />
-                            </button>
+    <button
+        disabled={!navigator.onLine}
+        onClick={() => {
+            isDataFetchedRef.current = false; // Buka gembok dulu sebelum reload manual
+            fetchPmlData();
+        }}
+        className="p-2 bg-slate-800 ... "
+    >
+        <RefreshCw size={16} />
+    </button>
 
                             <button
                                 onClick={logout}

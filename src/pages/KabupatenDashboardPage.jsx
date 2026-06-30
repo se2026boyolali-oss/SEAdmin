@@ -4,9 +4,9 @@ import {
     BarChart, Bar, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, LabelList
 } from 'recharts';
 import {
-    ShieldAlert, Search, ArrowRight, User, Calendar, X, AlertTriangle, CheckCircle2, Clock, MapPin, UserX, RefreshCw, Download
+    ShieldAlert, Search, ArrowRight, User, Calendar, X, AlertTriangle, MapPin, UserX, RefreshCw, Download
 } from 'lucide-react';
-import * as XLSX from 'xlsx'; // Menggunakan ikon download bawaan
+import * as XLSX from 'xlsx';
 
 // 📸 Helper Taktis: Mengubah link biasa menjadi Link Embed Preview Google Drive
 const konversiLinkDrive = (urlDrive) => {
@@ -14,12 +14,14 @@ const konversiLinkDrive = (urlDrive) => {
     const match = urlDrive.match(/\/d\/([^/]+)/);
     return match && match[1] ? `https://drive.google.com/file/d/${match[1]}/preview` : urlDrive;
 };
+
+// 🛡️ Helper Taktis: Ekstraksi 3 digit kode kecamatan_tugas
 const ekstrakKodeKecPetugas = (stringKec) => {
     if (!stringKec) return "";
     const match = String(stringKec).trim().match(/^\d+/);
     return match ? match[0] : "";
 };
-// 🛡️ Helper Taktis: Ekstraksi 3 digit kode kecamatan_tugas
+
 const MiniCalendar = React.memo(({ arrayTanggalAktif }) => {
     const jktDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
     const tglHariIni = `${jktDate.getFullYear()}-${String(jktDate.getMonth() + 1).padStart(2, '0')}-${String(jktDate.getDate()).padStart(2, '0')}`;
@@ -57,23 +59,16 @@ MiniCalendar.displayName = 'MiniCalendar';
 export default function DashboardPusat() {
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const [isMasterReady, setIsMasterReady] = useState(false); // 🌟 Tambahkan baris ini
-    // State Pencarian Teks dengan Debounce lokal
+    const [isMasterReady, setIsMasterReady] = useState(false);
     const [searchInputValue, setSearchInputValue] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
-
     const [activeTab, setActiveTab] = useState('PCL');
     const [filterStatus, setFilterStatus] = useState('all');
 
-    // 🛡️ Kunci Sinkronisasi Spasial & Tampilan
     const [selectedKecamatan, setSelectedKecamatan] = useState(null);
     const [selectedKecTab, setSelectedKecTab] = useState("SEMUA");
-    const [selectedDesaCode, setSelectedDesaCode] = useState(null);
-    const [selectedDesaName, setSelectedDesaName] = useState("");
-    const [viewModeTab, setViewModeTab] = useState("DESA");
     const [daftarKecamatan, setDaftarKecamatan] = useState([]);
 
-    // Detail Evaluasi Modal States
     const [showDetailEvaluasi, setShowDetailEvaluasi] = useState(false);
     const [dataEvaluasiTerpilih, setDataEvaluasiTerpilih] = useState({ tanggal: '', listLaporan: [] });
     const [loadingDetailEval, setLoadingDetailEval] = useState(false);
@@ -82,7 +77,6 @@ export default function DashboardPusat() {
     const [evalCurrentPage, setEvalCurrentPage] = useState(1);
     const itemsPerPage = 5;
 
-    // State Kontrol untuk Pop-up Lapangan PPL
     const [showDetailLapangan, setShowDetailLapangan] = useState(false);
     const [dataLapanganTerpilih, setDataLapanganTerpilih] = useState({ tanggalLabel: '', tanggalDb: '', listPetugasAktif: [] });
     const [lapSearchTerm, setLapSearchTerm] = useState('');
@@ -90,19 +84,15 @@ export default function DashboardPusat() {
     const [lapCurrentPage, setLapCurrentPage] = useState(1);
     const lapItemsPerPage = 10;
 
-    // Tambahkan ini di bagian atas bersama state lainnya
     const [showModalMetrik, setShowModalMetrik] = useState(false);
     const [dataModalMetrik, setDataModalMetrik] = useState({ judul: '', role: '', tipeStatus: '', listPetugas: [] });
     const [modalMetrikSearch, setModalMetrikSearch] = useState('');
     const [modalMetrikPage, setModalMetrikPage] = useState(1);
-    // Tambahkan ini di bagian atas bersama state modal metrik lainnya
-    const [modalMetrikActiveTab, setModalMetrikActiveTab] = useState('AKTIF'); // 'AKTIF' atau 'BELUM'
+    const [modalMetrikActiveTab, setModalMetrikActiveTab] = useState('AKTIF');
     const modalMetrikItemsPerPage = 10;
 
-    // Tambahkan ini di bagian atas bersama state lainnya
     const [tableCurrentPage, setTableCurrentPage] = useState(1);
-    const tableItemsPerPage = 25; // 1 halaman = 25 petugas
-
+    const tableItemsPerPage = 25;
 
     const [selectedFilterDate, setSelectedFilterDate] = useState(() => {
         const jktDate = new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
@@ -113,20 +103,18 @@ export default function DashboardPusat() {
         return `${year}-${month}-${day}`;
     });
 
-    // Core Data States
     const [globalMetrics, setGlobalMetrics] = useState({ totalPcl: 0, pclAktifHariIni: 0, totalPml: 0, pmlAktifHariIni: 0, totalStagnan: 0 });
     const [masterPclList, setMasterPclList] = useState([]);
     const [masterPmlList, setMasterPmlList] = useState([]);
     const [selectedPetugas, setSelectedPetugas] = useState(null);
 
-    // Raw Storage
     const [rawPetugas, setRawPetugas] = useState([]);
     const [rawLogsPcl, setRawLogsPcl] = useState([]);
     const [rawRealisasiPml, setRawRealisasiPml] = useState([]);
     const [rawMasterSls, setRawMasterSls] = useState([]);
-    // Tambahkan state ini di bagian atas komponen bersama state lainnya
     const [slsMap, setSlsMap] = useState(new Map());
-    // 💡 EFFECT UNTUK DEBOUNCING PENCARIAN UTAMA (Mengurangi beban render berlebih)
+
+    // 💡 EFFECT UNTUK DEBOUNCING PENCARIAN UTAMA
     useEffect(() => {
         const delayDebounceFn = setTimeout(() => {
             setSearchTerm(searchInputValue);
@@ -134,16 +122,10 @@ export default function DashboardPusat() {
         return () => clearTimeout(delayDebounceFn);
     }, [searchInputValue]);
 
-    useEffect(() => {
-        if (selectedKecTab === "SEMUA") setViewModeTab("DESA");
-    }, [selectedKecTab]);
-
-
     const handleExportToExcel = (tipe) => {
         let dataRaw = [];
         let namaFile = "";
 
-        // 1. Saring data berdasarkan kecamatan aktif saat ini
         const pclTerfilter = selectedKecamatan
             ? masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
             : masterPclList;
@@ -152,15 +134,11 @@ export default function DashboardPusat() {
             ? masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
             : masterPmlList;
 
-        // 2. Tentukan dataset, URUTKAN BERDASARKAN KECAMATAN TUGAS, & formatting kolom
         if (tipe === 'PPL') {
             namaFile = `REKAP_PPL_LAPANGAN_${selectedKecamatan || 'KABUPATEN'}`;
-
-            // Diurutkan A-Z berdasarkan kecamatan_tugas
             const pclSorted = [...pclTerfilter].sort((a, b) =>
                 (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
             );
-
             dataRaw = pclSorted.map(p => ({
                 'Kecamatan Tugas': p.kecamatan_tugas,
                 'Nama Petugas': p.nama_petugas,
@@ -168,34 +146,25 @@ export default function DashboardPusat() {
                 'Status Hari Ini': p.statusHariIni || 'ABSEN',
                 'SLS Terakhir': p.lastSls || '-'
             }));
-
         } else if (tipe === 'PML') {
             namaFile = `REKAP_PML_LAPANGAN_${selectedKecamatan || 'KABUPATEN'}`;
-
-            // Diurutkan A-Z berdasarkan kecamatan_tugas
             const pmlSorted = [...pmlTerfilter].sort((a, b) =>
                 (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
             );
-
             dataRaw = pmlSorted.map(p => ({
                 'Kecamatan Tugas': p.kecamatan_tugas,
                 'Nama Pengawas': p.nama_pengguna || p.nama_petugas,
                 'Email': p.email,
                 'Status Hari Ini': p.statusHariIni || 'ABSEN'
             }));
-
         } else if (tipe === 'STAGNAN') {
             namaFile = `DAFTAR_PETUGAS_STAGNAN_${selectedKecamatan || 'KABUPATEN'}`;
-
             const pclStagnan = pclTerfilter.filter(p => p.isStagnan).map(p => ({ 'Posisi': 'PPL', ...p }));
             const pmlStagnan = pmlTerfilter.filter(p => p.isStagnan).map(p => ({ 'Posisi': 'PML', ...p }));
             const gabunganStagnan = [...pclStagnan, ...pmlStagnan];
-
-            // Diurutkan A-Z berdasarkan kecamatan_tugas
             gabunganStagnan.sort((a, b) =>
                 (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
             );
-
             dataRaw = gabunganStagnan.map(p => ({
                 'Kecamatan Tugas': p.kecamatan_tugas,
                 'Role': p.Posisi,
@@ -210,17 +179,13 @@ export default function DashboardPusat() {
             return;
         }
 
-        // 3. Proses Engine SheetJS (Konversi JSON ke Excel)
         const worksheet = XLSX.utils.json_to_sheet(dataRaw);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Data Monitoring");
-
         XLSX.writeFile(workbook, `${namaFile}.xlsx`);
     };
 
-
     const handleDownloadSlsExcel = () => {
-        // 1. Filter data berdasarkan tab kecamatan yang aktif saat ini
         const targetSls = selectedKecTab === "SEMUA"
             ? rawMasterSls
             : rawMasterSls.filter(sls => String(sls.kdkec).trim() === selectedKecTab);
@@ -230,21 +195,14 @@ export default function DashboardPusat() {
             return;
         }
 
-        // 2. Prosedur Pengurutan Default Eksisting (Berdasarkan ID Sub-SLS) untuk Sheet Utama
         const sortedSlsDefault = [...targetSls].sort((a, b) => {
             return String(a.idsubsls || "").localeCompare(String(b.idsubsls || ""), 'id', { numeric: true });
         });
 
-        // =========================================================================
-        // 3. PROSES PEMETAAN, FILTERING, & URUT BERTINGKAT (SLS PER PETUGAS)
-        // =========================================================================
-
-        // Pemetaan data mentah & penentuan status operasional lapangan
         const mappedSlsPetugasRaw = targetSls.map(sls => {
             const dataPpl = rawPetugas.find(p => p.id === sls.petugas_id || p.nama_petugas === sls.petugas?.nama_petugas);
             const emailPmlRaw = dataPpl?.id_pml_atasan || "-";
             const dataPml = emailPmlRaw !== "-" ? rawPetugas.find(p => p.email === emailPmlRaw) : null;
-
             const realisasiCount = parseInt(sls.realisasi_pencacahan) || 0;
             const statusValidasi = sls.is_selesai ? "SELESAI" : (realisasiCount > 0 ? "SEDANG DIKERJAKAN" : "BELUM DIKERJAKAN");
 
@@ -266,31 +224,21 @@ export default function DashboardPusat() {
             };
         });
 
-        // FILTER: Hanya ambil SLS yang "SEDANG DIKERJAKAN" atau "SELESAI"
         const filteredSlsPetugas = mappedSlsPetugasRaw.filter(sls =>
             sls["Status"] === "SEDANG DIKERJAKAN" || sls["Status"] === "SELESAI"
         );
 
-        // Urutkan data berdasarkan: Kode Kec -> Nama PML -> Nama PPL -> ID Sub SLS
         const sortedSlsPetugas = [...filteredSlsPetugas].sort((a, b) => {
             const rKec = String(a["Kode Kec"]).localeCompare(String(b["Kode Kec"]), 'id', { numeric: true });
             if (rKec !== 0) return rKec;
-
             const rPml = String(a["Nama PML"]).localeCompare(String(b["Nama PML"]), 'id');
             if (rPml !== 0) return rPml;
-
             const rPpl = String(a["Nama PPL"]).localeCompare(String(b["Nama PPL"]), 'id');
             if (rPpl !== 0) return rPpl;
-
             return String(a["ID Sub SLS"]).localeCompare(String(b["ID Sub SLS"]), 'id', { numeric: true });
         });
 
-
-        // ==========================================
-        // 4. LOGIKA AGREGASI & SORTING (REKAP PER PETUGAS)
-        // ==========================================
         const rekapPetugasMap = {};
-
         mappedSlsPetugasRaw.forEach(sls => {
             const kdkec = sls["Kode Kec"];
             const nmkec = sls["Nama Kec"];
@@ -299,7 +247,6 @@ export default function DashboardPusat() {
             const emailPpl = sls["Email PPL"].toLowerCase().trim();
             const namaPpl = sls["Nama PPL"];
             const realisasiSls = sls["Realisasi Pendataan"];
-
             const groupKey = `${kdkec}_${emailPml}_${emailPpl}`;
 
             if (!rekapPetugasMap[groupKey]) {
@@ -313,13 +260,11 @@ export default function DashboardPusat() {
                     "Jumlah SLS Selesai": 0,
                     "Jumlah SLS Sedang Dikerjakan": 0,
                     "Jumlah SLS Belum Dikerjakan": 0,
-                    "Realisasi Lapangan": 0 // 🌟 Kolom akumulasi realisasi baru
+                    "Realisasi Lapangan": 0 
                 };
             }
 
-            // Akumulasikan angka realisasi pendataan ke total rekap petugas
             rekapPetugasMap[groupKey]["Realisasi Lapangan"] += realisasiSls;
-
             if (sls["Status"] === "SELESAI") {
                 rekapPetugasMap[groupKey]["Jumlah SLS Selesai"]++;
             } else if (sls["Status"] === "SEDANG DIKERJAKAN") {
@@ -329,22 +274,14 @@ export default function DashboardPusat() {
             }
         });
 
-        // Mengubah objek map menjadi array, lalu diurutkan secara eksplisit
-        // Urutan: Kode Kec -> Nama PML -> Nama PPL
         const dataRekapPetugasSorted = Object.values(rekapPetugasMap).sort((a, b) => {
             const rKec = String(a["Kode Kec"]).localeCompare(String(b["Kode Kec"]), 'id', { numeric: true });
             if (rKec !== 0) return rKec;
-
             const rPml = String(a["Nama PML"]).localeCompare(String(b["Nama PML"]), 'id');
             if (rPml !== 0) return rPml;
-
             return String(a["Nama PPL"]).localeCompare(String(b["Nama PPL"]), 'id');
         });
 
-
-        // ==========================================
-        // 5. FORMATTER DATA UNTUK SHEET EKSISTING
-        // ==========================================
         const formatSlsData = (list) => list.map(sls => {
             const dataPpl = rawPetugas.find(p => p.id === sls.petugas_id || p.nama_petugas === sls.petugas?.nama_petugas);
             return {
@@ -366,57 +303,39 @@ export default function DashboardPusat() {
         const sudahDidataRaw = sortedSlsDefault.filter(sls => sls.is_selesai === true || (parseInt(sls.realisasi_pencacahan) || 0) > 0);
         const belumDidataRaw = sortedSlsDefault.filter(sls => !sls.is_selesai && (parseInt(sls.realisasi_pencacahan) || 0) === 0);
 
-
-        // ==========================================
-        // 6. KONVERSI KE WORKSHEET & BUILD WORKBOOK
-        // ==========================================
         const worksheetSudah = XLSX.utils.json_to_sheet(formatSlsData(sudahDidataRaw));
         const worksheetBelum = XLSX.utils.json_to_sheet(formatSlsData(belumDidataRaw));
         const worksheetSlsPetugas = XLSX.utils.json_to_sheet(sortedSlsPetugas);
-        const worksheetRekapPetugas = XLSX.utils.json_to_sheet(dataRekapPetugasSorted); // Menggunakan data rekap yang sudah diurutkan
+        const worksheetRekapPetugas = XLSX.utils.json_to_sheet(dataRekapPetugasSorted);
 
         const workbook = XLSX.utils.book_new();
-
         XLSX.utils.book_append_sheet(workbook, worksheetSudah, "SUDAH DIDATA");
         XLSX.utils.book_append_sheet(workbook, worksheetBelum, "BELUM DIDATA");
         XLSX.utils.book_append_sheet(workbook, worksheetSlsPetugas, "SLS PER PETUGAS");
         XLSX.utils.book_append_sheet(workbook, worksheetRekapPetugas, "REKAP PER PETUGAS");
 
-
-        // ==========================================
-        // 7. PENAMAAN FILE DAN EKSPOR EXCEL
-        // ==========================================
         const namaKecLabel = selectedKecTab === "SEMUA" ? "KABUPATEN" : `KEC_${selectedKecTab}`;
         const tanggalUnduh = new Date().toISOString().split('T')[0].replace(/-/g, '');
         const namaFileFinal = `MONITORING_SLS_SE26_${namaKecLabel}_${tanggalUnduh}.xlsx`;
-
         XLSX.writeFile(workbook, namaFileFinal);
     };
 
     const handleExportSiklusToExcel = (item) => {
         const isLapangan = item.target === 'PENDATAAN';
         const namaFile = `DETAIL_PETUGAS_${item.target}_TGL_${item.tanggal.replace(/ /g, '_')}`;
-
-        // Konversi label tanggal sirkulasi "17 Juni 2026" -> "2026-06-17"
         const dayPart = item.tanggal.split(' ')[0].padStart(2, '0');
         const dbDateFormatted = `2026-06-${dayPart}`;
-
         let dataRaw = [];
 
         if (isLapangan) {
-            // --- BLOK PENDATAAN (PPL) ---
             const pplTerfilter = selectedKecamatan
                 ? masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
                 : masterPclList;
-
             const pplSorted = [...pplTerfilter].sort((a, b) =>
                 (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
             );
-
             dataRaw = pplSorted.map(p => {
-                // Deteksi keaktifan berdasarkan kecocokan tanggal log PCL
                 const isAktifTanggalIni = (p.rawLogs || []).some(l => l.tanggal === dbDateFormatted);
-
                 return {
                     'Kecamatan Tugas': p.kecamatan_tugas,
                     'Nama Petugas (PPL)': p.nama_petugas,
@@ -427,29 +346,21 @@ export default function DashboardPusat() {
                 };
             });
         } else {
-            // --- BLOK EVALUASI (PML) - FIXED SOLUTION ---
-            // 1. Saring master pengawas berdasarkan spasial filter kecamatan
             const pmlTerfilter = selectedKecamatan
                 ? masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
                 : masterPmlList;
-
-            // 2. Buat map data log realisasi PML khusus pada tanggal target agar pencarian O(1) lambat di loop
             const realisasiMap = new Map(
                 rawRealisasiPml
                     .filter(r => r.tanggal === dbDateFormatted)
                     .map(r => [r.pml_email.toLowerCase().trim(), r])
             );
-
             const pmlSorted = [...pmlTerfilter].sort((a, b) =>
                 (a.kecamatan_tugas || "").localeCompare(b.kecamatan_tugas || "")
             );
-
-            // 3. Mapping data dengan menyertakan isian kendala dan solusi dari database riil
             dataRaw = pmlSorted.map(p => {
                 const emailKey = p.email.toLowerCase().trim();
                 const logRealisasi = realisasiMap.get(emailKey);
                 const sudahKirim = !!logRealisasi;
-
                 return {
                     'Kecamatan Tugas': p.kecamatan_tugas,
                     'Nama Pengawas (PML)': p.nama_pengguna || p.nama_petugas,
@@ -468,22 +379,18 @@ export default function DashboardPusat() {
             return;
         }
 
-        // Jalankan engine SheetJS
         const worksheet = XLSX.utils.json_to_sheet(dataRaw);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Detail Petugas Siklus");
-
         XLSX.writeFile(workbook, `${namaFile}.xlsx`);
     };
-    // 💡 OPTIMALISASI: FETCH DATA OPERASIONAL BERBASIS SERVER-SIDE FILTERING (H-14 Rentang Waktu)
 
-    // 2. FETCH MASTER DATA (Hanya Berjalan 1 Kali Saat Pertama Kali Buka Dashboard)
-    // 🚀 MASTER DATA FETCH: Hanya berjalan 1x di awal (Sangat menghemat Egress)
+    // 🚀 MASTER DATA FETCH (Optimasi Egress: Hapus join relasional mahal)
     const fetchMasterData = useCallback(async () => {
         try {
             const [petugasRes, masterSlsRes] = await Promise.all([
                 supabase.from('petugas').select('email, nama_petugas, posisi_tugas, status, kecamatan_tugas, id_pml_atasan').eq('status', 'Diterima'),
-                supabase.from('muatan_sls').select('idsubsls, kdkec, nmkec, kddesa, nmdesa, kdsls, nmsls, jml_muatan, realisasi_pencacahan, is_selesai, petugas_id, petugas(nama_petugas)')
+                supabase.from('muatan_sls').select('idsubsls, kdkec, nmkec, kddesa, nmdesa, kdsls, nmsls, jml_muatan, realisasi_pencacahan, is_selesai, petugas_id')
             ]);
 
             if (petugasRes.error || masterSlsRes.error) {
@@ -492,13 +399,20 @@ export default function DashboardPusat() {
             }
 
             const allPetugas = petugasRes.data || [];
-            const masterSls = masterSlsRes.data || [];
+            
+            // Re-create relasi petugas secara lokal untuk menghemat egress
+            const masterSls = (masterSlsRes.data || []).map(sls => {
+                const matchedPetugas = sls.petugas_id ? allPetugas.find(p => p.id === sls.petugas_id) : null;
+                return {
+                    ...sls,
+                    petugas: matchedPetugas ? { nama_petugas: matchedPetugas.nama_petugas } : null
+                };
+            });
 
             setRawPetugas(allPetugas);
             setRawMasterSls(masterSls);
             setSlsMap(new Map(masterSls.map(s => [s.idsubsls, s])));
 
-            // Ekstraksi daftar kecamatan untuk dropdown filter
             const rawDaftarKec = Array.from(new Set(allPetugas.map(p => p.kecamatan_tugas).filter(Boolean)));
             const dropdownObjList = rawDaftarKec.sort((a, b) => a.localeCompare(b, 'id', { numeric: true })).map(str => ({
                 kode: ekstrakKodeKecPetugas(str),
@@ -506,15 +420,15 @@ export default function DashboardPusat() {
             })).filter(item => item.kode !== "");
 
             setDaftarKecamatan(dropdownObjList);
-            setIsMasterReady(true); // Menandakan data statis siap digunakan
+            setIsMasterReady(true); 
         } catch (err) {
             console.error("Error pada fetchMasterData:", err);
         }
     }, []);
 
-    // 🚀 LOG DATA FETCH: Berjalan dinamis hanya saat tanggal filter berubah / klik Refresh
+    // 🚀 LOG DATA FETCH (Optimasi: Terlepas dari Filter Tanggal)
     const fetchOperationalLogs = useCallback(async () => {
-        if (!isMasterReady) return; // Kunci fungsi jika data master belum siap
+        if (!isMasterReady) return; 
 
         setIsRefreshing(true);
         if (rawLogsPcl.length === 0) setLoading(true);
@@ -523,14 +437,16 @@ export default function DashboardPusat() {
         const now = new Date(jktDateString);
         const tglHariIni = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-        const batasBawahTanggal = new Date(selectedFilterDate);
-        batasBawahTanggal.setDate(batasBawahTanggal.getDate() - 14);
+        // Selalu ambil statis H-14 dari hari ini agar pindah tanggal tidak butuh query server
+        const batasBawahTanggal = new Date(now);
+        batasBawahTanggal.setDate(batasBawahTanggal.getDate() - 7);
         const batasBawahStr = `${batasBawahTanggal.getFullYear()}-${String(batasBawahTanggal.getMonth() + 1).padStart(2, '0')}-${String(batasBawahTanggal.getDate()).padStart(2, '0')}`;
 
         const [logsPclRes, logsPmlRes, realisasiPmlRes] = await Promise.all([
             supabase.from('log_checkin_pcl').select('idsubsls, tanggal, petugas_email, foto_bukti').gte('tanggal', batasBawahStr),
             supabase.from('log_checkin_pml').select('pml_email, tanggal, idsubsls, foto_bukti').gte('tanggal', batasBawahStr),
-            supabase.from('log_realisasi_pml').select('tanggal, pml_email, kendala_lapangan, solusi_lapangan').gte('tanggal', batasBawahStr)
+            // Tambahan kolom foto_evaluasi untuk mengurangi query kedua nanti
+            supabase.from('log_realisasi_pml').select('tanggal, pml_email, kendala_lapangan, solusi_lapangan, foto_evaluasi').gte('tanggal', batasBawahStr)
         ]);
 
         if (logsPclRes.error || logsPmlRes.error || realisasiPmlRes.error) {
@@ -566,7 +482,6 @@ export default function DashboardPusat() {
         let pmlAktifCount = 0;
         let totalStagnanCount = 0;
 
-        // Fungsi pemroses data detil dengan optimasi komparasi String ISO murni
         const prosesDetailedPetugas = (list, logsMap, isPcl) => list.map(petugas => {
             const logs = logsMap.get(petugas.email) || [];
             const checkinHariIni = logs.some(l => l.tanggal === tglHariIni);
@@ -616,9 +531,8 @@ export default function DashboardPusat() {
 
         setLoading(false);
         setIsRefreshing(false);
-    }, [selectedFilterDate, isMasterReady, rawPetugas, slsMap, rawLogsPcl.length]);
+    }, [isMasterReady, rawPetugas, slsMap]); // 🔥 Dependency tanggal dihapus
 
-    // Trigger sinkronisasi dua efek terpisah
     useEffect(() => {
         fetchMasterData();
     }, [fetchMasterData]);
@@ -627,7 +541,6 @@ export default function DashboardPusat() {
         fetchOperationalLogs();
     }, [fetchOperationalLogs]);
 
-    // 1. ENGINE AGREGASI SENSUS (Dioptimasi)
     const dataMonitoringWilayah = useMemo(() => {
         const rekapKecamatan = {};
         const rekapDesa = {};
@@ -654,7 +567,6 @@ export default function DashboardPusat() {
             else if (realisasi > 0) { muatanSedang = realisasi; muatanBelum = Math.max(0, targetDinamis - realisasi); }
             else muatanBelum = targetDinamis;
 
-            // Hitung Status SLS Ditingkat Filter Global (Sekaligus di Loop Pertama)
             if (isTargetKec) {
                 rekapStatusSls.total++;
                 if (isSelesai) { rekapStatusSls.selesai++; muatanStatus.selesai += realisasi; }
@@ -662,7 +574,6 @@ export default function DashboardPusat() {
                 else { rekapStatusSls.belum++; muatanStatus.belum += targetDinamis; }
             }
 
-            // Agregasi Object Map Spasial
             const updateRekap = (obj, key, namaDefault, extraProps = {}) => {
                 if (!obj[key]) {
                     obj[key] = {
@@ -689,7 +600,7 @@ export default function DashboardPusat() {
 
             if (sls.petugas_id) {
                 const idPetugas = String(sls.petugas_id).trim();
-                const namaDariJoin = sls.petugas?.nama_petugas || sls.petugas_id?.nama_petugas;
+                const namaDariJoin = sls.petugas?.nama_petugas;
                 const namaPetugas = String(namaDariJoin || idPetugas.split('@')[0]).toUpperCase();
                 updateRekap(rekapPetugas, `${kodeKec}-${idPetugas}`, namaPetugas, { kode: idPetugas, kodeKec, nama_asli: namaPetugas, nama: namaPetugas });
             }
@@ -720,7 +631,6 @@ export default function DashboardPusat() {
         return match ? match.nama_asli : null;
     }, [selectedKecamatan, dataMonitoringWilayah.kecamatan]);
 
-    // 2. TIMELINE GENERATOR & HISTORIS 14 HARI
     const trendAndMetricsData = useMemo(() => {
         const now = new Date();
         const jktDateString = now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" });
@@ -791,7 +701,6 @@ export default function DashboardPusat() {
     const filteredMetrics = trendAndMetricsData.filteredMetrics;
     const trendChartData = trendAndMetricsData.trendChartData;
 
-    // 4. KECAMATAN AKTIF HARI INI GRAPH DATA GENERATOR
     const kecamatanChartData = useMemo(() => {
         if (daftarKecamatan.length === 0) return [];
         return daftarKecamatan.map(item => {
@@ -814,7 +723,6 @@ export default function DashboardPusat() {
         });
     }, [daftarKecamatan, masterPclList, masterPmlList, selectedFilterDate]);
 
-    // 5. MONITORING SIKLUS BATCH
     const progresSiklusTerfilter = useMemo(() => {
         const petugasTerfilter = selectedKecamatan ? rawPetugas.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan) : rawPetugas;
         const pclKec = petugasTerfilter.filter(p => p.posisi_tugas === 'PCL');
@@ -839,7 +747,6 @@ export default function DashboardPusat() {
         return hasilSiklus;
     }, [selectedKecamatan, rawPetugas, rawLogsPcl, rawRealisasiPml]);
 
-    // 6. RE-EVALUASI FILTER LIST UTAMA (Mendukung Debounced Search Term)
     const filteredList = useMemo(() => {
         const listDataAktif = activeTab === 'PCL' ? masterPclList : masterPmlList;
         const jktDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
@@ -889,7 +796,8 @@ export default function DashboardPusat() {
         setShowDetailLapangan(true);
     };
 
-    const handleBukaDetailEvaluasi = async (tanggalLabel) => {
+    // 🚀 LOKALISASI: Fetch Evaluasi tanpa request egress ke Supabase
+    const handleBukaDetailEvaluasi = (tanggalLabel) => {
         setLoadingDetailEval(true);
         setShowDetailEvaluasi(true);
         setEvalCurrentPage(1);
@@ -901,46 +809,38 @@ export default function DashboardPusat() {
 
         setDataEvaluasiTerpilih({ tanggal: tanggalLabel, listLaporan: [] });
 
-        try {
-            const { data, error } = await supabase
-                .from('log_realisasi_pml')
-                .select(`
-                    pml_email,
-                    kendala_lapangan,
-                    solusi_lapangan,
-                    foto_evaluasi,
-                    petugas!pml_email (
-                        nama_petugas,
-                        kecamatan_tugas
-                    )
-                `)
-                .eq('tanggal', dbDateFormatted);
+        setTimeout(() => {
+            try {
+                // Filter murni dari lokal (rawRealisasiPml)
+                const dataRaw = rawRealisasiPml.filter(log => log.tanggal === dbDateFormatted);
 
-            if (error) throw error;
+                const dataFormatted = dataRaw.map(log => {
+                    const pml = rawPetugas.find(p => p.email === log.pml_email) || {};
+                    return {
+                        pml_email: log.pml_email,
+                        kendala_lapangan: log.kendala_lapangan,
+                        solusi_lapangan: log.solusi_lapangan,
+                        foto_evaluasi: log.foto_evaluasi,
+                        nama_petugas: pml.nama_petugas || 'TANPA NAMA',
+                        kecamatan_tugas: pml.kecamatan_tugas || '999 KOSONG'
+                    };
+                });
 
-            const dataFormatted = (data || []).map(log => ({
-                pml_email: log.pml_email,
-                kendala_lapangan: log.kendala_lapangan,
-                solusi_lapangan: log.solusi_lapangan,
-                foto_evaluasi: log.foto_evaluasi,
-                nama_petugas: log.petugas?.nama_petugas || 'TANPA NAMA',
-                kecamatan_tugas: log.petugas?.kecamatan_tugas || '999 KOSONG'
-            }));
+                const dataSorted = dataFormatted.sort((a, b) => {
+                    return a.kecamatan_tugas.localeCompare(b.kecamatan_tugas, 'id', { numeric: true });
+                });
 
-            const dataSorted = dataFormatted.sort((a, b) => {
-                return a.kecamatan_tugas.localeCompare(b.kecamatan_tugas, 'id', { numeric: true });
-            });
+                setDataEvaluasiTerpilih({
+                    tanggal: tanggalLabel,
+                    listLaporan: dataSorted
+                });
 
-            setDataEvaluasiTerpilih({
-                tanggal: tanggalLabel,
-                listLaporan: dataSorted
-            });
-
-        } catch (err) {
-            console.error("Gagal mengambil detail evaluasi join petugas:", err.message);
-        } finally {
-            setLoadingDetailEval(false);
-        }
+            } catch (err) {
+                console.error("Gagal format detail evaluasi lokal:", err.message);
+            } finally {
+                setLoadingDetailEval(false);
+            }
+        }, 50); 
     };
 
     const [tahun, bulan, hari] = selectedFilterDate.split('-');
@@ -961,8 +861,6 @@ export default function DashboardPusat() {
 
     return (
         <div className="p-4 md:p-6 bg-slate-50 min-h-screen text-slate-800 font-sans antialiased selection:bg-indigo-100">
-
-            {/* HEADER */}
             <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-200 pb-4">
                 <div>
                     <h1 className="text-sm font-black tracking-wider text-slate-800 uppercase flex items-center gap-2">
@@ -980,14 +878,9 @@ export default function DashboardPusat() {
                 </button>
             </div>
 
-            {/* METRICS PANEL BOARD - KLIK UNTUK MODAL POP-UP */}
-            {/* METRICS PANEL BOARD - SINKRONISASI TOTAL DUAL TAB MODAL DENGAN SPASIAL KECAMATAN */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-
-                {/* 1. PANEL PPL JALAN LAPANGAN */}
                 <div
                     onClick={() => {
-                        // Ambil PPL yang sudah lolos filter kecamatan spasial aktif saat ini
                         const pclTerfilterKec = selectedKecamatan
                             ? masterPclList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
                             : masterPclList;
@@ -1025,13 +918,11 @@ export default function DashboardPusat() {
                             <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 h-full transition-all" style={{ width: `${filteredMetrics.totalPcl > 0 ? (filteredMetrics.pclAktifHariIni / filteredMetrics.totalPcl) * 100 : 0}%` }}></div>
                         </div>
                     </div>
-
                     <div>
-                        {/* TOMBOL EXCEL TAB PPL */}
                         <button
                             type="button"
                             onClick={(e) => {
-                                e.stopPropagation(); // Mencegah modal terbuka
+                                e.stopPropagation(); 
                                 if (typeof handleExportToExcel === 'function') handleExportToExcel('PPL');
                             }}
                             className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 text-white py-1 px-2 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 shadow-xs transition-colors cursor-pointer"
@@ -1042,10 +933,8 @@ export default function DashboardPusat() {
                     </div>
                 </div>
 
-                {/* 2. PANEL PML JALAN LAPANGAN */}
                 <div
                     onClick={() => {
-                        // FIX: Menggunakan masterPmlList (Bukan masterPclList lagi) + Filter Spasial Kecamatan
                         const pmlTerfilterKec = selectedKecamatan
                             ? masterPmlList.filter(p => ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
                             : masterPmlList;
@@ -1085,11 +974,10 @@ export default function DashboardPusat() {
                     </div>
 
                     <div>
-                        {/* TOMBOL EXCEL TAB PML */}
                         <button
                             type="button"
                             onClick={(e) => {
-                                e.stopPropagation(); // Mencegah modal terbuka
+                                e.stopPropagation();
                                 if (typeof handleExportToExcel === 'function') handleExportToExcel('PML');
                             }}
                             className="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 text-white py-1 px-2 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 shadow-xs transition-colors cursor-pointer"
@@ -1100,14 +988,11 @@ export default function DashboardPusat() {
                     </div>
                 </div>
 
-                {/* 3. PANEL PETUGAS TIDAK AKTIF */}
                 <div
                     onClick={() => {
-                        // Saring gabungan petugas (PCL & PML) yang saat ini dalam status stagnan (>= 3 hari pasif)
                         const pclStagnan = masterPclList.filter(p => p.isStagnan && (selectedKecamatan ? ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan : true));
                         const pmlStagnan = masterPmlList.filter(p => p.isStagnan && (selectedKecamatan ? ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan : true));
 
-                        // Beri label properti posisi tugas secara eksplisit agar muncul di modal gabungan
                         const rawPclMapped = pclStagnan.map(p => ({ ...p, posisi_tugas: 'PCL' }));
                         const rawPmlMapped = pmlStagnan.map(p => ({ ...p, posisi_tugas: 'PML' }));
 
@@ -1140,11 +1025,10 @@ export default function DashboardPusat() {
                     </div>
 
                     <div>
-                        {/* TOMBOL EXCEL DAFTAR STAGNAN */}
                         <button
                             type="button"
                             onClick={(e) => {
-                                e.stopPropagation(); // Mencegah modal terbuka
+                                e.stopPropagation(); 
                                 if (typeof handleExportToExcel === 'function') handleExportToExcel('STAGNAN');
                             }}
                             className="mt-3 w-full bg-rose-600 hover:bg-rose-700 text-white py-1 px-2 rounded-lg text-[9px] font-black uppercase flex items-center justify-center gap-1 shadow-xs transition-colors cursor-pointer"
@@ -1155,7 +1039,6 @@ export default function DashboardPusat() {
                     </div>
                 </div>
 
-                {/* 4. FILTER KECAMATAN */}
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
                     <div className="w-full">
                         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-2">Filter Kecamatan</div>
@@ -1179,12 +1062,6 @@ export default function DashboardPusat() {
                 </div>
             </div>
 
-            {/* SIKLUS MONITORING GRID */}
-            {/* SIKLUS MONITORING GRID */}
-
-            {/* ASSIGNMENT REALISASI CHART PANEL */}
-
-            {/* SECTION GRAFIK TREN KEAKTIFAN */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
                 <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between overflow-hidden">
                     <div className="flex justify-between items-center mb-4">
@@ -1216,8 +1093,6 @@ export default function DashboardPusat() {
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="name" stroke="#94a3b8" fontSize={8} tickLine={false} angle={-45} textAnchor="end" interval={0} height={45} tick={{ fontWeight: 700 }} />
                                     <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} unit="%" domain={[0, 100]} />
-
-                                    {/* 🔥 PROSES PENGGANTIAN: Di sinilah tag Tooltip baru diletakkan */}
                                     <Tooltip
                                         cursor={{ fill: '#f8fafc', opacity: 0.4 }}
                                         content={({ active, payload }) => {
@@ -1225,12 +1100,9 @@ export default function DashboardPusat() {
                                                 const data = payload[0].payload;
                                                 return (
                                                     <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xl text-[11px] space-y-1.5 font-sans min-w-[160px] z-50">
-                                                        {/* Judul Nama Kecamatan */}
                                                         <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1 flex items-center gap-1 font-mono">
                                                             📍 {data.name}
                                                         </div>
-
-                                                        {/* Keterangan Jumlah Orang Riil */}
                                                         <div className="space-y-1 font-semibold text-slate-500">
                                                             <div className="flex justify-between items-center gap-4">
                                                                 <span className="flex items-center gap-1">
@@ -1240,7 +1112,6 @@ export default function DashboardPusat() {
                                                                     {data.pclAktif} / {data.pclTotal} <span className="text-[9px] font-normal text-slate-400 font-sans">Org</span>
                                                                 </strong>
                                                             </div>
-
                                                             <div className="flex justify-between items-center gap-4">
                                                                 <span className="flex items-center gap-1">
                                                                     <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]"></span> PML Aktif:
@@ -1250,8 +1121,6 @@ export default function DashboardPusat() {
                                                                 </strong>
                                                             </div>
                                                         </div>
-
-                                                        {/* Rasio Info Persentase Kecil di bawah */}
                                                         <div className="border-t border-slate-100 pt-1 text-[8px] text-slate-400 font-bold uppercase flex justify-between tracking-tight">
                                                             <span>Rasio Capaian:</span>
                                                             <span>PPL {data['PCL Aktif (%)']}% | PML {data['PML Aktif (%)']}%</span>
@@ -1262,7 +1131,6 @@ export default function DashboardPusat() {
                                             return null;
                                         }}
                                     />
-
                                     <Legend wrapperStyle={{ fontSize: '9px' }} verticalAlign="top" align="right" />
                                     <Bar dataKey="PCL Aktif (%)" fill="#6366f1" radius={[3, 3, 0, 0]} barSize={10} cursor="pointer" />
                                     <Bar dataKey="PML Aktif (%)" fill="#10b981" radius={[3, 3, 0, 0]} barSize={10} cursor="pointer" />
@@ -1283,12 +1151,11 @@ export default function DashboardPusat() {
                             <span className="text-[8px] font-black uppercase bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md border border-indigo-100/60 shadow-sm">Terfilter Spasial</span>
                         )}
                     </div>
-
                     <div className="h-60 w-full mt-4">
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart
                                 syncId="trenKeaktifan"
-                                data={trendChartData}
+                                data={trendChartData.slice(-7)}
                                 margin={{ bottom: 5, left: -10, right: 10 }}
                             >
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -1333,7 +1200,6 @@ export default function DashboardPusat() {
                 </div>
             </div>
 
-            {/* UNIFIED CONTROL TOOLBAR */}
             <div className="p-3 bg-white border border-slate-200 rounded-2xl flex flex-col lg:flex-row gap-3 justify-between items-center mb-4 shadow-sm">
                 <div className="flex bg-slate-100 p-1.5 rounded-xl w-full lg:w-auto gap-1">
                     {['PCL', 'PML'].map((role) => (
@@ -1346,7 +1212,6 @@ export default function DashboardPusat() {
                 <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto items-center flex-1 lg:justify-end">
                     <div className="relative w-full sm:w-56">
                         <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
-                        {/* 💡 SINKRONISASI KE STATE INPUT DENGAN DEBOUNCE EFFECT */}
                         <input type="text" placeholder={`Cari nama / email ${activeTab}...`} value={searchInputValue} onChange={(e) => setSearchInputValue(e.target.value)} className="w-full bg-slate-50 text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-shadow" />
                     </div>
 
@@ -1375,23 +1240,17 @@ export default function DashboardPusat() {
                 </div>
             </div>
 
-            {/* LOWER BODY: LAYOUT TABEL & SIDEBAR DETAIL */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
-                {/* LOWER BODY: LAYOUT TABEL DENGAN PAGINATION (1 HALAMAN = 25 PETUGAS) */}
                 <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm w-full">
                     {(() => {
-                        // Logika Hitung Data Pagination
                         const totalItems = filteredList.length;
                         const totalPages = Math.ceil(totalItems / tableItemsPerPage) || 1;
-
-                        // Menghitung indeks data yang akan ditampilkan pada halaman aktif
                         const indexOfLastItem = tableCurrentPage * tableItemsPerPage;
                         const indexOfFirstItem = indexOfLastItem - tableItemsPerPage;
                         const currentTableItems = filteredList.slice(indexOfFirstItem, indexOfLastItem);
 
                         return (
                             <>
-                                {/* Bagian Tabel */}
                                 <div className="overflow-x-auto w-full">
                                     <table className="w-full text-left border-collapse table-auto">
                                         <thead>
@@ -1462,7 +1321,6 @@ export default function DashboardPusat() {
                                     </table>
                                 </div>
 
-                                {/* 📊 CONTROLLER PAGINATION (FOOTER TABEL) */}
                                 <div className="bg-white p-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px]">
                                     <span className="font-bold text-slate-400 uppercase tracking-wider">
                                         Halaman {tableCurrentPage} dari {totalPages}
@@ -1477,7 +1335,7 @@ export default function DashboardPusat() {
                                             disabled={tableCurrentPage === 1}
                                             onClick={() => {
                                                 setTableCurrentPage(prev => Math.max(prev - 1, 1));
-                                                setSelectedPetugas(null); // Clear selected sidebar demi keamanan data sync
+                                                setSelectedPetugas(null); 
                                             }}
                                             className="bg-slate-100 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none text-slate-700 font-black px-4 py-2 rounded-xl transition-all active:scale-95 flex-1 sm:flex-none text-center"
                                         >
@@ -1488,7 +1346,7 @@ export default function DashboardPusat() {
                                             disabled={tableCurrentPage === totalPages}
                                             onClick={() => {
                                                 setTableCurrentPage(prev => Math.min(prev + 1, totalPages));
-                                                setSelectedPetugas(null); // Clear selected sidebar demi keamanan data sync
+                                                setSelectedPetugas(null); 
                                             }}
                                             className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-30 disabled:pointer-events-none text-white font-black px-4 py-2 rounded-xl transition-all shadow-md active:scale-95 flex-1 sm:flex-none text-center"
                                         >
@@ -1501,11 +1359,9 @@ export default function DashboardPusat() {
                     })()}
                 </div>
 
-                {/* SIDEBAR PANEL KANAN */}
                 <div className="bg-white rounded-3xl border border-slate-200 p-5 sticky top-4 shadow-sm lg:col-span-1 min-h-[400px]">
                     {selectedPetugas ? (
                         <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                            {/* PROFIL PETUGAS */}
                             <div className="flex items-start gap-3 border-b border-slate-100 pb-4 mb-4">
                                 <div className="p-3 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-2xl border border-indigo-200 text-indigo-600 shadow-sm"><User size={20} /></div>
                                 <div className="overflow-hidden">
@@ -1515,9 +1371,7 @@ export default function DashboardPusat() {
                                 </div>
                             </div>
 
-                            {/* BODY DETAIL CONTENER */}
                             <div className="space-y-4">
-                                {/* METRICS MINI */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="bg-gradient-to-br from-slate-50 to-white p-3 rounded-2xl border border-slate-100 text-center shadow-sm">
                                         <span className="text-[9px] text-slate-400 uppercase block font-bold">Submit Log</span>
@@ -1529,7 +1383,6 @@ export default function DashboardPusat() {
                                     </div>
                                 </div>
 
-                                {/* KALENDER PRESENSI */}
                                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                                     <span className="text-[10px] text-slate-500 uppercase block font-black mb-3 flex items-center gap-1.5 border-b border-slate-100 pb-2"><Calendar size={13} className="text-indigo-500" /> Presensi Lapangan Juni 2026</span>
                                     <div className="grid grid-cols-7 gap-1.5 text-center text-[9px] font-black text-slate-400 uppercase mb-2">
@@ -1547,16 +1400,12 @@ export default function DashboardPusat() {
                                     </div>
                                 </div>
 
-                                {/* 📸 KOMPONEN BARU: FOTO BUKTI LAPANGAN 3 HARI TERAKHIR */}
-                                {/* 📸 FOTO BUKTI LAPANGAN 3 HARI TERAKHIR (FULL TANPA SCROLL + INFO SLS) */}
-                                {/* 📸 FOTO BUKTI LAPANGAN 3 HARI TERAKHIR (DENGAN DETEKSI NAMA PPL JIKA PETUGAS ADALAH PML) */}
                                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
                                     <span className="text-[10px] text-slate-500 uppercase block font-black flex items-center gap-1.5 border-b border-slate-100 pb-2">
                                         <span>📸</span> Galeri Bukti Lapangan (3 Hari Terakhir)
                                     </span>
 
                                     {(() => {
-                                        // 1. Kelompokkan log berdasarkan tanggal
                                         const grupFotoPerHari = {};
                                         (selectedPetugas.rawLogs || []).forEach(log => {
                                             if (log.foto_bukti) {
@@ -1567,7 +1416,6 @@ export default function DashboardPusat() {
                                             }
                                         });
 
-                                        // 2. Ambil daftar tanggal, urutkan dari yang terbaru, lalu potong jadi 3 hari terakhir saja
                                         const urutanHariTerakhir = Object.keys(grupFotoPerHari)
                                             .sort((a, b) => new Date(b) - new Date(a))
                                             .slice(0, 3);
@@ -1580,20 +1428,17 @@ export default function DashboardPusat() {
                                             );
                                         }
 
-                                        // Cek apakah petugas yang sedang aktif di sidebar adalah seorang PML
                                         const isSelectedPml = selectedPetugas.posisi_tugas === 'PML';
 
                                         return (
                                             <div className="space-y-5">
                                                 {urutanHariTerakhir.map((tanggal, indexHari) => {
                                                     const listLogHariIni = grupFotoPerHari[tanggal];
-
                                                     const tglObj = new Date(tanggal);
                                                     const tglFormatted = tglObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 
                                                     return (
                                                         <div key={tanggal} className={`space-y-3 ${indexHari > 0 ? "border-t border-slate-100 pt-4" : ""}`}>
-                                                            {/* Label Batas Hari */}
                                                             <div className="flex justify-between items-center">
                                                                 <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md font-mono">
                                                                     📅 {tglFormatted}
@@ -1603,24 +1448,19 @@ export default function DashboardPusat() {
                                                                 </span>
                                                             </div>
 
-                                                            {/* Grid Foto */}
                                                             <div className={`grid gap-3 ${listLogHariIni.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                                                                 {listLogHariIni.map((log, idxFoto) => {
                                                                     const linkOriginal = log.foto_bukti;
                                                                     const urlEmbedPreview = konversiLinkDrive(linkOriginal);
 
-                                                                    // 🎯 RELASI DATA SPASIAL & STRUKTUR ORGANISASI BPS
                                                                     const detailSls = slsMap && typeof slsMap.get === 'function' ? slsMap.get(log.idsubsls) : null;
                                                                     const namaSls = detailSls?.nmsls || "Memuat Nama SLS...";
                                                                     const namaDesa = detailSls?.nmdesa || "Memuat Desa...";
-
-                                                                    // Ambil nama PPL dari join table petugas yang dikelola subsls terkait
                                                                     const namaPplDidampingi = detailSls?.petugas?.nama_petugas || "Tidak Ter-assign";
 
                                                                     return (
                                                                         <div key={idxFoto} className="bg-slate-50 border border-slate-200/60 p-2 rounded-xl flex flex-col justify-between shadow-2xs hover:shadow-xs transition-shadow">
                                                                             <div className="space-y-1.5">
-                                                                                {/* Frame Gambar Iframe */}
                                                                                 <div className="relative aspect-video rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
                                                                                     <iframe
                                                                                         src={urlEmbedPreview}
@@ -1632,7 +1472,6 @@ export default function DashboardPusat() {
                                                                                     <div className="absolute inset-0 bg-transparent cursor-default"></div>
                                                                                 </div>
 
-                                                                                {/* 📍 Keterangan Info SLS & Desa */}
                                                                                 <div className="space-y-0.5 px-0.5">
                                                                                     <div className="text-[10px] font-black text-slate-800 tracking-tight leading-tight truncate uppercase">
                                                                                         {namaSls}
@@ -1641,7 +1480,6 @@ export default function DashboardPusat() {
                                                                                         <span>📍</span> Desa {namaDesa}
                                                                                     </div>
 
-                                                                                    {/* 🏃‍♂️ BADGE TAMBAHAN KHUSUS PML: Menampilkan PPL dampingan di SLS ini */}
                                                                                     {isSelectedPml && (
                                                                                         <div className="text-[8px] font-black text-indigo-600 bg-indigo-50/70 border border-indigo-100/50 px-1.5 py-0.5 rounded-md mt-1 truncate uppercase tracking-tight flex items-center gap-1">
                                                                                             <span>PPL yang Didampingi:</span> {namaPplDidampingi}
@@ -1654,7 +1492,6 @@ export default function DashboardPusat() {
                                                                                 </div>
                                                                             </div>
 
-                                                                            {/* Link Download / Buka Drive */}
                                                                             <div className="text-right pt-2 border-t border-slate-100 mt-2">
                                                                                 <a
                                                                                     href={linkOriginal}
@@ -1677,7 +1514,6 @@ export default function DashboardPusat() {
                                     })()}
                                 </div>
 
-                                {/* KECAMATAN PENUGASAN */}
                                 <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100/50 flex items-center gap-3">
                                     <div className="p-1.5 bg-white rounded-lg shadow-sm text-indigo-500"><MapPin size={14} /></div>
                                     <div>
@@ -1686,8 +1522,6 @@ export default function DashboardPusat() {
                                     </div>
                                 </div>
 
-                                {/* DAFTAR SLS */}
-                                {/* 🛡️ DAFTAR SLS DIKERJAKAN (SUDAH SINKRON DENGAN STATE MAP) */}
                                 <div>
                                     <span className="text-[10px] text-slate-500 uppercase font-black tracking-wider block mb-2 flex items-center gap-1.5 border-b border-slate-100 pb-2">
                                         <ShieldAlert size={12} className="text-slate-400" /> Daftar SLS Dikerjakan
@@ -1699,11 +1533,9 @@ export default function DashboardPusat() {
                                             </div>
                                         ) : (
                                             selectedPetugas.rawLogs && (() => {
-                                                // 1. Ambil semua ID SLS unik dari log petugas secara real-time
                                                 const uniqueIds = Array.from(new Set(selectedPetugas.rawLogs.map(l => l.idsubsls)));
 
                                                 return uniqueIds.map((id) => {
-                                                    // 2. Cocokkan langsung ke State slsMap global yang sudah valid
                                                     const detailSls = slsMap && typeof slsMap.get === 'function' ? slsMap.get(id) : null;
                                                     const namaSls = detailSls?.nmsls || "Nama SLS Tidak Ditemukan";
                                                     const namaDesa = detailSls?.nmdesa || "-";
@@ -1723,7 +1555,6 @@ export default function DashboardPusat() {
                             </div>
                         </div>
                     ) : (
-                        /* SCREEN BELUM PILIH PETUGAS */
                         <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 gap-3 py-10 opacity-60">
                             <div className="p-4 bg-slate-50 rounded-full border border-slate-100">
                                 <User size={32} className="text-slate-300" />
@@ -1737,7 +1568,6 @@ export default function DashboardPusat() {
                 </div>
             </div>
 
-            {/* ✅ WINDOW BOX EVALUASI DENGAN SERVER SIDE INTEGRATION */}
             {showDetailEvaluasi && (() => {
                 const petugasTerfilter = selectedKecamatan
                     ? rawPetugas.filter(p => p.posisi_tugas === 'PML' && ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
@@ -1882,7 +1712,6 @@ export default function DashboardPusat() {
                 );
             })()}
 
-            {/* ✅ WINDOW BOX PEMANTAUAN PETUGAS LAPANGAN (PPL) */}
             {showDetailLapangan && (() => {
                 const baseMasterPcl = selectedKecamatan
                     ? rawPetugas.filter(p => p.posisi_tugas === 'PCL' && ekstrakKodeKecPetugas(p.kecamatan_tugas) === selectedKecamatan)
@@ -1987,22 +1816,16 @@ export default function DashboardPusat() {
                 );
             })()}
 
-            {/* ======================================================================= */}
-            {/* ✅ WINDOW BOX POP-UP DENGAN DUAL TAB (SUDAH JALAN VS BELUM JALAN)        */}
-            {/* ======================================================================= */}
             {showModalMetrik && (() => {
                 const isTipeStagnan = dataModalMetrik.tipeStatus === 'STAGNAN';
 
-                // 1. Pisahkan list petugas menjadi Aktif dan Belum Absen secara real-time
                 const listSudahJalan = dataModalMetrik.listPetugas.filter(p => p.statusHariIni === 'AKTIF');
                 const listBelumJalan = dataModalMetrik.listPetugas.filter(p => p.statusHariIni === 'ABSEN' || p.statusHariIni === 'STAGNAN');
 
-                // 2. Tentukan dataset base berdasarkan tab aktif saat ini (abaikan pemisahan jika modalnya tipe stagnan)
                 const baseTabList = isTipeStagnan
                     ? dataModalMetrik.listPetugas
                     : (modalMetrikActiveTab === 'AKTIF' ? listSudahJalan : listBelumJalan);
 
-                // 3. Filter data berdasarkan text input pencarian modal
                 const filteredModalList = baseTabList.filter(p => {
                     const query = modalMetrikSearch.toLowerCase();
                     return (p.nama_petugas || '').toLowerCase().includes(query) ||
@@ -2010,14 +1833,12 @@ export default function DashboardPusat() {
                         (p.kecamatan_tugas || '').toLowerCase().includes(query);
                 });
 
-                // 4. Urutkan alfabetis/spasial kecamatan
                 const sortedModalList = filteredModalList.sort((a, b) => {
                     const kecA = a.kecamatan_tugas || '999';
                     const kecB = b.kecamatan_tugas || '999';
                     return kecA.localeCompare(kecB, 'id', { numeric: true });
                 });
 
-                // 5. Hitung Data Item per Halaman Pagination internal modal
                 const totalItems = sortedModalList.length;
                 const totalPages = Math.ceil(totalItems / modalMetrikItemsPerPage) || 1;
                 const indexOfLastItem = modalMetrikPage * modalMetrikItemsPerPage;
@@ -2028,7 +1849,6 @@ export default function DashboardPusat() {
                     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
                         <div className="bg-slate-50 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden max-h-[85vh] flex flex-col animate-scaleIn">
 
-                            {/* HEADER POPUP */}
                             <div className="bg-white p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
                                 <div className="flex items-center gap-2">
                                     <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${isTipeStagnan ? 'bg-rose-500' : 'bg-indigo-500'}`}></div>
@@ -2045,7 +1865,6 @@ export default function DashboardPusat() {
                                 </button>
                             </div>
 
-                            {/* 🔄 DUAL COMPONENT TAB SELECTOR (Hanya muncul untuk PPL & PML, disembunyikan jika panel stagnan diklik) */}
                             {!isTipeStagnan && (
                                 <div className="grid grid-cols-2 gap-2 p-3 bg-white border-b border-slate-100 shrink-0">
                                     <button
@@ -2067,7 +1886,6 @@ export default function DashboardPusat() {
                                 </div>
                             )}
 
-                            {/* BAR PENCARIAN MODAL */}
                             <div className="p-3 bg-white border-b border-slate-200 shrink-0">
                                 <div className="relative">
                                     <Search className="absolute left-3 top-2.5 text-slate-400" size={12} />
@@ -2081,7 +1899,6 @@ export default function DashboardPusat() {
                                 </div>
                             </div>
 
-                            {/* LIST CONTAINER PETUGAS */}
                             <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50/50 scrollbar-thin">
                                 {currentModalItems.length === 0 ? (
                                     <div className="text-center text-[10px] text-slate-400 p-12 bg-white rounded-2xl border border-dashed border-slate-200">
@@ -2123,7 +1940,6 @@ export default function DashboardPusat() {
                                 )}
                             </div>
 
-                            {/* CONTROLLER CONTROLS FOOTER POPUP */}
                             <div className="bg-white p-3 border-t border-slate-200 flex items-center justify-between shrink-0 text-[10px]">
                                 <span className="font-bold text-slate-400 uppercase tracking-wider">Halaman {modalMetrikPage} / {totalPages} <span className="font-medium font-mono text-slate-300">({totalItems} Orang)</span></span>
                                 <div className="flex gap-1.5">
