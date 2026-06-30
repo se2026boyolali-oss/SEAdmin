@@ -1,22 +1,22 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, PieChart, Pie, Cell, AreaChart, Area, Legend, ReferenceLine } from 'recharts';
-import { supabase } from '../supabaseClient'; 
+import { supabase } from '../supabaseClient';
 import * as XLSX from 'xlsx';
 
 // Komponen dipisah ke luar agar tidak di-recreate oleh React setiap kali hover
 const CustomLabelTren = (props) => {
     const { x, y, value, strokeColor, isDimmed } = props;
-    if (!value || value === 0 || isDimmed) return null; 
+    if (!value || value === 0 || isDimmed) return null;
 
     return (
-        <text 
-            x={x} 
-            y={y - 8} 
-            fill={strokeColor} 
-            fontSize={9} 
-            fontWeight={900} 
+        <text
+            x={x}
+            y={y - 8}
+            fill={strokeColor}
+            fontSize={9}
+            fontWeight={900}
             textAnchor="middle"
-            className="font-mono pointer-events-none" 
+            className="font-mono pointer-events-none"
             style={{ textShadow: '1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white' }}
         >
             +{Number(value).toLocaleString('id-ID')}
@@ -26,11 +26,11 @@ const CustomLabelTren = (props) => {
 
 const susunanBarStatus = [
     { key: "submitted", label: "SUBMITTED BY Pencacah", fill: "#3b82f6", radius: undefined },
-    { key: "draft",     label: "DRAFT",                 fill: "#f97316", radius: undefined },  
-    { key: "rejected",  label: "REJECTED BY Pengawas",  fill: "#ef4444", radius: undefined },  
-    { key: "revoked",   label: "REVOKED BY Pengawas",   fill: "#991b1b", radius: undefined },
-    { key: "approved",  label: "APPROVED BY Pengawas",  fill: "#10b981", radius: undefined },  
-    { key: "open",      label: "OPEN",                  fill: "#e2e8f0", radius: [4, 4, 0, 0] } 
+    { key: "draft", label: "DRAFT", fill: "#f97316", radius: undefined },
+    { key: "rejected", label: "REJECTED BY Pengawas", fill: "#ef4444", radius: undefined },
+    { key: "revoked", label: "REVOKED BY Pengawas", fill: "#991b1b", radius: undefined },
+    { key: "approved", label: "APPROVED BY Pengawas", fill: "#10b981", radius: undefined },
+    { key: "open", label: "OPEN", fill: "#e2e8f0", radius: [4, 4, 0, 0] }
 ];
 
 export default function DashboardMonitoring() {
@@ -38,21 +38,21 @@ export default function DashboardMonitoring() {
     // 1. STATE MANAGEMENT UTAMA (useState)
     // ==========================================
     const [selectedKecTab, setSelectedKecTab] = useState("SEMUA");
-    const [selectedKecamatan, setSelectedKecamatan] = useState(null); 
-    const [selectedPml, setSelectedPml] = useState("SEMUA"); 
-    const [viewModeTab, setViewModeTab] = useState("DESA"); 
+    const [selectedKecamatan, setSelectedKecamatan] = useState(null);
+    const [selectedPml, setSelectedPml] = useState("SEMUA");
+    const [viewModeTab, setViewModeTab] = useState("DESA");
     const [selectedDesaCode, setSelectedDesaCode] = useState(null);
     const [selectedDesaName, setSelectedDesaName] = useState("");
     const [selectedPetugas, setSelectedPetugas] = useState(null);
-    const [selectedPetugasEmail, setSelectedPetugasEmail] = useState(null); 
-
+    const [selectedPetugasEmail, setSelectedPetugasEmail] = useState(null);
+const [includeDraft, setIncludeDraft] = useState(true);
     const [loading, setLoading] = useState(true);
     const [rawData, setRawData] = useState([]);
-    const [historyData, setHistoryData] = useState([]); 
-    const [pmlList, setPmlList] = useState([]); 
-    const [staffLookup, setStaffLookup] = useState({}); 
-    const [pclToPmlLookup, setPclToPmlLookup] = useState({}); 
-    const [lastSyncedTime, setLastSyncedTime] = useState(null); 
+    const [historyData, setHistoryData] = useState([]);
+    const [pmlList, setPmlList] = useState([]);
+    const [staffLookup, setStaffLookup] = useState({});
+    const [pclToPmlLookup, setPclToPmlLookup] = useState({});
+    const [lastSyncedTime, setLastSyncedTime] = useState(null);
 
     const [showKpiModal, setShowKpiModal] = useState(false);
     const [modalCurrentPage, setModalCurrentPage] = useState(1);
@@ -73,7 +73,7 @@ export default function DashboardMonitoring() {
         desa: [],
         petugas: [],
         sls: [],
-        muatanStatus: { submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, open: 0 }, 
+        muatanStatus: { submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, open: 0 },
         statusSls: { selesai: 0, sedang: 0, belum: 0, total: 0 }
     });
 
@@ -85,7 +85,7 @@ export default function DashboardMonitoring() {
     // ─── OPTIMISASI UTAMA: GEMBOK PENGUNCI LAUNCHING DASHBOARD ───
     const isMasterDataLoadedRef = useRef(false);
 
-    const namaKecamatanTerpilihText = selectedKecTab !== "SEMUA" 
+    const namaKecamatanTerpilihText = selectedKecTab !== "SEMUA"
         ? (dataMonitoringWilayah.kecamatan.find(k => k.kodeKec === selectedKecTab)?.nama_asli || selectedKecTab)
         : "";
 
@@ -121,8 +121,8 @@ export default function DashboardMonitoring() {
 
                 const { data: historicalLogs, error: historyError } = await supabase
                     .from('history_progress_petugas')
-                    .select('tanggal, petugas_id, total_capaian, kode_kec, kode_desa') 
-                    .gte('tanggal', strFilterTanggal) 
+                    .select('tanggal, petugas_id, total_capaian, kode_kec, kode_desa')
+                    .gte('tanggal', strFilterTanggal)
                     .order('tanggal', { ascending: true });
                 if (historyError) throw historyError;
 
@@ -145,7 +145,7 @@ export default function DashboardMonitoring() {
                     .order('last_update', { ascending: false })
                     .limit(1);
                 if (syncError) throw syncError;
-                
+
                 if (syncData && syncData.length > 0 && syncData[0].last_update) {
                     const syncTime = new Date(syncData[0].last_update);
                     setLastSyncedTime(syncTime.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB');
@@ -215,19 +215,19 @@ export default function DashboardMonitoring() {
             const namaKec = row.kecamatan || relMuatan.nmkec || "Unknown";
             const kodeDesa = row.kode_desa || relMuatan.kddesa || "000";
             const namaDesa = row.nama_desa || relMuatan.nmdesa || "Unknown";
-            
+
             const emailPetugas = relMuatan.petugas_id || "Tanpa Petugas";
             const namaPetugas = relPetugas.nama_petugas ? `${relPetugas.nama_petugas}` : emailPetugas;
             const emailPmlFormated = relPetugas.id_pml_atasan ? relPetugas.id_pml_atasan.toLowerCase().trim() : "tanpa pengawas";
 
-            const s_submitted       = parseInt(row.submitted_pencacah) || 0;
-            const s_draft           = parseInt(row.draft) || 0;
-            const s_rejected        = parseInt(row.rejected_pengawas) || 0;
-            const s_revoked         = parseInt(row.revoked_pengawas) || 0;
-            const s_approved        = parseInt(row.approved_pengawas) || 0;
-            const s_edited          = parseInt(row.edited_pengawas) || 0;
-            const s_submitted_resp  = parseInt(row.submitted_respondent) || 0;
-            const s_open            = parseInt(row.open) || 0;
+            const s_submitted = parseInt(row.submitted_pencacah) || 0;
+            const s_draft = parseInt(row.draft) || 0;
+            const s_rejected = parseInt(row.rejected_pengawas) || 0;
+            const s_revoked = parseInt(row.revoked_pengawas) || 0;
+            const s_approved = parseInt(row.approved_pengawas) || 0;
+            const s_edited = parseInt(row.edited_pengawas) || 0;
+            const s_submitted_resp = parseInt(row.submitted_respondent) || 0;
+            const s_open = parseInt(row.open) || 0;
 
             const totalTarget = parseInt(row.total) || (s_submitted + s_draft + s_rejected + s_revoked + s_approved + s_edited + s_submitted_resp + s_open);
 
@@ -240,37 +240,37 @@ export default function DashboardMonitoring() {
 
             const initStrukturData = (kode, namaTampilan, namaAsli) => ({
                 kodeKec, kodeDesa, nama: namaTampilan, nama_asli: namaAsli,
-                submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, 
+                submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0,
                 edited: 0, submitted_resp: 0, open: 0,
                 t: 0, jml_sls: 0, sls_selesai: 0
             });
 
             // 1. Akumulasi per Kecamatan
             if (!kecMap[kodeKec]) kecMap[kodeKec] = initStrukturData(kodeKec, `${namaKec} [${kodeKec}]`, namaKec);
-            kecMap[kodeKec].submitted      += s_submitted; 
-            kecMap[kodeKec].draft          += s_draft;
-            kecMap[kodeKec].rejected       += s_rejected; 
-            kecMap[kodeKec].revoked        += s_revoked;
-            kecMap[kodeKec].approved       += s_approved; 
-            kecMap[kodeKec].edited         += s_edited;
+            kecMap[kodeKec].submitted += s_submitted;
+            kecMap[kodeKec].draft += s_draft;
+            kecMap[kodeKec].rejected += s_rejected;
+            kecMap[kodeKec].revoked += s_revoked;
+            kecMap[kodeKec].approved += s_approved;
+            kecMap[kodeKec].edited += s_edited;
             kecMap[kodeKec].submitted_resp += s_submitted_resp;
-            kecMap[kodeKec].open           += s_open;
-            kecMap[kodeKec].t              += totalTarget; 
-            kecMap[kodeKec].jml_sls        += 1;
+            kecMap[kodeKec].open += s_open;
+            kecMap[kodeKec].t += totalTarget;
+            kecMap[kodeKec].jml_sls += 1;
             if (statusSlsKategori === "selesai") kecMap[kodeKec].sls_selesai += 1;
 
             // 2. Akumulasi per Desa
             if (!desaMap[kodeDesa]) desaMap[kodeDesa] = initStrukturData(kodeDesa, namaDesa, namaDesa);
-            desaMap[kodeDesa].submitted      += s_submitted; 
-            desaMap[kodeDesa].draft          += s_draft;
-            desaMap[kodeDesa].rejected       += s_rejected; 
-            desaMap[kodeDesa].revoked        += s_revoked;
-            desaMap[kodeDesa].approved       += s_approved; 
-            desaMap[kodeDesa].edited         += s_edited;
+            desaMap[kodeDesa].submitted += s_submitted;
+            desaMap[kodeDesa].draft += s_draft;
+            desaMap[kodeDesa].rejected += s_rejected;
+            desaMap[kodeDesa].revoked += s_revoked;
+            desaMap[kodeDesa].approved += s_approved;
+            desaMap[kodeDesa].edited += s_edited;
             desaMap[kodeDesa].submitted_resp += s_submitted_resp;
-            desaMap[kodeDesa].open           += s_open;
-            desaMap[kodeDesa].t              += totalTarget; 
-            desaMap[kodeDesa].jml_sls        += 1;
+            desaMap[kodeDesa].open += s_open;
+            desaMap[kodeDesa].t += totalTarget;
+            desaMap[kodeDesa].jml_sls += 1;
             if (statusSlsKategori === "selesai") desaMap[kodeDesa].sls_selesai += 1;
 
             const kecamatanResmiPetugas = relPetugas.kecamatan_tugas || row.kecamatan || relMuatan.nmkec || "Unknown";
@@ -278,28 +278,28 @@ export default function DashboardMonitoring() {
             // 3. Akumulasi per Petugas (PCL)
             if (!petugasMap[emailPetugas]) {
                 petugasMap[emailPetugas] = {
-                    kodeKec: kodeKec, 
+                    kodeKec: kodeKec,
                     kodeDesa: kodeDesa,
                     nama: namaPetugas,
                     nama_asli: namaPetugas,
                     email: emailPetugas,
-                    namaKec: kecamatanResmiPetugas, 
+                    namaKec: kecamatanResmiPetugas,
                     emailPml: emailPmlFormated,
-                    submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0, 
+                    submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0,
                     edited: 0, submitted_resp: 0, open: 0,
                     t: 0, jml_sls: 0, sls_selesai: 0
                 };
             }
-            petugasMap[emailPetugas].submitted      += s_submitted;
-            petugasMap[emailPetugas].draft          += s_draft;
-            petugasMap[emailPetugas].rejected       += s_rejected;
-            petugasMap[emailPetugas].revoked        += s_revoked;
-            petugasMap[emailPetugas].approved       += s_approved;
-            petugasMap[emailPetugas].edited         += s_edited;
+            petugasMap[emailPetugas].submitted += s_submitted;
+            petugasMap[emailPetugas].draft += s_draft;
+            petugasMap[emailPetugas].rejected += s_rejected;
+            petugasMap[emailPetugas].revoked += s_revoked;
+            petugasMap[emailPetugas].approved += s_approved;
+            petugasMap[emailPetugas].edited += s_edited;
             petugasMap[emailPetugas].submitted_resp += s_submitted_resp;
-            petugasMap[emailPetugas].open           += s_open;
-            petugasMap[emailPetugas].t              += totalTarget;
-            petugasMap[emailPetugas].jml_sls        += 1;
+            petugasMap[emailPetugas].open += s_open;
+            petugasMap[emailPetugas].t += totalTarget;
+            petugasMap[emailPetugas].jml_sls += 1;
             if (statusSlsKategori === "selesai") petugasMap[emailPetugas].sls_selesai += 1;
 
             // 4. Transformasi Persentase untuk Data SLS Tunggal
@@ -340,24 +340,24 @@ export default function DashboardMonitoring() {
         const jumlahPetugasAktif = daftarPetugasValid.length;
 
         const hitungRata2RealisasiPerPetugas = jumlahPetugasAktif > 0 ? Math.round(totalMuatanSelainOpen / jumlahPetugasAktif) : 0;
-        const hitungRata2DokPerHariPerPetugas = (kalkulasiHariKe > 0 && jumlahPetugasAktif > 0) 
-            ? parseFloat((totalMuatanSelainOpen / kalkulasiHariKe / jumlahPetugasAktif).toFixed(1)) 
+        const hitungRata2DokPerHariPerPetugas = (kalkulasiHariKe > 0 && jumlahPetugasAktif > 0)
+            ? parseFloat((totalMuatanSelainOpen / kalkulasiHariKe / jumlahPetugasAktif).toFixed(1))
             : 0;
 
         let counterPetugasDiBawahRata2 = 0;
-        const tmpLowPerformers = []; 
+        const tmpLowPerformers = [];
         const tmpMacet = [];
         const tmpMelambat = [];
 
         const tglSekarang = new Date();
         const tglH1 = new Date(); tglH1.setDate(tglSekarang.getDate() - 1);
         const tglH3 = new Date(); tglH3.setDate(tglSekarang.getDate() - 4);
-        
+
         const strH1 = tglH1.toISOString().split('T')[0];
         const strH3 = tglH3.toISOString().split('T')[0];
 
         daftarPetugasValid.forEach(p => {
-            const realisasiIndividu = p.submitted + p.draft + p.rejected + p.revoked + p.approved; 
+            const realisasiIndividu = p.submitted + p.draft + p.rejected + p.revoked + p.approved;
             const emailClean = p.email.toLowerCase().trim();
 
             if (realisasiIndividu < hitungRata2RealisasiPerPetugas) {
@@ -410,7 +410,7 @@ export default function DashboardMonitoring() {
                 rejected: Math.round((obj.rejected / total) * 100),
                 revoked: Math.round((obj.revoked / total) * 100),
                 approved: Math.round((obj.approved / total) * 100),
-                edited: Math.round((obj.edited / total) * 100), 
+                edited: Math.round((obj.edited / total) * 100),
                 submitted_resp: Math.round((obj.submitted_resp / total) * 100),
                 open: Math.round((obj.open / total) * 100)
             };
@@ -435,13 +435,13 @@ export default function DashboardMonitoring() {
 
         const tanggalUnik = [...new Set(historyData.map(h => h.tanggal))].sort();
         const kumpulanKeys = new Set();
-        
+
         let lastCapaianPerPetugas = {};
         let lastTotalWilayah = 0;
 
         const dataChartGaris = tanggalUnik.map((tgl, tglIdx) => {
             const rawLogsHariIni = historyData.filter(h => h.tanggal === tgl);
-            
+
             let databaseCapaianHariIni = {};
             rawLogsHariIni.forEach(h => {
                 if (h.petugas_id) {
@@ -471,12 +471,12 @@ export default function DashboardMonitoring() {
                 filteredLogs.forEach(h => {
                     const emailFormated = h.petugas_id ? h.petugas_id.toLowerCase().trim() : "Unknown";
                     const namaPcl = staffLookup[emailFormated] || h.petugas_id || "Tanpa Nama";
-                    
+
                     const capaianSaatIni = databaseCapaianHariIni[emailFormated] || 0;
                     const capaianSebelumnya = lastCapaianPerPetugas[emailFormated] || 0;
-                    
+
                     const penambahanHariIni = Math.max(capaianSaatIni - capaianSebelumnya, 0);
-                    
+
                     penambahanGarisHariIni[namaPcl] = penambahanHariIni;
                     kumpulanKeys.add(namaPcl);
                 });
@@ -493,7 +493,7 @@ export default function DashboardMonitoring() {
                 const totalCapaianSaatIni = filteredLogs.reduce((sum, item) => sum + (item.total_capaian || 0), 0);
                 const penambahanHariIni = Math.max(totalCapaianSaatIni - lastTotalWilayah, 0);
                 const namaKey = selectedPetugasEmail ? (staffLookup[selectedPetugasEmail] || selectedPetugasEmail) : "Penambahan Harian";
-                
+
                 dataPoint[namaKey] = tglIdx === 0 ? totalCapaianSaatIni : penambahanHariIni;
                 kumpulanKeys.add(namaKey);
 
@@ -505,7 +505,7 @@ export default function DashboardMonitoring() {
         const dataChartTanpaHariPertama = dataChartGaris.slice(1);
         setTrendKeys(Array.from(kumpulanKeys));
         setChartTrenData(dataChartTanpaHariPertama);
-        
+
     }, [historyData, selectedKecTab, selectedDesaCode, selectedPetugasEmail, selectedPml, pclToPmlLookup, viewModeTab, staffLookup]);
 
     // ==========================================
@@ -522,16 +522,16 @@ export default function DashboardMonitoring() {
             }
             return filteredPetugas;
         }
-        
+
         if (viewModeTab === "SLS") {
             if (selectedPetugasEmail) {
                 return dataMonitoringWilayah.sls.filter(s => s.petugas_id === selectedPetugasEmail);
             }
             return dataMonitoringWilayah.sls.filter(s => s.kodeKec === selectedKecTab && s.kodeDesa === selectedDesaCode);
         }
-        
-        return selectedKecTab === "SEMUA" 
-            ? dataMonitoringWilayah.kecamatan 
+
+        return selectedKecTab === "SEMUA"
+            ? dataMonitoringWilayah.kecamatan
             : dataMonitoringWilayah.desa.filter(d => d.kodeKec === selectedKecTab);
     }, [viewModeTab, selectedKecTab, selectedPml, selectedPetugasEmail, selectedDesaCode, dataMonitoringWilayah]);
 
@@ -541,8 +541,8 @@ export default function DashboardMonitoring() {
 
     const TANGGAL_MULAI = new Date("2026-06-15");
     const TANGGAL_SELESAI = new Date("2026-08-31");
-    const TOTAL_HARI = Math.floor((TANGGAL_SELESAI - TANGGAL_MULAI) / (1000 * 60 * 60 * 24)) + 1; 
-    
+    const TOTAL_HARI = Math.floor((TANGGAL_SELESAI - TANGGAL_MULAI) / (1000 * 60 * 60 * 24)) + 1;
+
     const selisihHari = new Date() - TANGGAL_MULAI;
     const HARI_KE = selisihHari > 0 ? Math.floor(selisihHari / (1000 * 60 * 60 * 24)) + 1 : 1;
     const RASIO_WAKTU = Math.min(HARI_KE / TOTAL_HARI, 1);
@@ -550,7 +550,7 @@ export default function DashboardMonitoring() {
     const targetPersenWilayah = Math.round(RASIO_WAKTU * 100);
 
     const targetVolumePetugas = (() => {
-        const petugasDiKecamatanIni = dataMonitoringWilayah.petugas.filter(p => 
+        const petugasDiKecamatanIni = dataMonitoringWilayah.petugas.filter(p =>
             p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
         );
         const totalTargetMuatanKec = petugasDiKecamatanIni.reduce((sum, p) => sum + (p.total_target || 0), 0);
@@ -563,10 +563,10 @@ export default function DashboardMonitoring() {
     const teksLabelTarget = isPetugasMode ? `${targetVolumePetugas.toLocaleString('id-ID')} Dokumen` : `${targetPersenWilayah}%`;
 
     const metrikEstimasiProyek = useMemo(() => {
-        const masterPetugasWilayah = dataMonitoringWilayah.petugas.filter(p => 
+        const masterPetugasWilayah = dataMonitoringWilayah.petugas.filter(p =>
             p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
         );
-        
+
         const totalSisaOpenAktif = masterPetugasWilayah.reduce((sum, p) => sum + (p.open || 0), 0);
         const totalBebanAwal = masterPetugasWilayah.reduce((sum, p) => sum + (p.total_target || 0), 0) || 1;
 
@@ -582,7 +582,7 @@ export default function DashboardMonitoring() {
 
         const setValidEmails = new Set(masterPetugasWilayah.map(p => p.email.toLowerCase().trim()));
         const logHarian = { [tglH1]: 0, [tglH2]: 0, [tglH3]: 0, [tglH4]: 0 };
-        
+
         historyData.forEach(h => {
             const petId = (h.petugas_id || "").toLowerCase().trim();
             if (setValidEmails.has(petId) && logHarian[h.tanggal] !== undefined) {
@@ -593,9 +593,9 @@ export default function DashboardMonitoring() {
         const dW1 = Math.max((logHarian[tglH1] || 0) - (logHarian[tglH2] || 0), 0);
         const dW2 = Math.max((logHarian[tglH2] || 0) - (logHarian[tglH3] || 0), 0);
         const dW3 = Math.max((logHarian[tglH3] || 0) - (logHarian[tglH4] || 0), 0);
-        
+
         const lajuHarianSaatIni = Math.max(parseFloat(((dW1 + dW2 + dW3) / 3).toFixed(1)), 1);
-        const rasioSisaDokumen = totalSisaOpenAktif / totalBebanAwal; 
+        const rasioSisaDokumen = totalSisaOpenAktif / totalBebanAwal;
         const faktorPelambatanEkor = 0.4 + (0.6 * rasioSisaDokumen);
         const lajuPrediktif = Math.max(parseFloat((lajuHarianSaatIni * faktorPelambatanEkor).toFixed(1)), 1);
         const sisaHariDibutuhkan = Math.ceil(totalSisaOpenAktif / lajuPrediktif);
@@ -609,7 +609,7 @@ export default function DashboardMonitoring() {
         const selisihDariDeadline = Math.ceil(Math.abs((tglPrediksiSelesai - DEADLINE_PROYEK) / (1000 * 60 * 60 * 24)));
 
         return {
-            rataKirimHarian: lajuHarianSaatIni, 
+            rataKirimHarian: lajuHarianSaatIni,
             lajuPrediktif: lajuPrediktif,
             sisaHariDibutuhkan,
             tanggalPrediksi: stringPrediksiSelesai,
@@ -629,177 +629,221 @@ export default function DashboardMonitoring() {
         }).length;
     }, [dataMonitoringWilayah.petugas, selectedKecTab, selectedPml, nilaiTargetYAxis]);
 
+    // 1. Pastikan state ini sudah ada di paling atas komponen utama Anda:
+// const [includeDraft, setIncludeDraft] = useState(true);
+
+// 2. Lakukan transformasi data barChartData berdasarkan status switch:
+const processedBarChartData = useMemo(() => {
+    if (!barChartData) return [];
+    
+    // 1. Transformasikan data (Pindahkan draft ke open jika switch mati)
+    let updatedData = barChartData.map(item => {
+        if (!includeDraft) {
+            const draftValue = parseFloat(item.draft) || 0;
+            const openValue = parseFloat(item.open) || 0;
+            const originalRealisasi = parseFloat(item.total_realisasi) || 0;
+            
+            // Hitung ulang total realisasi (dikurangi draft)
+            const newRealisasi = Math.max(0, originalRealisasi - draftValue);
+            
+            // PENTING: Pindahkan nilai draft menjadi open agar target tidak berubah
+            const newOpen = openValue + draftValue;
+
+            return {
+                ...item,
+                draft: 0,                // Visual batang draft di-nol-kan
+                open: newOpen,           // Nilai open bertambah sebesar draft yang hilang
+                total_realisasi: newRealisasi
+            };
+        }
+        return item;
+    });
+
+    // 2. KHUSUS MODE PETUGAS: Urutkan ulang berdasarkan total_realisasi terbaru secara descending
+    if (viewModeTab === "PETUGAS") {
+        updatedData = updatedData.sort((a, b) => {
+            const realisasiA = parseFloat(a.total_realisasi) || 0;
+            const realisasiB = parseFloat(b.total_realisasi) || 0;
+            return realisasiB - realisasiA;
+        });
+    }
+
+    return updatedData;
+}, [barChartData, includeDraft, viewModeTab]);
+
     // Membekukan elemen Barchart agar tidak terpengaruh re-render tidak perlu
     const memoizedBarChartElement = useMemo(() => (
-        <BarChart
-            data={barChartData}
-            margin={{ bottom: 40, left: -15, right: 10, top: 20 }} 
-            barCategoryGap="25%"
-        >
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-            
-            <XAxis 
-                dataKey="nama" 
-                stroke="#94a3b8" 
-                fontSize={8} 
-                tickLine={false} 
-                angle={-45} 
-                textAnchor="end" 
-                interval={0} 
-                height={50} 
-                tick={(props) => {
-                    const { x, y, payload } = props;
-                    const itemData = barChartData[payload.index];
-                    
-                    let warnaTeks = "#475569"; 
-                    let ketebalanTeks = 700;
+    <BarChart
+        data={processedBarChartData} // 👈 UBAH DI SINI (Ganti barChartData menjadi processedBarChartData)
+        margin={{ bottom: 40, left: -15, right: 10, top: 20 }}
+        barCategoryGap="25%"
+    >
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
 
-                    if (viewModeTab === "PETUGAS" && itemData) {
-                        const realisasi = itemData.total_realisasi || 0;
-                        const target = nilaiTargetYAxis || 0;
+        <XAxis
+            dataKey="nama"
+            stroke="#94a3b8"
+            fontSize={8}
+            tickLine={false}
+            angle={-45}
+            textAnchor="end"
+            interval={0}
+            height={50}
+            tick={(props) => {
+                const { x, y, payload } = props;
+                // 👈 UBAH DI SINI agar mengecek data yang sudah diproses
+                const itemData = processedBarChartData[payload.index]; 
 
-                        if (realisasi < target) {
-                            if (realisasi < (target / 2)) {
-                                warnaTeks = "#ef4444";
-                                ketebalanTeks = 900; 
-                            } else {
-                                warnaTeks = "#f97316";
-                                ketebalanTeks = 800;
-                            }
+                let warnaTeks = "#475569";
+                let ketebalanTeks = 700;
+
+                if (viewModeTab === "PETUGAS" && itemData) {
+                    const realisasi = itemData.total_realisasi || 0;
+                    const target = nilaiTargetYAxis || 0;
+
+                    if (realisasi < target) {
+                        if (realisasi < (target / 2)) {
+                            warnaTeks = "#ef4444";
+                            ketebalanTeks = 900;
+                        } else {
+                            warnaTeks = "#f97316";
+                            ketebalanTeks = 800;
                         }
                     }
+                }
 
-                    return (
-                        <g transform={`translate(${x},${y})`}>
-                            <text
-                                x={0}
-                                y={0}
-                                dy={10}
-                                textAnchor="end"
-                                transform="rotate(-45)"
-                                fill={warnaTeks} 
-                                style={{ 
-                                    fontWeight: ketebalanTeks,
-                                    fontSize: '8px',
-                                    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
-                                }}
-                            >
-                                {payload.value ? payload.value.toUpperCase() : ""}
-                            </text>
-                        </g>
-                    );
-                }} 
-            />
-            <YAxis 
-                stroke="#94a3b8" 
-                fontSize={9} 
-                tickLine={false} 
-                unit={unitSatuanYAxis} 
-                domain={isPetugasMode ? [0, 'auto'] : [0, 100]} 
-                allowDataOverflow={!isPetugasMode} 
-            />
-            
-            <ReferenceLine 
-                y={nilaiTargetYAxis} 
-                stroke="#f59e0b" 
-                strokeDasharray="4 4" 
-                strokeWidth={2}
-                className="z-30"
-                label={{ 
-                    value: `Target Hari ke-${HARI_KE}: ${teksLabelTarget}`, 
-                    position: 'top', 
-                    fill: '#d97706', 
-                    fontSize: 10, 
-                    fontWeight: 900,
-                    style: { textShadow: '1px 1px 2px white, -1px -1px 2px white' }
-                }} 
-            />
-
-            <Tooltip
-                cursor={{ fill: '#f8fafc', opacity: 0.5 }}
-                content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                        const data = payload[0].payload;
-                        return (
-                            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xl text-[11px] space-y-1.5 font-sans min-w-[210px] z-50">
-                                <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1.5 mb-1 flex items-center gap-1">
-                                    {viewModeTab === "PETUGAS" ? "🏃‍♂️" : viewModeTab === "SLS" ? "🏠" : "📍"} {data.nama_asli}
-                                </div>
-                                <div className="space-y-1 font-medium text-slate-500">
-                                    <div className="flex justify-between border-b border-slate-50 pb-1 mb-1">
-                                        <span>Total Target:</span>
-                                        <strong className="text-slate-800 font-mono">{data.total_target?.toLocaleString('id-ID')} Muatan</strong>
-                                    </div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10b981]"></span> Approved:</span><strong className="text-emerald-600 font-mono">{data.approved}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#3b82f6]"></span> Submitted:</span><strong className="text-blue-600 font-mono">{data.submitted}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#f97316]"></span> Draft:</span><strong className="text-orange-600 font-mono">{data.draft}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#ef4444]"></span> Rejected:</span><strong className="text-red-600 font-mono">{data.rejected}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#991b1b]"></span> Revoked:</span><strong className="text-red-950 font-mono">{data.revoked}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#94a3b8]"></span> Open:</span><strong className="text-slate-500 font-mono">{data.open}{formatSuffixTooltip}</strong></div>
-                                </div>
-                            </div>
-                        );
-                    }
-                    return null;
-                }}
-            />
-
-            {susunanBarStatus.map((b) => (
-                <Bar
-                    key={b.key} dataKey={b.key} stackId="a" fill={b.fill} maxBarSize={30} radius={b.radius}
-                    style={{ cursor: (viewModeTab !== 'SLS') ? 'pointer' : 'default' }}
-                    onClick={(clickedItem) => {
-                        if (!clickedItem) return;
-                        if (selectedKecTab === "SEMUA" && viewModeTab !== "PETUGAS") {
-                            const matchKode = clickedItem.nama ? clickedItem.nama.match(/\d+/) : null;
-                            if (matchKode && matchKode[0]) {
-                                setSelectedKecTab(matchKode[0]);
-                                setSelectedKecamatan(matchKode[0]);
-                                setSelectedPetugas(null);
-                                setSelectedPetugasEmail(null);
-                                setViewModeTab("PETUGAS");
-                            }
-                        }
-                        else if (viewModeTab === "DESA" && clickedItem.kodeDesa) {
-                            setSelectedDesaCode(clickedItem.kodeDesa);
-                            setSelectedDesaName(clickedItem.nama_asli);
-                            setViewModeTab("SLS");
-                        }
-                        else if (viewModeTab === "PETUGAS" && clickedItem.email) {
-                            setSelectedPetugasEmail(clickedItem.email);
-                            setSelectedPetugas(clickedItem.nama_asli);
-                            setViewModeTab("SLS");
-                        }
-                    }}
-                >
-                    {b.key === "open" && (
-                        <LabelList
-                            position="insideBottom" offset={8}
-                            style={{ fill: '#1e293b', fontSize: '10px', fontWeight: '900', fontFamily: 'monospace' }}
-                            valueAccessor={(entry) => {
-                                if (!entry) return "";
-                                const rData = entry.payload || entry;
-                                
-                                if (viewModeTab === "PETUGAS") {
-                                    return rData.total_realisasi > 0 ? `${rData.total_realisasi.toLocaleString('id-ID')}` : "0";
-                                } else {
-                                    const totalProgres = 100 - (parseFloat(rData.open) || 0);
-                                    return totalProgres > 0 ? `${totalProgres.toFixed(0)}%` : "0%";
-                                }
+                return (
+                    <g transform={`translate(${x},${y})`}>
+                        <text
+                            x={0}
+                            y={0}
+                            dy={10}
+                            textAnchor="end"
+                            transform="rotate(-45)"
+                            fill={warnaTeks}
+                            style={{
+                                fontWeight: ketebalanTeks,
+                                fontSize: '8px',
+                                fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
                             }}
-                        />
-                    )}
-                </Bar>
-            ))}
-        </BarChart>
-    ), [barChartData, viewModeTab, selectedKecTab, isPetugasMode, unitSatuanYAxis, formatSuffixTooltip, nilaiTargetYAxis, teksLabelTarget, HARI_KE]);
+                        >
+                            {payload.value ? payload.value.toUpperCase() : ""}
+                        </text>
+                    </g>
+                );
+            }}
+        />
+        <YAxis
+            stroke="#94a3b8"
+            fontSize={9}
+            tickLine={false}
+            unit={unitSatuanYAxis}
+            domain={isPetugasMode ? [0, 'auto'] : [0, 100]}
+            allowDataOverflow={!isPetugasMode}
+        />
+
+        <ReferenceLine
+            y={nilaiTargetYAxis}
+            stroke="#f59e0b"
+            strokeDasharray="4 4"
+            strokeWidth={2}
+            className="z-30"
+            label={{
+                value: `Target Hari ke-${HARI_KE}: ${teksLabelTarget}`,
+                position: 'top',
+                fill: '#d97706',
+                fontSize: 10,
+                fontWeight: 900,
+                style: { textShadow: '1px 1px 2px white, -1px -1px 2px white' }
+            }}
+        />
+
+        <Tooltip
+            cursor={{ fill: '#f8fafc', opacity: 0.5 }}
+            content={({ active, payload }) => {
+                if (active && payload && payload.length) {
+                    const data = payload[0].payload;
+                    return (
+                        <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xl text-[11px] space-y-1.5 font-sans min-w-[210px] z-50">
+                            <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1.5 mb-1 flex items-center gap-1">
+                                {viewModeTab === "PETUGAS" ? "🏃‍♂️" : viewModeTab === "SLS" ? "🏠" : "📍"} {data.nama_asli}
+                            </div>
+                            <div className="space-y-1 font-medium text-slate-500">
+                                <div className="flex justify-between border-b border-slate-50 pb-1 mb-1">
+                                    <span>Total Target:</span>
+                                    <strong className="text-slate-800 font-mono">{data.total_target?.toLocaleString('id-ID')} Muatan</strong>
+                                </div>
+                                <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10b981]"></span> Approved:</span><strong className="text-emerald-600 font-mono">{data.approved}{formatSuffixTooltip}</strong></div>
+                                <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#3b82f6]"></span> Submitted:</span><strong className="text-blue-600 font-mono">{data.submitted}{formatSuffixTooltip}</strong></div>
+                                <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#f97316]"></span> Draft:</span><strong className="text-orange-600 font-mono">{data.draft}{formatSuffixTooltip}</strong></div>
+                                <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#ef4444]"></span> Rejected:</span><strong className="text-red-600 font-mono">{data.rejected}{formatSuffixTooltip}</strong></div>
+                                <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#991b1b]"></span> Revoked:</span><strong className="text-red-950 font-mono">{data.revoked}{formatSuffixTooltip}</strong></div>
+                                <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#94a3b8]"></span> Open:</span><strong className="text-slate-500 font-mono">{data.open}{formatSuffixTooltip}</strong></div>
+                            </div>
+                        </div>
+                    );
+                }
+                return null;
+            }}
+        />
+
+        {susunanBarStatus.map((b) => (
+            <Bar
+                key={b.key} dataKey={b.key} stackId="a" fill={b.fill} maxBarSize={30} radius={b.radius}
+                style={{ cursor: (viewModeTab !== 'SLS') ? 'pointer' : 'default' }}
+                onClick={(clickedItem) => {
+                    if (!clickedItem) return;
+                    if (selectedKecTab === "SEMUA" && viewModeTab !== "PETUGAS") {
+                        const matchKode = clickedItem.nama ? clickedItem.nama.match(/\d+/) : null;
+                        if (matchKode && matchKode[0]) {
+                            setSelectedKecTab(matchKode[0]);
+                            setSelectedKecamatan(matchKode[0]);
+                            setSelectedPetugas(null);
+                            setSelectedPetugasEmail(null);
+                            setViewModeTab("PETUGAS");
+                        }
+                    }
+                    else if (viewModeTab === "DESA" && clickedItem.kodeDesa) {
+                        setSelectedDesaCode(clickedItem.kodeDesa);
+                        setSelectedDesaName(clickedItem.nama_asli);
+                        setViewModeTab("SLS");
+                    }
+                    else if (viewModeTab === "PETUGAS" && clickedItem.email) {
+                        setSelectedPetugasEmail(clickedItem.email);
+                        setSelectedPetugas(clickedItem.nama_asli);
+                        setViewModeTab("SLS");
+                    }
+                }}
+            >
+                {b.key === "open" && (
+                    <LabelList
+                        position="insideBottom" offset={8}
+                        style={{ fill: '#1e293b', fontSize: '10px', fontWeight: '900', fontFamily: 'monospace' }}
+                        valueAccessor={(entry) => {
+                            if (!entry) return "";
+                            const rData = entry.payload || entry;
+
+                            if (viewModeTab === "PETUGAS") {
+                                return rData.total_realisasi > 0 ? `${rData.total_realisasi.toLocaleString('id-ID')}` : "0";
+                            } else {
+                                const totalProgres = 100 - (parseFloat(rData.open) || 0);
+                                return totalProgres > 0 ? `${totalProgres.toFixed(0)}%` : "0%";
+                            }
+                        }}
+                    />
+                )}
+            </Bar>
+        ))}
+    </BarChart>
+    // 👈 JANGAN LUPA menambahkan processedBarChartData ke dependency array di bawah ini
+), [processedBarChartData, viewModeTab, selectedKecTab, isPetugasMode, unitSatuanYAxis, formatSuffixTooltip, nilaiTargetYAxis, teksLabelTarget, HARI_KE]);
 
     // Membekukan elemen AreaChart (Tren) agar tidak boros re-render
     const memoizedAreaChartElement = useMemo(() => {
-        const petugasFilterGaris = dataMonitoringWilayah.petugas.filter(p => 
+        const petugasFilterGaris = dataMonitoringWilayah.petugas.filter(p =>
             p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
         );
-        
+
         const totalOpenAktif = petugasFilterGaris.reduce((sum, p) => sum + (p.open || 0), 0);
         const jumlahPetugasAktif = petugasFilterGaris.length || 1;
 
@@ -810,7 +854,7 @@ export default function DashboardMonitoring() {
         const HARI_KE_TREN = selisihHariTren > 0 ? Math.floor(selisihHariTren / (1000 * 60 * 60 * 24)) + 1 : 1;
         const SISA_HARI_TREN = Math.max(TOTAL_HARI_TREN - HARI_KE_TREN + 1, 1);
 
-        const targetHarianGaris = viewModeTab === "PETUGAS" 
+        const targetHarianGaris = viewModeTab === "PETUGAS"
             ? parseFloat(((totalOpenAktif / jumlahPetugasAktif) / SISA_HARI_TREN).toFixed(1))
             : parseFloat((totalOpenAktif / SISA_HARI_TREN).toFixed(1));
 
@@ -819,33 +863,33 @@ export default function DashboardMonitoring() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="label" stroke="#94a3b8" fontSize={9} tickLine={false} tick={{ fontWeight: 600 }} />
                 <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} />
-                
-                <ReferenceLine 
-                    y={targetHarianGaris} 
-                    stroke="#ef4444" 
+
+                <ReferenceLine
+                    y={targetHarianGaris}
+                    stroke="#ef4444"
                     strokeWidth={2}
                     strokeDasharray="4 4"
                     className="z-40"
-                    label={{ 
-                        value: `⚠️ TARGET MINIMAL: +${targetHarianGaris.toLocaleString('id-ID')} DOKUMEN / HARI`, 
-                        position: 'insideLeftTop', 
+                    label={{
+                        value: `⚠️ TARGET MINIMAL: +${targetHarianGaris.toLocaleString('id-ID')} DOKUMEN / HARI`,
+                        position: 'insideLeftTop',
                         offset: 10,
-                        fill: '#b91c1c', 
+                        fill: '#b91c1c',
                         fontSize: 10,
                         fontWeight: 900,
-                        style: { 
+                        style: {
                             textShadow: '2px 2px 0px #fff, -2px -2px 0px #fff, 2px -2px 0px #fff, -2px 2px 0px #fff',
                             letterSpacing: '0.5px'
                         }
-                    }} 
+                    }}
                 />
 
-                <Tooltip 
+                <Tooltip
                     shared={true}
-                    wrapperStyle={{ pointerEvents: 'auto' }} 
+                    wrapperStyle={{ pointerEvents: 'auto' }}
                     content={({ active, payload }) => {
                         if (active && payload && payload.length) {
-                            const filteredPayload = hoveredTrend 
+                            const filteredPayload = hoveredTrend
                                 ? payload.filter(entry => entry.name === hoveredTrend)
                                 : payload;
 
@@ -885,22 +929,22 @@ export default function DashboardMonitoring() {
                     const strokeColor = palette[index % palette.length];
                     const isHovered = hoveredTrend === keyName;
                     const isDimmed = hoveredTrend && !isHovered;
-                    
+
                     return (
-                        <Area 
-                            key={keyName} 
-                            type="linear" 
-                            dataKey={keyName} 
+                        <Area
+                            key={keyName}
+                            type="linear"
+                            dataKey={keyName}
                             stroke={strokeColor}
-                            strokeWidth={isHovered ? 4 : 2} 
+                            strokeWidth={isHovered ? 4 : 2}
                             strokeOpacity={isDimmed ? 0.08 : 1}
-                            fillOpacity={trendKeys.length > 1 ? 0 : isHovered ? 0.2 : 0.05} 
-                            fill={strokeColor} 
+                            fillOpacity={trendKeys.length > 1 ? 0 : isHovered ? 0.2 : 0.05}
+                            fill={strokeColor}
                             style={{ transition: 'stroke-width 0.15s, stroke-opacity 0.15s' }}
                         >
-                            <LabelList 
-                                dataKey={keyName} 
-                                content={<CustomLabelTren strokeColor={strokeColor} isDimmed={isDimmed} />} 
+                            <LabelList
+                                dataKey={keyName}
+                                content={<CustomLabelTren strokeColor={strokeColor} isDimmed={isDimmed} />}
                             />
                         </Area>
                     );
@@ -914,7 +958,7 @@ export default function DashboardMonitoring() {
     // ==========================================
     const handleDownloadSlsExcel = () => {
         const currentChartData = barChartData;
-        
+
         if (!currentChartData || currentChartData.length === 0) {
             alert("Tidak ada data yang bisa diexport saat ini.");
             return;
@@ -931,26 +975,26 @@ export default function DashboardMonitoring() {
             let openMurni = 0;
 
             if (viewModeTab !== "PETUGAS" && viewModeTab !== "SLS") {
-                approvedMurni  = totalTargetMurni > 0 ? Math.round((item.approved * totalTargetMurni) / 100) : 0;
+                approvedMurni = totalTargetMurni > 0 ? Math.round((item.approved * totalTargetMurni) / 100) : 0;
                 submittedMurni = totalTargetMurni > 0 ? Math.round((item.submitted * totalTargetMurni) / 100) : 0;
-                draftMurni     = totalTargetMurni > 0 ? Math.round((item.draft * totalTargetMurni) / 100) : 0;
-                rejectedMurni  = totalTargetMurni > 0 ? Math.round((item.rejected * totalTargetMurni) / 100) : 0;
-                revokedMurni   = totalTargetMurni > 0 ? Math.round((item.revoked * totalTargetMurni) / 100) : 0;
-                
+                draftMurni = totalTargetMurni > 0 ? Math.round((item.draft * totalTargetMurni) / 100) : 0;
+                rejectedMurni = totalTargetMurni > 0 ? Math.round((item.rejected * totalTargetMurni) / 100) : 0;
+                revokedMurni = totalTargetMurni > 0 ? Math.round((item.revoked * totalTargetMurni) / 100) : 0;
+
                 const totalRealisasiMurni = approvedMurni + submittedMurni + draftMurni + rejectedMurni + revokedMurni;
-                openMurni      = totalTargetMurni - totalRealisasiMurni;
+                openMurni = totalTargetMurni - totalRealisasiMurni;
             } else {
-                approvedMurni  = item.approved || 0;
+                approvedMurni = item.approved || 0;
                 submittedMurni = item.submitted || 0;
-                draftMurni     = item.draft || 0;
-                rejectedMurni  = item.rejected || 0;
-                revokedMurni   = item.revoked || 0;
-                openMurni      = item.open || 0;
+                draftMurni = item.draft || 0;
+                rejectedMurni = item.rejected || 0;
+                revokedMurni = item.revoked || 0;
+                openMurni = item.open || 0;
             }
 
             const totalRealisasi = totalTargetMurni - openMurni;
-            const persentaseCapaian = totalTargetMurni > 0 
-                ? parseFloat(((totalRealisasi / totalTargetMurni) * 100).toFixed(2)) 
+            const persentaseCapaian = totalTargetMurni > 0
+                ? parseFloat(((totalRealisasi / totalTargetMurni) * 100).toFixed(2))
                 : 0.00;
 
             const row = {
@@ -960,8 +1004,8 @@ export default function DashboardMonitoring() {
 
             if (viewModeTab === "PETUGAS" && item.emailPml) {
                 const emailClean = item.emailPml.toLowerCase().trim();
-                row["Nama Pengawas"] = emailClean === "tanpa pengawas" 
-                    ? "Tanpa Pengawas" 
+                row["Nama Pengawas"] = emailClean === "tanpa pengawas"
+                    ? "Tanpa Pengawas"
                     : (staffLookup[emailClean] || item.emailPml);
             }
 
@@ -989,7 +1033,7 @@ export default function DashboardMonitoring() {
         XLSX.utils.book_append_sheet(workbook, worksheet, "Data Realisasi Lapangan");
 
         const namaWilayahFile = selectedKecTab === "SEMUA" ? "KAB_BOYOLALI" : `KEC_${selectedKecTab}`;
-        const namaFileExcel = `VOLUME_PROGRESS_${viewModeTab}_${namaWilayahFile}_${new Date().toISOString().slice(0,10)}.xlsx`;
+        const namaFileExcel = `VOLUME_PROGRESS_${viewModeTab}_${namaWilayahFile}_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
         XLSX.writeFile(workbook, namaFileExcel);
     };
@@ -1008,7 +1052,7 @@ export default function DashboardMonitoring() {
     // ==========================================
     // 6. PREPARASI DATA RENDER UTAMA (POST-LOADING)
     // ==========================================
-    const validPetugasData = dataMonitoringWilayah.petugas.filter(p => 
+    const validPetugasData = dataMonitoringWilayah.petugas.filter(p =>
         p.email !== "Tanpa Petugas" && p.total_target > 0 && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
     );
 
@@ -1018,20 +1062,33 @@ export default function DashboardMonitoring() {
         .sort((a, b) => a.total_realisasi - b.total_realisasi)
         .slice(0, limitPetugas);
 
+    // ================= MODIFIKASI DIMULAI DI SINI =================
+    // 1. Ambil nilai draft dan open mentah terlebih dahulu
+    const rawDraft = dataMonitoringWilayah.muatanStatus.draft || 0;
+    const rawOpen = dataMonitoringWilayah.muatanStatus.open || 0;
+
+    // 2. Tentukan nilai final draft & open berdasarkan switch includeDraft
+    const finalDraft = includeDraft ? rawDraft : 0;
+    const finalOpen = includeDraft ? rawOpen : rawOpen + rawDraft; // Pindahkan draft ke open jika switch OFF
+
     const dataPieStatus = [
         { name: "SUBMITTED BY Pencacah", value: dataMonitoringWilayah.muatanStatus.submitted, color: "#3b82f6" },
-        { name: "DRAFT",                 value: dataMonitoringWilayah.muatanStatus.draft,     color: "#f97316" },
-        { name: "REJECTED BY Pengawas",  value: dataMonitoringWilayah.muatanStatus.rejected,  color: "#ef4444" },
-        { name: "REVOKED BY Pengawas",   value: dataMonitoringWilayah.muatanStatus.revoked,   color: "#991b1b" },
-        { name: "APPROVED BY Pengawas",  value: dataMonitoringWilayah.muatanStatus.approved,  color: "#10b981" },
-        { name: "OPEN",                  value: dataMonitoringWilayah.muatanStatus.open,      color: "#e2e8f0" }
-    ].filter(item => item.value > 0); 
+        { name: "DRAFT", value: finalDraft, color: "#f97316" }, // 🟢 Menggunakan nilai final
+        { name: "REJECTED BY Pengawas", value: dataMonitoringWilayah.muatanStatus.rejected, color: "#ef4444" },
+        { name: "REVOKED BY Pengawas", value: dataMonitoringWilayah.muatanStatus.revoked, color: "#991b1b" },
+        { name: "APPROVED BY Pengawas", value: dataMonitoringWilayah.muatanStatus.approved, color: "#10b981" },
+        { name: "OPEN", value: finalOpen, color: "#e2e8f0" } // 🟢 Menggunakan nilai final
+    ].filter(item => item.value > 0);
+    // ==============================================================
 
+    // Total seluruh muatan akan selalu tetap karena draft dipindahkan ke open
     const totalSeluruhMuatan = dataPieStatus.reduce((sum, item) => sum + item.value, 0);
+    
+    // Total tanpa open otomatis berkurang jika draft dinilai 0 (karena draft tidak ikut dihitung di sini saat switch OFF)
     const totalTanpaOpen = dataPieStatus.filter(item => item.name !== "OPEN").reduce((sum, item) => sum + item.value, 0);
 
-    const persentaseTanpaOpen = totalSeluruhMuatan > 0 
-        ? ((totalTanpaOpen / totalSeluruhMuatan) * 100).toFixed(1) 
+    const persentaseTanpaOpen = totalSeluruhMuatan > 0
+        ? ((totalTanpaOpen / totalSeluruhMuatan) * 100).toFixed(1)
         : "0.0";
 
     const itemsPerPage = 20;
@@ -1045,19 +1102,19 @@ export default function DashboardMonitoring() {
     // ==========================================
     return (
         <div className="p-6 bg-slate-100 min-h-screen space-y-6 relative">
-            
+
             {/* BARIS UTAMA FILTRASI KECAMATAN DROPDOWN */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">Kecamatan:</label>
-                        <select 
+                        <select
                             value={selectedKecTab}
                             onChange={(e) => {
                                 const val = e.target.value;
                                 setSelectedKecTab(val);
                                 setSelectedKecamatan(val === "SEMUA" ? null : val);
-                                setSelectedPml("SEMUA"); 
+                                setSelectedPml("SEMUA");
                                 setSelectedDesaCode(null);
                                 setSelectedDesaName("");
                                 setSelectedPetugas(null);
@@ -1077,7 +1134,7 @@ export default function DashboardMonitoring() {
 
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">Pengawas (PML):</label>
-                        <select 
+                        <select
                             value={selectedPml}
                             onChange={(e) => {
                                 const val = e.target.value;
@@ -1135,8 +1192,8 @@ export default function DashboardMonitoring() {
                         <div className="text-sm font-black font-mono text-cyan-400 mt-0.5">{metriksKpiHarian.rata2DokPerHariPerPetugas.toLocaleString('id-ID')} <span className="text-[10px] font-sans text-white font-medium">Assignment / Hari</span></div>
                     </div>
                 </div>
-                
-                <div 
+
+                <div
                     onClick={() => {
                         if (metriksKpiHarian.petugasDiBawahRata2 > 0) {
                             setModalCurrentPage(1);
@@ -1150,7 +1207,7 @@ export default function DashboardMonitoring() {
                     <div>
                         <div className="text-[9px] uppercase font-black text-slate-400 tracking-wider group-hover:text-amber-300 transition-colors">Jumlah Kirim Di Bawah Rata-Rata</div>
                         <div className="text-sm font-black font-mono text-amber-400 mt-0.5 flex items-center gap-1.5">
-                            {metriksKpiHarian.petugasDiBawahRata2} 
+                            {metriksKpiHarian.petugasDiBawahRata2}
                             <span className="text-xs font-sans text-white font-normal group-hover:underline decoration-amber-400 decoration-2">Petugas (klik untuk detail)</span>
                         </div>
                     </div>
@@ -1159,18 +1216,18 @@ export default function DashboardMonitoring() {
 
             {/* GRID UTAMA CRITICAL MONITORING (5 KOLOM) */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                
+
                 {/* 1. CARD PETUGAS TIDAK AKTIF */}
-                <div 
+                <div
                     onClick={() => {
                         if (criticalPcl.macet.length === 0) return;
-                        
+
                         const tglHariIni = new Date();
                         const tglH1 = new Date(); tglH1.setDate(tglHariIni.getDate() - 1);
                         const tglH2 = new Date(); tglH2.setDate(tglHariIni.getDate() - 2);
                         const tglH3 = new Date(); tglH3.setDate(tglHariIni.getDate() - 3);
                         const tglH4 = new Date(); tglH4.setDate(tglHariIni.getDate() - 4);
-                        
+
                         const strH1 = tglH1.toISOString().split('T')[0];
                         const strH2 = tglH2.toISOString().split('T')[0];
                         const strH3 = tglH3.toISOString().split('T')[0];
@@ -1181,7 +1238,7 @@ export default function DashboardMonitoring() {
                             .map(p => {
                                 const pmlName = staffLookup[p.emailPml] || p.emailPml;
                                 const emailClean = p.email.toLowerCase().trim();
-                                
+
                                 const logPetugasPaging = {};
                                 historyData.forEach(h => {
                                     if (h.petugas_id?.toLowerCase().trim() === emailClean) {
@@ -1220,23 +1277,23 @@ export default function DashboardMonitoring() {
                 >
                     <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Petugas Tidak Aktif (3 Hari)</div>
                     <div className="text-2xl font-mono font-black text-rose-600 mt-1 flex items-baseline gap-1">
-                        {criticalPcl.macet.length} 
+                        {criticalPcl.macet.length}
                         <span className="text-xs text-slate-400 font-sans font-bold">Orang</span>
                     </div>
                     <p className="text-[8px] text-slate-400 mt-1 font-bold">Capaian stagnan / 0 kirim dokumen</p>
                 </div>
 
                 {/* 2. CARD PETUGAS MELAMBAT */}
-                <div 
+                <div
                     onClick={() => {
                         if (criticalPcl.melambat.length === 0) return;
-                        
+
                         const tglHariIni = new Date();
                         const tglH1 = new Date(); tglH1.setDate(tglHariIni.getDate() - 1);
                         const tglH2 = new Date(); tglH2.setDate(tglHariIni.getDate() - 2);
                         const tglH3 = new Date(); tglH3.setDate(tglHariIni.getDate() - 3);
                         const tglH4 = new Date(); tglH4.setDate(tglHariIni.getDate() - 4);
-                        
+
                         const strH1 = tglH1.toISOString().split('T')[0];
                         const strH2 = tglH2.toISOString().split('T')[0];
                         const strH3 = tglH3.toISOString().split('T')[0];
@@ -1247,7 +1304,7 @@ export default function DashboardMonitoring() {
                             .map(p => {
                                 const pmlName = staffLookup[p.emailPml] || p.emailPml;
                                 const emailClean = p.email.toLowerCase().trim();
-                                
+
                                 const logPetugasPaging = {};
                                 historyData.forEach(h => {
                                     if (h.petugas_id?.toLowerCase().trim() === emailClean) {
@@ -1286,7 +1343,7 @@ export default function DashboardMonitoring() {
                 >
                     <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Petugas Melambat</div>
                     <div className="text-2xl font-mono font-black text-amber-600 mt-1 flex items-baseline gap-1">
-                        {criticalPcl.melambat.length} 
+                        {criticalPcl.melambat.length}
                         <span className="text-xs text-slate-400 font-sans font-bold">Orang</span>
                     </div>
                     <p className="text-[8px] text-slate-400 mt-1 font-bold">Produktivitas 3 hari terakhir di bawah 10 dokumen</p>
@@ -1295,12 +1352,12 @@ export default function DashboardMonitoring() {
                 {/* 3. CARD BARU: PENGAWAS (PML) BERMASALAH */}
                 {(() => {
                     const pmlMap = {};
-                    
+
                     dataMonitoringWilayah.petugas.forEach(p => {
-                        if(p.email === "Tanpa Petugas") return;
+                        if (p.email === "Tanpa Petugas") return;
                         const pmlKey = p.emailPml || "tanpa pengawas";
-                        
-                        if(!pmlMap[pmlKey]) {
+
+                        if (!pmlMap[pmlKey]) {
                             pmlMap[pmlKey] = {
                                 emailPml: pmlKey,
                                 namaPml: staffLookup[pmlKey] || (pmlKey === "tanpa pengawas" ? "Tanpa Pengawas" : pmlKey),
@@ -1309,9 +1366,9 @@ export default function DashboardMonitoring() {
                                 jmlMelambat: 0
                             };
                         }
-                        
-                        if(criticalPcl.macet.includes(p.email)) pmlMap[pmlKey].jmlMacet += 1;
-                        if(criticalPcl.melambat.includes(p.email)) pmlMap[pmlKey].jmlMelambat += 1;
+
+                        if (criticalPcl.macet.includes(p.email)) pmlMap[pmlKey].jmlMacet += 1;
+                        if (criticalPcl.melambat.includes(p.email)) pmlMap[pmlKey].jmlMelambat += 1;
                     });
 
                     const listPmlBermasalah = Object.values(pmlMap).filter(pml => pml.jmlMacet > 0 || pml.jmlMelambat > 0);
@@ -1322,18 +1379,18 @@ export default function DashboardMonitoring() {
                         <div
                             onClick={() => {
                                 if (totalPmlBermasalah === 0) return;
-                                
+
                                 const formatUntukModal = listPmlBermasalah.map(item => ({
                                     nama: item.namaPml,
-                                    emailPml: item.emailPml, 
-                                    pengawas: "PENGONTROL WILAYAH", 
+                                    emailPml: item.emailPml,
+                                    pengawas: "PENGONTROL WILAYAH",
                                     kecamatan: item.kecamatan,
-                                    h3: item.jmlMacet,      
-                                    h2: item.jmlMelambat,   
-                                    h1: item.jmlMacet + item.jmlMelambat, 
+                                    h3: item.jmlMacet,
+                                    h2: item.jmlMelambat,
+                                    h1: item.jmlMacet + item.jmlMelambat,
                                     totalRealisasi: item.jmlMacet + item.jmlMelambat,
-                                    target: 0, 
-                                    isModePml: true 
+                                    target: 0,
+                                    isModePml: true
                                 }));
 
                                 setCriticalCurrentPage(1);
@@ -1364,7 +1421,7 @@ export default function DashboardMonitoring() {
                     </div>
                     <p className="text-[8px] text-slate-400 mt-1 font-bold">Status Draft / Submitted / Rejected / Revoked</p>
                 </div>
-                
+
                 {/* 5. CARD APPROVE PENGAWAS */}
                 <div className="bg-white border-l-4 border-emerald-500 p-4 rounded-2xl shadow-xs">
                     <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Approve Pengawas</div>
@@ -1376,188 +1433,228 @@ export default function DashboardMonitoring() {
             </div>
 
             {/* BARIS GRAPH UTAMA: GRAFIK BATANG & REKAP BULAT */}
-            <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 min-h-[40px]">
-                    <div>
-                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
-                            {selectedPetugasEmail 
-                                ? `Capaian Lapangan Petugas: ${selectedPetugas} - Per SLS`
-                                : selectedPml !== "SEMUA"
-                                    ? `Capaian Tim Pengawas: ${staffLookup[selectedPml] || selectedPml} (Per Petugas)`
-                                    : selectedKecTab === "SEMUA"
-                                        ? "Capaian Realisasi Lapangan Kabupaten (Per Kecamatan)"
-                                        : `Capaian Realisasi Lapangan Kec. ${namaKecamatanTerpilihText} (${viewModeTab === "DESA" ? "Per Desa" : "Per Petugas"})`}
-                        </h3>
-                    </div>
-                    
-                    <div className="flex items-center gap-3 self-end sm:self-auto h-9">
-                        {selectedKecTab !== "SEMUA" && !selectedPetugasEmail && selectedPml === "SEMUA" && (
-                            <div className="bg-slate-100 p-1 rounded-xl flex gap-1 border border-slate-200/60 shadow-inner">
-                                <button onClick={() => { setViewModeTab("DESA"); setSelectedDesaCode(null); }} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "DESA" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>📍 Per Desa</button>
-                                <button onClick={() => setViewModeTab("PETUGAS")} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "PETUGAS" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>🏃‍♂️ Per Petugas</button>
-                            </div>
-                        )}
-                        {(selectedKecTab !== "SEMUA" || selectedPml !== "SEMUA") && (
-                            <button
-                                onClick={() => {
-                                    if (viewModeTab === "SLS") {
-                                        if (selectedPetugasEmail) {
-                                            setViewModeTab("PETUGAS");
-                                            setSelectedPetugasEmail(null);
-                                            setSelectedPetugas(null);
-                                        } else {
-                                            setViewModeTab("PETUGAS");
-                                            setSelectedDesaCode(null);
-                                        }
-                                    } else {
-                                        setSelectedKecTab("SEMUA");
-                                        setSelectedKecamatan(null);
-                                        setSelectedPml("SEMUA");
-                                        setSelectedPetugas(null);
-                                        setSelectedPetugasEmail(null);
-                                        setViewModeTab("DESA");
-                                    }
-                                }}
-                                className="bg-slate-800 hover:bg-slate-900 text-white text-[9px] font-black px-4 py-1.5 rounded-xl transition-all uppercase tracking-wider shadow-sm flex items-center gap-1"
-                            >
-                                ← Kembali
-                            </button>
-                        )}
-                    </div>
+<div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
+    {/* HEADER UTAMA: Judul & Navigasi Utama */}
+    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 min-h-[40px]">
+        <div>
+            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                {selectedPetugasEmail
+                    ? `Capaian Lapangan Petugas: ${selectedPetugas} - Per SLS`
+                    : selectedPml !== "SEMUA"
+                        ? `Capaian Tim Pengawas: ${staffLookup[selectedPml] || selectedPml} (Per Petugas)`
+                        : selectedKecTab === "SEMUA"
+                            ? "Capaian Realisasi Lapangan Kabupaten (Per Kecamatan)"
+                            : `Capaian Realisasi Lapangan Kec. ${namaKecamatanTerpilihText} (${viewModeTab === "DESA" ? "Per Desa" : "Per Petugas"})`}
+            </h3>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 self-end sm:self-auto min-h-9">
+            {selectedKecTab !== "SEMUA" && !selectedPetugasEmail && selectedPml === "SEMUA" && (
+                <div className="bg-slate-100 p-1 rounded-xl flex gap-1 border border-slate-200/60 shadow-inner">
+                    <button onClick={() => { setViewModeTab("DESA"); setSelectedDesaCode(null); }} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "DESA" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>📍 Per Desa</button>
+                    <button onClick={() => setViewModeTab("PETUGAS")} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "PETUGAS" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>🏃‍♂️ Per Petugas</button>
                 </div>
+            )}
+            {(selectedKecTab !== "SEMUA" || selectedPml !== "SEMUA") && (
+                <button
+                    onClick={() => {
+                        if (viewModeTab === "SLS") {
+                            if (selectedPetugasEmail) {
+                                setViewModeTab("PETUGAS");
+                                setSelectedPetugasEmail(null);
+                                setSelectedPetugas(null);
+                            } else {
+                                setViewModeTab("PETUGAS");
+                                setSelectedDesaCode(null);
+                            }
+                        } else {
+                            setSelectedKecTab("SEMUA");
+                            setSelectedKecamatan(null);
+                            setSelectedPml("SEMUA");
+                            setSelectedPetugas(null);
+                            setSelectedPetugasEmail(null);
+                            setViewModeTab("DESA");
+                        }
+                    }}
+                    className="bg-slate-800 hover:bg-slate-900 text-white text-[9px] font-black px-4 py-1.5 rounded-xl transition-all uppercase tracking-wider shadow-sm flex items-center gap-1"
+                >
+                    ← Kembali
+                </button>
+            )}
+        </div>
+    </div>
 
-                {/* AREA UTAMA LEGENDA WARNA GLOBAL STATUS ASSIGNMENT */}
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-x-6 gap-y-3 bg-slate-50 border border-slate-100 p-3 rounded-2xl mb-6 text-[10px]">
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider mr-1">Legenda Status:</span>
-                        {susunanBarStatus.map((b) => {
-                            const totalKategori = dataPieStatus.find(item => item.name === b.label)?.value || 0;
-                            const persenKategori = totalSeluruhMuatan > 0 ? ((totalKategori / totalSeluruhMuatan) * 100).toFixed(2) : "0.00";
-                            return (
-                                <div key={b.key} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs text-[10px]">
-                                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: b.fill }}></span>
-                                    <span className="font-bold text-slate-500 uppercase text-[9px]">
-                                        {b.label.toUpperCase().replace(" BY PENCACAH", "").replace(" BY PENGAWAS", "").replace("SUBMITTED ", "")}
-                                    </span>
-                                    <span className="font-mono font-black text-slate-800 border-l border-slate-200 pl-1.5 ml-0.5">
-                                        {totalKategori.toLocaleString('id-ID')} <span className="text-[9px] font-sans font-bold text-slate-600 ml-0.5">({persenKategori}%)</span>
-                                    </span>
-                                </div>
-                            );
-                        })}
+    {/* AREA LEGENDA UTAMA: Dibagi menjadi 2 baris terpisah agar tetap ramping */}
+    <div className="bg-slate-50 border border-slate-200/60 p-3 rounded-2xl mb-6 text-[10px]">
+        {/* BARIS 1: Daftar Nilai & Warna Status Utama */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-2.5 border-b border-slate-200/50">
+            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider mr-1">Legenda Status:</span>
+            {susunanBarStatus.map((b) => {
+                const totalKategori = dataPieStatus.find(item => item.name === b.label)?.value || 0;
+                const persenKategori = totalSeluruhMuatan > 0 ? ((totalKategori / totalSeluruhMuatan) * 100).toFixed(2) : "0.00";
+                return (
+                    <div key={b.key} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs text-[10px]">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: b.fill }}></span>
+                        <span className="font-bold text-slate-500 uppercase text-[9px]">
+                            {b.label.toUpperCase().replace(" BY PENCACAH", "").replace(" BY PENGAWAS", "").replace("SUBMITTED ", "")}
+                        </span>
+                        <span className="font-mono font-black text-slate-800 border-l border-slate-200 pl-1.5 ml-0.5">
+                            {totalKategori.toLocaleString('id-ID')} <span className="text-[9px] font-sans font-bold text-slate-600 ml-0.5">({persenKategori}%)</span>
+                        </span>
                     </div>
+                );
+            })}
+        </div>
 
-                    {viewModeTab === "PETUGAS" && (
-                        <div className="flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-wider border-t pt-2 w-full lg:w-auto lg:border-t-0 lg:pt-0 lg:border-l lg:border-slate-200 lg:pl-4 animate-fade-in">
-                            <span className="text-slate-400 mr-1">Status Nama:</span>
-                            <div className="flex items-center gap-1 bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-bold">
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-                                <span>Sesuai Target</span>
-                            </div>
-                            <div className="flex items-center gap-1 bg-orange-100 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-md font-black">
-                                <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
-                                <span>&lt; Target</span>
-                            </div>
-                            <div className="flex items-center gap-1 bg-red-600 text-white px-2 py-0.5 rounded-md font-black shadow-xs relative">
-                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping absolute opacity-75"></span>
-                                <span className="w-1.5 h-1.5 rounded-full bg-white relative"></span>
-                                <span>&lt; 50%</span>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
-                    <div className="lg:col-span-3 w-full overflow-x-auto overflow-y-hidden scrollbar-thin">
-                        <div className="h-[420px] w-full min-w-[500px] md:min-w-0">
-                            <ResponsiveContainer width="100%" height="100%">
-                                {memoizedBarChartElement}
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-
-                    {/* REKAP KANAN: DIAGRAM LINGKARAN & INDIKATOR TARGET SLS WILAYAH */}
-                    <div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4 flex flex-col justify-between h-full">
-                        <div>
-                            <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase">Status Assignment</div>
-                            <div className="h-44 w-full relative mt-2">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart margin={{ top: 0, right: 0, bottom: 5, left: 0 }}>
-                                        <Pie
-                                            data={dataPieStatus}
-                                            cx="50%" cy="45%" innerRadius={45} outerRadius={58} paddingAngle={2} dataKey="value" stroke="none"
-                                        >
-                                            {dataPieStatus.map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={entry.color} />
-                                            ))}
-                                        </Pie>
-                                        <text x="50%" y="42%" textAnchor="middle" dominantBaseline="middle" className="fill-indigo-600 font-mono font-black text-[15px]">
-                                            {persentaseTanpaOpen}%
-                                        </text>
-                                        <text x="50%" y="54%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-400 font-sans font-bold text-[8px] uppercase tracking-wider">
-                                            REALISASI
-                                        </text>
-                                        <Tooltip 
-                                            content={({ active, payload }) => {
-                                                if (active && payload && payload.length) {
-                                                    const pData = payload[0];
-                                                    const persentase = ((pData.value / totalSeluruhMuatan) * 100).toFixed(1);
-                                                    return (
-                                                        <div className="bg-slate-950 text-white px-2 py-1.5 rounded-lg text-[10px] font-sans shadow-xl">
-                                                            <span className="font-bold">{pData.name}</span>: <span className="font-mono text-indigo-300">{pData.value.toLocaleString('id-ID')} ({persentase}%)</span>
-                                                        </div>
-                                                    );
-                                                }
-                                                return null;
-                                            }}
-                                        />
-                                    </PieChart>
-                                </ResponsiveContainer>
-                            </div>
-
-                            <div className="mt-2 flex items-center justify-between bg-slate-900 border border-slate-950 px-3 py-2.5 rounded-xl">
-                                <span className="font-black text-white text-[10px] uppercase tracking-wider flex items-center gap-2">
-                                    <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
-                                    Total Assignment
-                                </span>
-                                <span className="font-mono font-black text-[13px] text-white bg-slate-800 px-2.5 py-0.5 rounded-md border border-slate-700/60 shadow-inner">
-                                    {totalSeluruhMuatan.toLocaleString('id-ID')}
-                                </span>
-                            </div>
-                        </div>
-
-                        <div className="space-y-2 border-t border-slate-100 pt-4">
-                            <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase mb-1">Status Progres Wilayah SLS</div>
-                            {[
-                                { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
-                                { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
-                                { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
-                            ].map((item) => {
-                                const totalSls = dataMonitoringWilayah.statusSls.total || 1;
-                                const persenSls = ((item.count / totalSls) * 100).toFixed(1);
-                                return (
-                                    <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px]">
-                                        <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                                            <span className={`w-1.5 h-1.5 rounded-full ${item.color}`}></span>
-                                            {item.label}
-                                        </span>
-                                        <span className="font-mono font-black text-slate-700">
-                                            {item.count} <span className="text-[9px] font-sans text-slate-400 font-normal">SLS ({persenSls}%)</span>
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                            <button 
-                                onClick={handleDownloadSlsExcel} 
-                                className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition-all duration-150 mt-3 flex items-center justify-center gap-1.5"
-                                title="Unduh data volume realisasi saat ini dalam bentuk berkas Excel"
-                            >
-                                <span>📥</span> Export Data Realisasi
-                            </button>
-                        </div>
-                    </div>
+        {/* BARIS 2: Panel Kontrol Dinamis (Switch Draft & Indikator Sumbu X) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5">
+            {/* Sektor Kiri: Switch Opsi Data */}
+            <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Opsi Tampilan:</span>
+                <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs h-7">
+                    <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wide">Perhitungkan Draft</span>
+                    <button
+                        type="button"
+                        onClick={() => setIncludeDraft(!includeDraft)}
+                        className={`relative inline-flex h-4 w-9 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none items-center ${
+                            includeDraft ? 'bg-indigo-600 border-indigo-600' : 'bg-slate-200 border-slate-300'
+                        }`}
+                    >
+                        <span className={`absolute text-[6px] font-black font-sans text-white uppercase tracking-tighter transition-all ${
+                            includeDraft ? 'left-1 opacity-100' : 'left-3 opacity-0'
+                        }`}>
+                            YA
+                        </span>
+                        <span className={`absolute text-[6px] font-black font-sans text-slate-400 uppercase tracking-tighter transition-all ${
+                            includeDraft ? 'right-3 opacity-0' : 'right-1 opacity-100'
+                        }`}>
+                            TDK
+                        </span>
+                        <span
+                            className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+                                includeDraft ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                        />
+                    </button>
                 </div>
             </div>
+
+            {/* Sektor Kanan: Indikator Kinerja Sumbu X Petugas (Hanya muncul saat mode PETUGAS) */}
+            {viewModeTab === "PETUGAS" && (
+                <div className="flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-wider animate-fade-in">
+                    <span className="text-slate-400 mr-1">Indikator Warna Sumbu X:</span>
+                    <div className="flex items-center gap-1 bg-slate-200/80 border border-slate-300/40 text-slate-700 px-2 py-0.5 rounded-lg font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                        <span>Sesuai Target</span>
+                    </div>
+                    <div className="flex items-center gap-1 bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-lg font-black">
+                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
+                        <span>&lt; Target</span>
+                    </div>
+                    <div className="flex items-center gap-1 bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded-lg font-black relative">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping absolute opacity-75"></span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 relative"></span>
+                        <span>&lt; 50%</span>
+                    </div>
+                </div>
+            )}
+        </div>
+    </div>
+
+    {/* AREA GRAFIK UTAMA & REKAP STATUS WILAYAH */}
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+        {/* Kolom Kiri: Bar Chart */}
+        <div className="lg:col-span-3 w-full overflow-x-auto overflow-y-hidden scrollbar-thin">
+            <div className="h-[420px] w-full min-w-[500px] md:min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                    {memoizedBarChartElement}
+                </ResponsiveContainer>
+            </div>
+        </div>
+
+        {/* Kolom Kanan: Diagram Lingkaran & Target SLS */}
+        <div className="lg:col-span-1 space-y-4 border-l border-slate-100 pl-2 lg:pl-4 flex flex-col justify-between h-full">
+            <div>
+                <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase">Status Assignment</div>
+                <div className="h-44 w-full relative mt-2">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart margin={{ top: 0, right: 0, bottom: 5, left: 0 }}>
+                            <Pie
+                                data={dataPieStatus}
+                                cx="50%" cy="45%" innerRadius={45} outerRadius={58} paddingAngle={2} dataKey="value" stroke="none"
+                            >
+                                {dataPieStatus.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.color} />
+                                ))}
+                            </Pie>
+                            <text x="50%" y="42%" textAnchor="middle" dominantBaseline="middle" className="fill-indigo-600 font-mono font-black text-[15px]">
+                                {persentaseTanpaOpen}%
+                            </text>
+                            <text x="50%" y="54%" textAnchor="middle" dominantBaseline="middle" className="fill-slate-400 font-sans font-bold text-[8px] uppercase tracking-wider">
+                                REALISASI
+                            </text>
+                            <Tooltip
+                                content={({ active, payload }) => {
+                                    if (active && payload && payload.length) {
+                                        const pData = payload[0];
+                                        const persentase = ((pData.value / totalSeluruhMuatan) * 100).toFixed(1);
+                                        return (
+                                            <div className="bg-slate-950 text-white px-2 py-1.5 rounded-lg text-[10px] font-sans shadow-xl">
+                                                <span className="font-bold">{pData.name}</span>: <span className="font-mono text-indigo-300">{pData.value.toLocaleString('id-ID')} ({persentase}%)</span>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                }}
+                            />
+                        </PieChart>
+                    </ResponsiveContainer>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between bg-slate-900 border border-slate-950 px-3 py-2.5 rounded-xl">
+                    <span className="font-black text-white text-[10px] uppercase tracking-wider flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                        Total Assignment
+                    </span>
+                    <span className="font-mono font-black text-[13px] text-white bg-slate-800 px-2.5 py-0.5 rounded-md border border-slate-700/60 shadow-inner">
+                        {totalSeluruhMuatan.toLocaleString('id-ID')}
+                    </span>
+                </div>
+            </div>
+
+            {/* Target Progres Wilayah SLS */}
+            <div className="space-y-2 border-t border-slate-100 pt-4">
+                <div className="text-[10px] font-black text-slate-400 tracking-widest text-center lg:text-left uppercase mb-1">Status Progres Wilayah SLS</div>
+                {[
+                    { label: 'SLS Selesai Didata', count: dataMonitoringWilayah.statusSls.selesai, color: 'bg-emerald-500' },
+                    { label: 'SLS Sedang Didata', count: dataMonitoringWilayah.statusSls.sedang, color: 'bg-indigo-500' },
+                    { label: 'SLS Belum Mulai', count: dataMonitoringWilayah.statusSls.belum, color: 'bg-slate-300' }
+                ].map((item) => {
+                    const totalSls = dataMonitoringWilayah.statusSls.total || 1;
+                    const persenSls = ((item.count / totalSls) * 100).toFixed(1);
+                    return (
+                        <div key={item.label} className="flex items-center justify-between bg-slate-50/70 px-3 py-2 rounded-xl border border-slate-100 text-[10px]">
+                            <span className="font-bold text-slate-500 uppercase flex items-center gap-1.5">
+                                <span className={`w-1.5 h-1.5 rounded-full ${item.color}`}></span>
+                                {item.label}
+                            </span>
+                            <span className="font-mono font-black text-slate-700">
+                                {item.count} <span className="text-[9px] font-sans text-slate-400 font-normal">SLS ({persenSls}%)</span>
+                            </span>
+                        </div>
+                    );
+                })}
+                <button
+                    onClick={handleDownloadSlsExcel}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition-all duration-150 mt-3 flex items-center justify-center gap-1.5"
+                    title="Unduh data volume realisasi saat ini dalam bentuk berkas Excel"
+                >
+                    <span>📥</span> Export Data Realisasi
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
             {/* DIAGRAM TREN TIME-SERIES DENGAN PREDICTIVE KPI */}
             <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
@@ -1581,7 +1678,7 @@ export default function DashboardMonitoring() {
                                 Perkiraan Selesai: {metrikEstimasiProyek.tanggalPrediksi}
                             </span>
                         </div>
-                        
+
                         <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
                             {metrikEstimasiProyek.isTerlambat ? (
                                 <span className="text-rose-500/90">⚠️ Terancam Mundur ±{metrikEstimasiProyek.selisihDariDeadline} Hari Dari Target</span>
@@ -1589,7 +1686,7 @@ export default function DashboardMonitoring() {
                                 <span className="text-slate-400">Status Aman ({metrikEstimasiProyek.sisaHariDibutuhkan} Hari Kerja Tersisa)</span>
                             )}
                         </p>
-                        
+
                         <div className="text-[9px] text-slate-400/80 font-mono mt-0.5">
                             Laju Riil: +{metrikEstimasiProyek.rataKirimHarian.toLocaleString('id-ID')} dok/hari | Sisa: {metrikEstimasiProyek.totalSisaOpenAktif.toLocaleString('id-ID')} dok
                         </div>
@@ -1622,12 +1719,11 @@ export default function DashboardMonitoring() {
                                     const penambahanTerakhir = dataHariTerakhir[keyName] || 0;
 
                                     return (
-                                        <div 
+                                        <div
                                             key={keyName}
                                             onClick={() => setHoveredTrend(isFocused ? null : keyName)}
-                                            className={`flex items-center justify-between px-2 py-1.5 rounded-xl cursor-pointer transition-all duration-150 select-none ${
-                                                isFocused ? 'bg-slate-900 text-white shadow-sm scale-[1.02]' : 'bg-white border border-slate-100 text-slate-700 hover:bg-slate-100 hover:scale-[1.01]'
-                                            }`}
+                                            className={`flex items-center justify-between px-2 py-1.5 rounded-xl cursor-pointer transition-all duration-150 select-none ${isFocused ? 'bg-slate-900 text-white shadow-sm scale-[1.02]' : 'bg-white border border-slate-100 text-slate-700 hover:bg-slate-100 hover:scale-[1.01]'
+                                                }`}
                                             style={{ opacity: isDimmed ? 0.25 : 1 }}
                                         >
                                             <div className="flex items-center gap-1.5 truncate mr-2">
@@ -1748,7 +1844,7 @@ export default function DashboardMonitoring() {
                                     Standar Rata-Rata Saat Ini: <span className="text-indigo-600 font-mono">{metriksKpiHarian.rata2RealisasiPerPetugas} Dokumen</span> (Cakupan: {selectedKecTab === "SEMUA" ? "Kabupaten" : `Kec. ${namaKecamatanTerpilihText}`})
                                 </p>
                             </div>
-                            <button 
+                            <button
                                 onClick={() => setShowKpiModal(false)}
                                 className="bg-slate-200 hover:bg-slate-300 text-slate-600 font-black text-xs px-2.5 py-1.5 rounded-xl transition-all uppercase tracking-wide"
                             >
@@ -1807,10 +1903,10 @@ export default function DashboardMonitoring() {
                             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
                                 Menampilkan <span className="font-mono text-slate-700">{lowPerformersList.length > 0 ? indexOfFirstItem + 1 : 0}</span> - <span className="font-mono text-slate-700">{Math.min(indexOfLastItem, lowPerformersList.length)}</span> dari <span className="font-mono text-indigo-600">{lowPerformersList.length}</span> Petugas
                             </div>
-                            
+
                             {totalPages > 1 && (
                                 <div className="flex items-center gap-1.5">
-                                    <button 
+                                    <button
                                         disabled={modalCurrentPage === 1}
                                         onClick={() => setModalCurrentPage(prev => Math.max(prev - 1, 1))}
                                         className="bg-white border border-slate-200 text-slate-700 px-3 py-1.5 rounded-xl font-black text-[9px] uppercase tracking-wider shadow-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-all"
@@ -1820,7 +1916,7 @@ export default function DashboardMonitoring() {
                                     <div className="bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-[10px] font-mono font-black text-slate-700 min-w-[70px] text-center shadow-inner">
                                         {modalCurrentPage} / {totalPages}
                                     </div>
-                                    <button 
+                                    <button
                                         disabled={modalCurrentPage === totalPages}
                                         onClick={() => setModalCurrentPage(prev => Math.min(prev + 1, totalPages))}
                                         className="bg-white border border-slate-200 text-slate-700 px-3 py-1.5 rounded-xl font-black text-[9px] uppercase tracking-wider shadow-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-all"
@@ -1838,19 +1934,19 @@ export default function DashboardMonitoring() {
             {criticalModalConfig.show && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[110] p-4 animate-fade-in">
                     <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
-                        
+
                         <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50">
                             <div>
                                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                                     {criticalModalConfig.title}
                                 </h3>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">
-                                    {criticalModalConfig.type === "pml_critical" 
+                                    {criticalModalConfig.type === "pml_critical"
                                         ? "Menampilkan pengawas (PML) yang memiliki jumlah petugas macet & melambat terbanyak"
                                         : "Menampilkan rekam pengiriman assignment harian petugas dalam 3 hari terakhir (H-1 s.d H-3)"}
                                 </p>
                             </div>
-                            <button 
+                            <button
                                 onClick={() => {
                                     if (criticalModalConfig.type === "detil_pml_pcl") {
                                         const pmlCardElement = document.querySelector('[class*="border-indigo-500"]');
@@ -1916,17 +2012,17 @@ export default function DashboardMonitoring() {
                                             return pagedData.map((item, idx) => {
                                                 if (isPmlMode) {
                                                     return (
-                                                        <tr 
-                                                            key={idx} 
+                                                        <tr
+                                                            key={idx}
                                                             onClick={() => {
                                                                 const emailPmlTerpilih = (item.emailPml || item.email || "").toLowerCase().trim();
-                                                                
+
                                                                 const tglHariIni = new Date();
                                                                 const tglH1 = new Date(); tglH1.setDate(tglHariIni.getDate() - 1);
                                                                 const tglH2 = new Date(); tglH2.setDate(tglHariIni.getDate() - 2);
                                                                 const tglH3 = new Date(); tglH3.setDate(tglHariIni.getDate() - 3);
                                                                 const tglH4 = new Date(); tglH4.setDate(tglHariIni.getDate() - 4);
-                                                                
+
                                                                 const strH1 = tglH1.toISOString().split('T')[0];
                                                                 const strH2 = tglH2.toISOString().split('T')[0];
                                                                 const strH3 = tglH3.toISOString().split('T')[0];
@@ -1942,7 +2038,7 @@ export default function DashboardMonitoring() {
                                                                     .map(p => {
                                                                         const emailClean = p.email.toLowerCase().trim();
                                                                         const logPetugasPaging = {};
-                                                                        
+
                                                                         historyData.forEach(h => {
                                                                             if (h.petugas_id?.toLowerCase().trim() === emailClean) {
                                                                                 logPetugasPaging[h.tanggal] = (logPetugasPaging[h.tanggal] || 0) + (h.total_capaian || 0);
@@ -2023,10 +2119,10 @@ export default function DashboardMonitoring() {
                             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
                                 Menampilkan <span className="font-mono text-slate-700">{criticalModalConfig.data.length > 0 ? ((criticalCurrentPage - 1) * 15) + 1 : 0}</span> - <span className="font-mono text-slate-700">{Math.min(criticalCurrentPage * 15, criticalModalConfig.data.length)}</span> dari <span className="font-mono text-indigo-600">{criticalModalConfig.data.length}</span> {criticalModalConfig.type === "pml_critical" ? "Pengawas" : "Petugas"} Terdeteksi
                             </div>
-                            
+
                             {Math.ceil(criticalModalConfig.data.length / 15) > 1 && (
                                 <div className="flex items-center gap-1.5">
-                                    <button 
+                                    <button
                                         disabled={criticalCurrentPage === 1}
                                         onClick={() => setCriticalCurrentPage(prev => Math.max(prev - 1, 1))}
                                         className="bg-white border border-slate-200 text-slate-700 px-3 py-1.5 rounded-xl font-black text-[9px] uppercase tracking-wider shadow-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-all"
@@ -2036,7 +2132,7 @@ export default function DashboardMonitoring() {
                                     <div className="bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-[10px] font-mono font-black text-slate-700 min-w-[70px] text-center">
                                         {criticalCurrentPage} / {Math.ceil(criticalModalConfig.data.length / 15)}
                                     </div>
-                                    <button 
+                                    <button
                                         disabled={criticalCurrentPage === Math.ceil(criticalModalConfig.data.length / 15)}
                                         onClick={() => setCriticalCurrentPage(prev => Math.min(prev + 1, Math.ceil(criticalModalConfig.data.length / 15)))}
                                         className="bg-white border border-slate-200 text-slate-700 px-3 py-1.5 rounded-xl font-black text-[9px] uppercase tracking-wider shadow-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-all"
