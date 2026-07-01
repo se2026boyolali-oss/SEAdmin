@@ -334,7 +334,10 @@ export default function PclAssignmentPage() {
         }
     }, [user, profile, currentCoords, manualMode, selectedManualDate, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading]);
 
-const initPclPage = async () => {
+    // =========================================================================
+    // INITIALIZATION UTAMA: HANYA MEMUAT DATA BEBAN KERJA & HARI INI
+    // =========================================================================
+    const initPclPage = async () => {
         const pclEmail = user?.email || profile?.email;
         if (!pclEmail) return;
 
@@ -343,7 +346,6 @@ const initPclPage = async () => {
         const cleanEmail = pclEmail.toLowerCase().trim();
         await checkOfflineQueueCount();
 
-        // ─── OPTIMASI 1: HAPUS QUERY APP_SETTINGS (SUDAH DI-HANDLE AUTHCONTEXT) ───
         const kodeKec = getKecamatanCode();
         if (kodeKec) downloadAndCacheGeoJson(kodeKec);
 
@@ -353,9 +355,6 @@ const initPclPage = async () => {
 
             const cachedToday = localStorage.getItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`);
             if (cachedToday) setTodayCheckIns(JSON.parse(cachedToday));
-
-            const cachedHistory = localStorage.getItem(`cache_history_dates_${cleanEmail}`);
-            if (cachedHistory) setHistoryDates(JSON.parse(cachedHistory));
 
             setLoading(false);
             return;
@@ -378,23 +377,6 @@ const initPclPage = async () => {
                 .select('tanggal, idsubsls')
                 .eq('petugas_email', cleanEmail)
                 .eq('tanggal', tglHariIni);
-
-            // ─── OPTIMASI 2: LOCK RANGE TANGGAL BULAN AKTIF UNTUK KALENDER (JALUR 2) ───
-            const awalBulanIni = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).toISOString().split('T')[0];
-            const akhirBulanIni = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).toISOString().split('T')[0];
-
-            const { data: dateLogs } = await supabase
-                .from('log_checkin_pcl')
-                .select('tanggal')
-                .eq('petugas_email', cleanEmail)
-                .gte('tanggal', awalBulanIni)   // Batasi tanggal awal bulan aktif
-                .lte('tanggal', akhirBulanIni);  // Batasi tanggal akhir bulan aktif
-
-            if (dateLogs) {
-                const uniqueDates = [...new Set(dateLogs.map(log => log.tanggal))];
-                setHistoryDates(uniqueDates);
-                localStorage.setItem(`cache_history_dates_${cleanEmail}`, JSON.stringify(uniqueDates));
-            }
 
             // Memproses data log hari ini yang didapat dari JALUR 1
             const currentTodayLogs = todayLogsRaw || [];
@@ -448,17 +430,71 @@ const initPclPage = async () => {
         }
     };
 
-const hasFetched = useRef(false);
+    const hasFetched = useRef(false);
 
-useEffect(() => {
-    if (!authLoading && (user?.email || profile?.email) && !hasFetched.current) {
-        hasFetched.current = true; // Kunci agar tidak fetch ulang saat re-render
-        initPclPage();
-    }
-    return () => {
-        if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
-    };
-}, [profile, authLoading, user]); // Pastikan fungsi di dalam initPclPage tidak memicu re-fetch di sini
+    useEffect(() => {
+        if (!authLoading && (user?.email || profile?.email) && !hasFetched.current) {
+            hasFetched.current = true; // Kunci agar tidak fetch ulang saat re-render
+            initPclPage();
+        }
+        return () => {
+            if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+        };
+    }, [profile, authLoading, user]);
+
+    // =========================================================================
+    // HANDLER REAKTIF KALENDER BULANAN (OPTIMASI CACHE & HEMAT EGRESS)
+    // =========================================================================
+    const fetchHistoryForMonth = useCallback(async (targetMonth) => {
+        const pclEmail = user?.email || profile?.email;
+        if (!pclEmail) return;
+
+        const monthKey = `${targetMonth.getFullYear()}-${String(targetMonth.getMonth() + 1).padStart(2, '0')}`;
+        const cleanEmail = pclEmail.toLowerCase().trim();
+        const cacheKey = `cache_history_${cleanEmail}_${monthKey}`;
+
+        // 1. Ambil dari Cache Lokal Terlebih Dahulu (Egress = 0)
+        const cachedData = localStorage.getItem(cacheKey);
+        if (cachedData) {
+            setHistoryDates(JSON.parse(cachedData));
+            return;
+        }
+
+        // Jalur antisipasi darurat offline jika data cache kosong
+        if (!navigator.onLine) {
+            const oldFallbackCache = localStorage.getItem(`cache_history_dates_${cleanEmail}`);
+            if (oldFallbackCache) setHistoryDates(JSON.parse(oldFallbackCache));
+            return;
+        }
+
+        // 2. Ambil Jarak Rentang Tanggal Bulan Terpilih
+        const awalBulan = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1).toISOString().split('T')[0];
+        const akhirBulan = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+
+        try {
+            const { data: dateLogs } = await supabase
+                .from('log_checkin_pcl')
+                .select('tanggal') // Sangat Spesifik (Hanya kolom tanggal untuk meminimalkan transmisi byte data)
+                .eq('petugas_email', cleanEmail)
+                .gte('tanggal', awalBulan)
+                .lte('tanggal', akhirBulan);
+
+            if (dateLogs) {
+                const uniqueDates = [...new Set(dateLogs.map(log => log.tanggal))];
+                setHistoryDates(uniqueDates);
+                localStorage.setItem(cacheKey, JSON.stringify(uniqueDates));
+            }
+        } catch (err) {
+            console.error("Gagal memuat histori bulanan:", err.message);
+        }
+    }, [user, profile]);
+
+    // Pemicu otomatis penarikan log histori baru saat panel bulan kalender diubah
+    useEffect(() => {
+        if (user && !authLoading) {
+            fetchHistoryForMonth(currentMonth);
+        }
+    }, [currentMonth, user, authLoading, fetchHistoryForMonth]);
 
     useEffect(() => {
         const handleSignalToggle = () => checkOfflineQueueCount();
@@ -964,7 +1000,7 @@ useEffect(() => {
                                         <span>Di Luar Wilayah Tugas</span>
                                     </div>
                                     <p className="text-[11px] text-rose-600 font-bold leading-relaxed">
-                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah ke area lokasi tugas asli Anda.
+                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah to area lokasi tugas asli Anda.
                                     </p>
                                     <button
                                         onClick={resetForm}

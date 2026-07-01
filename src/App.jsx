@@ -41,26 +41,32 @@ const PageLoader = () => (
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, profile, loading } = useAuth();
   
+  // 1. Tunggu sampai loading auth Supabase selesai
   if (loading) return null; 
+  
+  // 2. Jika tidak ada user session, tendang ke login
   if (!user) return <Navigate to="/login" replace />;
   
+  // 3. 🛡️ FIX STUCK: Jika user ada tapi data profile dari database BELUM mendarat
+  if (user && !profile) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <div className="text-xs font-bold text-indigo-600 animate-spin mb-2">⏳</div>
+        <div className="text-[10px] uppercase font-mono tracking-wider text-slate-400">Sinkronisasi Hak Akses...</div>
+      </div>
+    );
+  }
+  
+  // 4. Cek paksa ganti password untuk login pertama
   if (profile?.is_first_login && window.location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />;
   }
   
+  // 5. Validasi Role Guard
   if (profile && allowedRoles && !allowedRoles.includes(profile.role)) {
     if (profile.role === 'pml') return <Navigate to="/PML-Monitoring" replace />;
     if (profile.role === 'pcl') return <Navigate to="/PCL-Assignment" replace />;
     return <Navigate to="/login" replace />;
-  }
-
-  if (!profile && allowedRoles && !allowedRoles.includes('pcl') && !allowedRoles.includes('pml')) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <div className="text-xs font-bold text-slate-400 animate-spin mb-2">⏳</div>
-        <div className="text-[10px] uppercase font-mono tracking-wider text-slate-400">Sinkronisasi Hak Akses...</div>
-      </div>
-    );
   }
   
   return children;

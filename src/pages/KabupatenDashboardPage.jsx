@@ -107,7 +107,8 @@ export default function DashboardPusat() {
     const [masterPclList, setMasterPclList] = useState([]);
     const [masterPmlList, setMasterPmlList] = useState([]);
     const [selectedPetugas, setSelectedPetugas] = useState(null);
-
+// 📅 Tambahkan ini untuk mengontrol perpindahan bulan secara lokal di kalender detail
+const [currentCalMonth, setCurrentCalMonth] = useState(new Date(2026, 5, 1)); // Default ke Juni 2026 sesuai project SE26
     const [rawPetugas, setRawPetugas] = useState([]);
     const [rawLogsPcl, setRawLogsPcl] = useState([]);
     const [rawRealisasiPml, setRawRealisasiPml] = useState([]);
@@ -437,10 +438,18 @@ export default function DashboardPusat() {
         const now = new Date(jktDateString);
         const tglHariIni = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-        // Selalu ambil statis H-14 dari hari ini agar pindah tanggal tidak butuh query server
-        const batasBawahTanggal = new Date(now);
-        batasBawahTanggal.setDate(batasBawahTanggal.getDate() - 7);
-        const batasBawahStr = `${batasBawahTanggal.getFullYear()}-${String(batasBawahTanggal.getMonth() + 1).padStart(2, '0')}-${String(batasBawahTanggal.getDate()).padStart(2, '0')}`;
+// ❌ KODE LAMA (Hanya mengunci di tanggal 1 bulan berjalan):
+// const batasBawahStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+
+// =========================================================================
+
+//  KODE BARU (Aman untuk Awal Bulan & Menjaga Histori MiniCalendar 7 Hari):
+const tanggalBatas = new Date(now);
+// Jika tanggal 1-7 di awal bulan, tarik data dari tanggal 1 di bulan SEBELUMNYA agar MiniCalendar tidak kosong
+if (now.getDate() <= 7) {
+    tanggalBatas.setMonth(now.getMonth() - 1);
+}
+const batasBawahStr = `${tanggalBatas.getFullYear()}-${String(tanggalBatas.getMonth() + 1).padStart(2, '0')}-01`;
 
         const [logsPclRes, logsPmlRes, realisasiPmlRes] = await Promise.all([
             supabase.from('log_checkin_pcl').select('idsubsls, tanggal, petugas_email, foto_bukti').gte('tanggal', batasBawahStr),
@@ -1279,7 +1288,13 @@ export default function DashboardPusat() {
                                                         <tr
                                                             key={petugas.email}
                                                             className={`transition-colors cursor-pointer ${selectedPetugas?.email === petugas.email ? 'bg-indigo-50/60 border-l-4 border-l-indigo-600' : tidakAktif ? 'bg-slate-50/50 hover:bg-slate-100/70 border-l-4 border-l-transparent' : 'bg-white hover:bg-slate-50 border-l-4 border-l-transparent'}`}
-                                                            onClick={() => setSelectedPetugas(petugas)}
+                                                            // Cari baris onClick tabel yang menetapkan setSelectedPetugas, ubah menjadi:
+onClick={() => {
+    setSelectedPetugas(petugas);
+    // Otomatis set kalender ke bulan sesuai filter date yang sedang aktif di dashboard
+    const [fYear, fMonth] = selectedFilterDate.split('-');
+    setCurrentCalMonth(new Date(parseInt(fYear, 10), parseInt(fMonth, 10) - 1, 1));
+}}
                                                         >
                                                             <td className="p-3 pl-4">
                                                                 <div className={`text-xs ${tidakAktif ? 'text-slate-500 font-semibold' : 'font-black text-slate-800'}`}>{petugas.nama_petugas || 'Tanpa Nama'}</div>
@@ -1383,22 +1398,93 @@ export default function DashboardPusat() {
                                     </div>
                                 </div>
 
-                                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                                    <span className="text-[10px] text-slate-500 uppercase block font-black mb-3 flex items-center gap-1.5 border-b border-slate-100 pb-2"><Calendar size={13} className="text-indigo-500" /> Presensi Lapangan Juni 2026</span>
-                                    <div className="grid grid-cols-7 gap-1.5 text-center text-[9px] font-black text-slate-400 uppercase mb-2">
-                                        <div>S</div><div>S</div><div>R</div><div>K</div><div>J</div><div>S</div><div>M</div>
-                                    </div>
-                                    <div className="grid grid-cols-7 gap-1.5 text-center">
-                                        {[...Array(4)].map((_, i) => <div key={`b-${i}`} className="h-6"></div>)}
-                                        {[...Array(31)].map((_, i) => {
-                                            const dateNum = i + 1;
-                                            const isPetugasAktif = selectedPetugas.rawLogs?.some(l => parseInt(l.tanggal.split('-')[2], 10) === dateNum);
-                                            let dateBg = "bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100";
-                                            if (isPetugasAktif) dateBg = "bg-gradient-to-br from-emerald-400 to-emerald-500 text-white font-black shadow-md shadow-emerald-200 border-none";
-                                            return <div key={dateNum} className={`h-6 w-full mx-auto rounded-lg text-[10px] flex items-center justify-center transition-all select-none cursor-default ${dateBg}`}>{dateNum}</div>;
-                                        })}
-                                    </div>
-                                </div>
+{/* ─── 📅 KALENDER PRESENSI LAPANGAN DENGAN NAVIGASI MANDIRI (ZERO EGRESS) ─── */}
+<div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+    <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
+        <span className="text-[10px] text-slate-500 uppercase font-black flex items-center gap-1.5">
+            <Calendar size={13} className="text-indigo-500" /> Presensi Lapangan
+        </span>
+        
+        {/* Tombol Navigasi Bulan */}
+        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200/60 p-0.5 rounded-lg">
+            <button 
+                type="button"
+                onClick={() => setCurrentCalMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                className="text-[10px] font-black w-4 h-4 rounded-md hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors select-none"
+            >
+                ‹
+            </button>
+            <span className="text-[9px] font-black uppercase text-indigo-600 font-mono tracking-tight min-w-[75px] text-center">
+                {currentCalMonth.toLocaleString('id-ID', { month: 'short', year: 'numeric' })}
+            </span>
+            <button 
+                type="button"
+                onClick={() => setCurrentCalMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                className="text-[10px] font-black w-4 h-4 rounded-md hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors select-none"
+            >
+                ›
+            </button>
+        </div>
+    </div>
+
+    <div className="grid grid-cols-7 gap-1.5 text-center text-[9px] font-black text-slate-400 uppercase mb-2">
+        <div>S</div><div>S</div><div>R</div><div>K</div><div>J</div><div>S</div><div>M</div>
+    </div>
+    
+    <div className="grid grid-cols-7 gap-1.5 text-center">
+        {(() => {
+            const targetYear = currentCalMonth.getFullYear();
+            const targetMonth = currentCalMonth.getMonth(); // Index 0-11
+
+            // 1. Hitung baris kosong (offset awal minggu)
+            const dayOfWeekIndex = new Date(targetYear, targetMonth, 1).getDay();
+            const startDayOffset = dayOfWeekIndex === 0 ? 6 : dayOfWeekIndex - 1;
+
+            // 2. Hitung total hari dalam bulan terpilih
+            const totalDaysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+
+            const calendarCells = [];
+
+            // Render padding awal bulan
+            for (let i = 0; i < startDayOffset; i++) {
+                calendarCells.push(<div key={`blank-${i}`} className="h-6"></div>);
+            }
+
+            // Render hari-hari aktif murni hasil komparasi data lokal
+            for (let dateNum = 1; dateNum <= totalDaysInMonth; dateNum++) {
+                const stringTanggalLoop = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(dateNum).padStart(2, '0')}`;
+                
+                // Cari apakah ada data checkin petugas di tanggal YYYY-MM-DD ini
+                const isPetugasAktif = selectedPetugas.rawLogs?.some(l => l.tanggal === stringTanggalLoop);
+                
+                // Deteksi hari ini real-time
+                const jktNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+                const tglSistemHariIni = `${jktNow.getFullYear()}-${String(jktNow.getMonth() + 1).padStart(2, '0')}-${String(jktNow.getDate()).padStart(2, '0')}`;
+                const isHariIni = stringTanggalLoop === tglSistemHariIni;
+
+                let dateBg = "bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100";
+                
+                if (isPetugasAktif) {
+                    dateBg = "bg-gradient-to-br from-emerald-400 to-emerald-500 text-white font-black shadow-md shadow-emerald-200 border-none";
+                } else if (isHariIni) {
+                    dateBg = "bg-rose-50 text-rose-600 border border-rose-200 font-extrabold ring-1 ring-rose-200";
+                }
+
+                calendarCells.push(
+                    <div 
+                        key={`date-${dateNum}`} 
+                        title={isPetugasAktif ? `Aktif` : isHariIni ? 'Hari Ini' : ''}
+                        className={`h-6 w-full mx-auto rounded-lg text-[10px] flex items-center justify-center transition-all select-none cursor-default ${dateBg}`}
+                    >
+                        {dateNum}
+                    </div>
+                );
+            }
+
+            return calendarCells;
+        })()}
+    </div>
+</div>
 
                                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
                                     <span className="text-[10px] text-slate-500 uppercase block font-black flex items-center gap-1.5 border-b border-slate-100 pb-2">
