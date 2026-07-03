@@ -41,13 +41,9 @@ const PageLoader = () => (
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, profile, loading } = useAuth();
   
-  // 1. Tunggu sampai loading auth Supabase selesai
   if (loading) return null; 
-  
-  // 2. Jika tidak ada user session, tendang ke login
   if (!user) return <Navigate to="/login" replace />;
   
-  // 3. 🛡️ FIX STUCK: Jika user ada tapi data profile dari database BELUM mendarat
   if (user && !profile) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
@@ -57,12 +53,11 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     );
   }
   
-  // 4. Cek paksa ganti password untuk login pertama
   if (profile?.is_first_login && window.location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />;
   }
   
-  // 5. Validasi Role Guard
+  // 🛡️ MODIFIKASI DI SINI: Validasi Role Guard
   if (profile && allowedRoles && !allowedRoles.includes(profile.role)) {
     if (profile.role === 'pml') return <Navigate to="/PML-Monitoring" replace />;
     if (profile.role === 'pcl') return <Navigate to="/PCL-Assignment" replace />;
@@ -103,7 +98,7 @@ function AppContent() {
     return <MaintenancePage />;
   }
 
-  return (
+return (
     <Suspense fallback={<PageLoader />}>
       <ChatAssistant />
 
@@ -116,16 +111,26 @@ function AppContent() {
         <Route path="/PML-Monitoring" element={<ProtectedRoute allowedRoles={['pml']}><PMLMonitoringPage /></ProtectedRoute>} />
         <Route path="/PCL-Assignment" element={<ProtectedRoute allowedRoles={['pcl']}><PclAssignmentPage /></ProtectedRoute>} />
 
-        <Route path="/" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><Layout /></ProtectedRoute>}>
-          <Route index element={<Navigate to="/dashboard-monitoring" replace />} />
+        {/* 🌟 1. Izinkan PML masuk ke Layout Utama */}
+        <Route path="/" element={<ProtectedRoute allowedRoles={['admin', 'pegawai', 'pml']}><Layout /></ProtectedRoute>}>
+          
+          {/* 🌟 2. Logika Redirect Root (/) secara dinamis berdasarkan Role */}
+          <Route index element={
+            profile?.role === 'pml' 
+              ? <Navigate to="/PML-Monitoring" replace /> 
+              : <Navigate to="/dashboard-monitoring" replace />
+          } />
+          
+          {/* 🌟 3. Beri hak akses 'pml' khusus untuk halaman Dashboard Monitoring */}
+          <Route path="dashboard-monitoring" element={<ProtectedRoute allowedRoles={['admin', 'pegawai', 'pml']}><DashboardMonitoring /></ProtectedRoute>} />
+          
+          {/* Menu-menu di bawah ini tetap dikunci hanya untuk admin dan pegawai */}
           <Route path="dashboard-lapangan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><KabupatenDashboardPage /></ProtectedRoute>} />
           <Route path="dashboard-alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><Dashboard /></ProtectedRoute>} />
           <Route path="cek-selisih-muatan" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AnomaliMonitoringPage /></ProtectedRoute>} />
           <Route path="alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AlokasiPage /></ProtectedRoute>} />
           <Route path="prioritas" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><PrioritasPage /></ProtectedRoute>} />
-          <Route path="dashboard-monitoring" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><DashboardMonitoring /></ProtectedRoute>} />
           <Route path="orang-penting" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><OrangPentingPage /></ProtectedRoute>} />
-          
           <Route path="pengaturan" element={<ProtectedRoute allowedRoles={['admin']}><SettingsPage /></ProtectedRoute>} />
         </Route>
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, PieChart, Pie, Cell, AreaChart, Area, Legend, ReferenceLine } from 'recharts';
 import { supabase } from '../supabaseClient';
 import * as XLSX from 'xlsx';
-
+import { useAuth } from '../context/AuthContext';
 // Komponen dipisah ke luar agar tidak di-recreate oleh React setiap kali hover
 const CustomLabelTren = (props) => {
     const { x, y, value, strokeColor, isDimmed } = props;
@@ -37,6 +37,7 @@ export default function DashboardMonitoring() {
     // ==========================================
     // 1. STATE MANAGEMENT UTAMA (useState)
     // ==========================================
+    const { profile } = useAuth();
     const [selectedKecTab, setSelectedKecTab] = useState("SEMUA");
     const [selectedKecamatan, setSelectedKecamatan] = useState(null);
     const [selectedPml, setSelectedPml] = useState("SEMUA");
@@ -191,17 +192,20 @@ const [includeDraft, setIncludeDraft] = useState(true);
                 tmpPclToPml[rawPclEmail] = rawPmlEmail;
             }
 
-            if (rawPmlEmail && rawPmlEmail !== "tanpa petugas") {
-                if (selectedKecTab === "SEMUA" || kodeKec === selectedKecTab) {
-                    if (!pmlSeen.has(rawPmlEmail)) {
-                        pmlSeen.add(rawPmlEmail);
-                        tmpPmlList.push({
-                            email: rawPmlEmail,
-                            nama: staffLookup[rawPmlEmail] || rawPmlEmail
-                        });
-                    }
-                }
-            }
+if (rawPmlEmail && rawPmlEmail !== "tanpa petugas") {
+    // Jika dia PML, loloskan email dia sendiri ke dalam list dropdown terlepas dari state kecamatan yang belum sinkron
+    const isUserPml = profile?.role === 'pml' && profile?.email?.toLowerCase().trim() === rawPmlEmail;
+    
+    if (selectedKecTab === "SEMUA" || kodeKec === selectedKecTab || isUserPml) {
+        if (!pmlSeen.has(rawPmlEmail)) {
+            pmlSeen.add(rawPmlEmail);
+            tmpPmlList.push({
+                email: rawPmlEmail,
+                nama: staffLookup[rawPmlEmail] || rawPmlEmail
+            });
+        }
+    }
+}
         });
         tmpPmlList.sort((a, b) => a.nama.localeCompare(b.nama));
         setPmlList(tmpPmlList);
@@ -427,7 +431,7 @@ const [includeDraft, setIncludeDraft] = useState(true);
             statusSls: { selesai: fSlsSelesai, sedang: fSlsSedang, belum: fSlsBelum, total: fSlsTotal }
         });
 
-    }, [rawData, historyData, selectedKecTab, selectedPml, staffLookup]);
+    }, [rawData, historyData, selectedKecTab, selectedPml, staffLookup, profile]); // 👈 Ditambahkan profile
 
     // Effect Pengolah Data Tren Grafik Harian
     useEffect(() => {
@@ -629,9 +633,43 @@ const [includeDraft, setIncludeDraft] = useState(true);
         }).length;
     }, [dataMonitoringWilayah.petugas, selectedKecTab, selectedPml, nilaiTargetYAxis]);
 
-    // 1. Pastikan state ini sudah ada di paling atas komponen utama Anda:
-// const [includeDraft, setIncludeDraft] = useState(true);
+// Effect untuk mengunci wilayah tugas DAN memaksa tampilan langsung ke mode PETUGAS untuk PML
+useEffect(() => {
+    if (profile?.role === 'pml' && profile?.kecamatan_tugas && rawData.length > 0) {
+        const targetKecText = profile.kecamatan_tugas.toString().toUpperCase().trim();
+        
+        // 🌟 PAKSA VIEW MODE langsung ke PETUGAS jika role-nya adalah PML
+        setViewModeTab("PETUGAS");
 
+        // Cari baris data di rawData yang nama atau kodenya terkandung di dalam teks profil
+        const cocokKecamatan = rawData.find(row => {
+            const relMuatan = row.muatan_sls || {};
+            const kodeKec = (relMuatan.kdkec || "").toString().trim();
+            const namaKec = (row.kecamatan || relMuatan.nmkec || "").toUpperCase().trim();
+            
+            return (
+                (kodeKec && targetKecText.includes(kodeKec)) || 
+                (namaKec && targetKecText.includes(namaKec))
+            );
+        });
+
+        if (cocokKecamatan) {
+            const kodeResmi = (cocokKecamatan.muatan_sls?.kdkec || cocokKecamatan.kecamatan || "").toString().trim();
+            setSelectedKecTab(kodeResmi);
+            setSelectedKecamatan(kodeResmi); 
+        } else {
+            const matchAngka = targetKecText.match(/\d+/);
+            const kodeFallback = matchAngka ? matchAngka[0] : targetKecText;
+            
+            setSelectedKecTab(kodeFallback);
+            setSelectedKecamatan(kodeFallback);
+        }
+        
+        if (profile?.email) {
+            setSelectedPml(profile.email.toLowerCase().trim());
+        }
+    }
+}, [profile, rawData]); // 👈 Kunci dependency
 // 2. Lakukan transformasi data barChartData berdasarkan status switch:
 const processedBarChartData = useMemo(() => {
     if (!barChartData) return [];
@@ -1104,35 +1142,45 @@ const processedBarChartData = useMemo(() => {
         <div className="p-6 bg-slate-100 min-h-screen space-y-6 relative">
 
             {/* BARIS UTAMA FILTRASI KECAMATAN DROPDOWN */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">Kecamatan:</label>
-                        <select
-                            value={selectedKecTab}
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                setSelectedKecTab(val);
-                                setSelectedKecamatan(val === "SEMUA" ? null : val);
-                                setSelectedPml("SEMUA");
-                                setSelectedDesaCode(null);
-                                setSelectedDesaName("");
-                                setSelectedPetugas(null);
-                                setSelectedPetugasEmail(null);
-                                setViewModeTab("PETUGAS");
-                            }}
-                            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-56 cursor-pointer"
-                        >
-                            <option value="SEMUA">📊 KABUPATEN BOYOLALI (ALL)</option>
-                            {dataMonitoringWilayah.kecamatan.map((kec) => (
-                                <option key={kec.kodeKec} value={kec.kodeKec}>
-                                    {kec.kodeKec} - {kec.nama_asli}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
+<div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
+    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto">
+        
+        {/* FILTRASI KECAMATAN */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">Kecamatan:</label>
+            <select
+                value={selectedKecTab}
+                // 🔒 Kunci pilihan jika user adalah PML
+                disabled={profile?.role === 'pml'}
+                onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedKecTab(val);
+                    setSelectedKecamatan(val === "SEMUA" ? null : val);
+                    setSelectedPml("SEMUA");
+                    setSelectedDesaCode(null);
+                    setSelectedDesaName("");
+                    setSelectedPetugas(null);
+                    setSelectedPetugasEmail(null);
+                    setViewModeTab("PETUGAS");
+                }}
+                className={`bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-56 ${
+                    profile?.role === 'pml' ? 'cursor-not-allowed opacity-80 bg-slate-100' : 'cursor-pointer'
+                }`}
+            >
+                {/* 🔒 Sembunyikan opsi ALL Kabupaten untuk PML */}
+                {profile?.role !== 'pml' && (
+                    <option value="SEMUA">📊 KABUPATEN BOYOLALI (ALL)</option>
+                )}
+                {dataMonitoringWilayah.kecamatan.map((kec) => (
+                    <option key={kec.kodeKec} value={kec.kodeKec}>
+                        {kec.kodeKec} - {kec.nama_asli}
+                    </option>
+                ))}
+            </select>
+        </div>
 
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
+        {/* FILTRASI PENGAWAS (PML) */}
+<div className="flex items-center gap-2 w-full sm:w-auto">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">Pengawas (PML):</label>
                         <select
                             value={selectedPml}
@@ -1159,15 +1207,16 @@ const processedBarChartData = useMemo(() => {
                             ))}
                         </select>
                     </div>
-                </div>
+    </div>
 
-                <div className="bg-slate-50 border border-slate-200/60 px-3 py-1.5 rounded-xl text-right flex items-center gap-2 self-end md:self-auto">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-wide">
-                        Data Diambil dari Fasih SM. Waktu Sync Terakhir: <span className="font-mono text-slate-800 font-black">{lastSyncedTime}</span>
-                    </span>
-                </div>
-            </div>
+    {/* METADATA SYNC STATUS */}
+    <div className="bg-slate-50 border border-slate-200/60 px-3 py-1.5 rounded-xl text-right flex items-center gap-2 self-end md:self-auto">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+        <span className="text-[9px] font-black text-slate-500 uppercase tracking-wide">
+            Data Diambil dari Fasih SM. Waktu Sync Terakhir: <span className="font-mono text-slate-800 font-black">{lastSyncedTime}</span>
+        </span>
+    </div>
+</div>
 
             {/* BARIS PANELS: INDIKATOR KPI */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 bg-slate-900 text-white p-5 rounded-3xl shadow-sm">
@@ -1455,32 +1504,41 @@ const processedBarChartData = useMemo(() => {
                     <button onClick={() => setViewModeTab("PETUGAS")} className={`text-[9px] font-black px-3 py-1.5 rounded-lg transition-all uppercase tracking-wide ${viewModeTab === "PETUGAS" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"}`}>🏃‍♂️ Per Petugas</button>
                 </div>
             )}
-            {(selectedKecTab !== "SEMUA" || selectedPml !== "SEMUA") && (
-                <button
-                    onClick={() => {
-                        if (viewModeTab === "SLS") {
-                            if (selectedPetugasEmail) {
-                                setViewModeTab("PETUGAS");
-                                setSelectedPetugasEmail(null);
-                                setSelectedPetugas(null);
-                            } else {
-                                setViewModeTab("PETUGAS");
-                                setSelectedDesaCode(null);
-                            }
-                        } else {
-                            setSelectedKecTab("SEMUA");
-                            setSelectedKecamatan(null);
-                            setSelectedPml("SEMUA");
-                            setSelectedPetugas(null);
-                            setSelectedPetugasEmail(null);
-                            setViewModeTab("DESA");
-                        }
-                    }}
-                    className="bg-slate-800 hover:bg-slate-900 text-white text-[9px] font-black px-4 py-1.5 rounded-xl transition-all uppercase tracking-wider shadow-sm flex items-center gap-1"
-                >
-                    ← Kembali
-                </button>
-            )}
+{(selectedKecTab !== "SEMUA" || selectedPml !== "SEMUA") && (
+    <button
+        onClick={() => {
+            if (viewModeTab === "SLS") {
+                if (selectedPetugasEmail) {
+                    setViewModeTab("PETUGAS");
+                    setSelectedPetugasEmail(null);
+                    setSelectedPetugas(null);
+                } else {
+                    setViewModeTab("PETUGAS");
+                    setSelectedDesaCode(null);
+                }
+            } else {
+                // 🔒 Jika admin/pegawai, kembalikan ke tingkat kabupaten murni
+                if (profile?.role !== 'pml') {
+                    setSelectedKecTab("SEMUA");
+                    setSelectedKecamatan(null);
+                    setSelectedPml("SEMUA");
+                    setSelectedPetugas(null);
+                    setSelectedPetugasEmail(null);
+                    setViewModeTab("DESA");
+                } else {
+                    // 🔒 Jika PML, cukup reset view mode ke PETUGAS/DESA di kecamatannya sendiri
+                    setViewModeTab("PETUGAS");
+                    setSelectedDesaCode(null);
+                    setSelectedPetugas(null);
+                    setSelectedPetugasEmail(null);
+                }
+            }
+        }}
+        className="bg-slate-800 hover:bg-slate-900 text-white text-[9px] font-black px-4 py-1.5 rounded-xl transition-all uppercase tracking-wider shadow-sm flex items-center gap-1"
+    >
+        ← Kembali
+    </button>
+)}
         </div>
     </div>
 
