@@ -204,6 +204,113 @@ export default function PclAssignmentPage() {
         setSelectedManualDate(getTodayDateString());
     }, [photoPreviewUrl]);
 
+    // =========================================================================
+    // HANDLER REAKTIF KALENDER BULANAN (OPTIMASI CACHE & HEMAT EGRESS)
+    // =========================================================================
+    const fetchHistoryForMonth = useCallback(async (targetMonth) => {
+        const pclEmail = user?.email || profile?.email;
+        if (!pclEmail) return;
+
+        const monthKey = `${targetMonth.getFullYear()}-${String(targetMonth.getMonth() + 1).padStart(2, '0')}`;
+        const cleanEmail = pclEmail.toLowerCase().trim();
+        const cacheKey = `cache_history_${cleanEmail}_${monthKey}`;
+
+        const cachedData = localStorage.getItem(cacheKey);
+        if (cachedData) {
+            setHistoryDates(JSON.parse(cachedData));
+            return;
+        }
+
+        if (!navigator.onLine) {
+            const oldFallbackCache = localStorage.getItem(`cache_history_dates_${cleanEmail}`);
+            if (oldFallbackCache) setHistoryDates(JSON.parse(oldFallbackCache));
+            return;
+        }
+
+        const awalBulan = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1).toISOString().split('T')[0];
+        const akhirBulan = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+
+        try {
+            const { data: dateLogs } = await supabase
+                .from('log_checkin_pcl')
+                .select('tanggal')
+                .eq('petugas_email', cleanEmail)
+                .gte('tanggal', awalBulan)
+                .lte('tanggal', akhirBulan);
+
+            if (dateLogs) {
+                const uniqueDates = [...new Set(dateLogs.map(log => log.tanggal))];
+                setHistoryDates(uniqueDates);
+                localStorage.setItem(cacheKey, JSON.stringify(uniqueDates));
+            }
+        } catch (err) {
+            console.error("Gagal memuat histori bulanan:", err.message);
+        }
+    }, [user, profile]);
+
+    // Pemicu otomatis penarikan log histori saat panel bulan diubah ATAU saat tab digeser ke kalender (Smart Validation)
+// Pemicu otomatis penarikan log histori saat panel bulan diubah ATAU saat tab digeser ke kalender (Smart Dynamic Validation)
+    useEffect(() => {
+        const checkAndFetchHistory = async () => {
+            if (!user || authLoading) return;
+
+            const pclEmail = user?.email || profile?.email;
+            if (!pclEmail) return;
+
+            const sekarang = new Date();
+            const tahunSekarang = sekarang.getFullYear();
+            const bulanSekarang = sekarang.getMonth();
+            const tanggalHariIni = sekarang.getDate(); // Angka tanggal 1 - 31
+
+            const targetTahun = currentMonth.getFullYear();
+            const targetBulan = currentMonth.getMonth();
+
+            const monthKey = `${targetTahun}-${String(targetBulan + 1).padStart(2, '0')}`;
+            const cleanEmail = pclEmail.toLowerCase().trim();
+            const cacheKey = `cache_history_${cleanEmail}_${monthKey}`;
+            const currentCache = localStorage.getItem(cacheKey);
+
+            if (activeTab === 1 && currentCache && navigator.onLine) {
+                const parsedCache = JSON.parse(currentCache);
+
+                if (targetTahun === tahunSekarang && targetBulan === bulanSekarang) {
+                    
+                    // =========================================================================
+                    // LOGIKA AMBANG BATAS DINAMIS BERJENJANG
+                    // =========================================================================
+                    let batasToleransiMaksimal = 3; // Nilai default cadangan
+
+                    if (tanggalHariIni <= 10) {
+                        batasToleransiMaksimal = 2;
+                    } else if (tanggalHariIni <= 20) {
+                        batasToleransiMaksimal = 5;
+                    } else {
+                        batasToleransiMaksimal = 8;
+                    }
+
+                    // Hitung selisih: Tanggal hari ini dikurangi jumlah data yang ada di HP
+                    const selisihDataBolong = tanggalHariIni - parsedCache.length;
+
+                    // Jika jumlah bolongnya melebihi batas toleransi berjenjang, paksa ambil ulang dari server
+                    if (selisihDataBolong > batasToleransiMaksimal) {
+                        console.log(`Cache bolong terdeteksi (${selisihDataBolong} hari). Batas maks tgl ${tanggalHariIni}: ${batasToleransiMaksimal}. Menghapus cache dan refetch...`);
+                        localStorage.removeItem(cacheKey);
+                        await fetchHistoryForMonth(currentMonth);
+                        return;
+                    }
+                    // =========================================================================
+                }
+            }
+
+            fetchHistoryForMonth(currentMonth);
+        };
+
+        checkAndFetchHistory();
+    }, [currentMonth, user, authLoading, activeTab, fetchHistoryForMonth, profile]);
+
+    // =========================================================================
+    // ENGINE BYPASS UTAMA: EKSEKUSI PENGIRIMAN LOG ABSENSI
+    // =========================================================================
     const eksekusiKirimBypass = useCallback(async (safeIdSubSls) => {
         if (actionLoading) return;
 
@@ -261,6 +368,7 @@ export default function PclAssignmentPage() {
             }
         }
 
+        // --- JALUR ABSEN OFFLINE ---
         if (!navigator.onLine) {
             try {
                 const db = await initOfflineDB();
@@ -270,6 +378,8 @@ export default function PclAssignmentPage() {
                 const updatedToday = [...todayCheckIns, objekHistoriBaru];
                 setTodayCheckIns(updatedToday);
                 localStorage.setItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`, JSON.stringify(updatedToday));
+
+                setHistoryDates(prev => prev.includes(tglHariIni) ? prev : [...prev, tglHariIni]); 
 
                 alert("💾 Tersimpan Offline! Log absen dan berkas foto bukti Anda aman di memori lokal HP.");
                 await checkOfflineQueueCount();
@@ -283,6 +393,7 @@ export default function PclAssignmentPage() {
             return;
         }
 
+        // --- JALUR ABSEN ONLINE ---
         try {
             const gasUrl = "https://script.google.com/macros/s/AKfycbwtBgrsYjqda1azzjFTaZRPrjh5Unv1bleWjdnwua3lQrRfR_AIjTDmR-5NIGKrSEM/exec";
             const responseGas = await fetch(gasUrl, {
@@ -293,7 +404,7 @@ export default function PclAssignmentPage() {
             const hasilGas = await responseGas.json();
             if (hasilGas.status !== "success") throw new Error("Google API Drive menolak file.");
 
-            const { error } = await supabase
+            const { data: serverResult, error } = await supabase
                 .from('log_checkin_pcl')
                 .insert({
                     tanggal: tglHariIni,
@@ -303,15 +414,39 @@ export default function PclAssignmentPage() {
                     longitude: currentCoords?.longitude || null,
                     is_within_range: !manualMode,
                     foto_bukti: hasilGas.url
-                });
+                })
+                .select('tanggal')
+                .single();
 
             if (error) throw error;
+
+            const tanggalResmiServer = serverResult.tanggal; 
 
             const updatedCacheCheckins = [...todayCheckIns, objekHistoriBaru];
             setTodayCheckIns(updatedCacheCheckins);
             localStorage.setItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`, JSON.stringify(updatedCacheCheckins));
 
-            setHistoryDates(prev => prev.includes(tglHariIni) ? prev : [...prev, tglHariIni]);
+            const [tahunAbsen, bulanAbsen] = tanggalResmiServer.split("-");
+            const cacheKeyKalender = `cache_history_${cleanEmail}_${tahunAbsen}-${bulanAbsen}`;
+            const currentCache = localStorage.getItem(cacheKeyKalender);
+
+            if (currentCache) {
+                const parsedCache = JSON.parse(currentCache);
+                
+                if (parsedCache.length < 2 && manualMode) {
+                    localStorage.removeItem(cacheKeyKalender);
+                    await fetchHistoryForMonth(new Date(tanggalResmiServer));
+                } else {
+                    setHistoryDates(prev => prev.includes(tanggalResmiServer) ? prev : [...prev, tanggalResmiServer]);
+                    if (!parsedCache.includes(tanggalResmiServer)) {
+                        parsedCache.push(tanggalResmiServer);
+                        localStorage.setItem(cacheKeyKalender, JSON.stringify(parsedCache));
+                    }
+                }
+            } else {
+                await fetchHistoryForMonth(new Date(tanggalResmiServer));
+            }
+
             alert("Absensi Lapangan Sukses Disimpan!");
             resetForm();
 
@@ -332,7 +467,7 @@ export default function PclAssignmentPage() {
             setShowValidationDialog(false);
             setPendingTargetId(null);
         }
-    }, [user, profile, currentCoords, manualMode, selectedManualDate, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading]);
+    }, [user, profile, currentCoords, manualMode, selectedManualDate, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading, fetchHistoryForMonth]);
 
     // =========================================================================
     // INITIALIZATION UTAMA: HANYA MEMUAT DATA BEBAN KERJA & HARI INI
@@ -361,7 +496,6 @@ export default function PclAssignmentPage() {
         }
 
         try {
-            // JALUR UTAMA: Ambil wilayah SLS beban kerja petugas (Hanya kolom yang dipakai)
             const { data: slsData } = await supabase
                 .from('muatan_sls')
                 .select('idsubsls, kdsls, nmsls, nmdesa, nmkec')
@@ -371,14 +505,12 @@ export default function PclAssignmentPage() {
             setAllMySls(currentMySls);
             localStorage.setItem(`cache_sls_beban_${cleanEmail}`, JSON.stringify(currentMySls));
 
-            // JALUR 1: Hanya ambil log absen khusus HARI INI (Sangat Hemat Egress)
             const { data: todayLogsRaw } = await supabase
                 .from('log_checkin_pcl')
                 .select('tanggal, idsubsls')
                 .eq('petugas_email', cleanEmail)
                 .eq('tanggal', tglHariIni);
 
-            // Memproses data log hari ini yang didapat dari JALUR 1
             const currentTodayLogs = todayLogsRaw || [];
 
             const missingIds = [];
@@ -434,67 +566,13 @@ export default function PclAssignmentPage() {
 
     useEffect(() => {
         if (!authLoading && (user?.email || profile?.email) && !hasFetched.current) {
-            hasFetched.current = true; // Kunci agar tidak fetch ulang saat re-render
+            hasFetched.current = true;
             initPclPage();
         }
         return () => {
             if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
         };
     }, [profile, authLoading, user]);
-
-    // =========================================================================
-    // HANDLER REAKTIF KALENDER BULANAN (OPTIMASI CACHE & HEMAT EGRESS)
-    // =========================================================================
-    const fetchHistoryForMonth = useCallback(async (targetMonth) => {
-        const pclEmail = user?.email || profile?.email;
-        if (!pclEmail) return;
-
-        const monthKey = `${targetMonth.getFullYear()}-${String(targetMonth.getMonth() + 1).padStart(2, '0')}`;
-        const cleanEmail = pclEmail.toLowerCase().trim();
-        const cacheKey = `cache_history_${cleanEmail}_${monthKey}`;
-
-        // 1. Ambil dari Cache Lokal Terlebih Dahulu (Egress = 0)
-        const cachedData = localStorage.getItem(cacheKey);
-        if (cachedData) {
-            setHistoryDates(JSON.parse(cachedData));
-            return;
-        }
-
-        // Jalur antisipasi darurat offline jika data cache kosong
-        if (!navigator.onLine) {
-            const oldFallbackCache = localStorage.getItem(`cache_history_dates_${cleanEmail}`);
-            if (oldFallbackCache) setHistoryDates(JSON.parse(oldFallbackCache));
-            return;
-        }
-
-        // 2. Ambil Jarak Rentang Tanggal Bulan Terpilih
-        const awalBulan = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1).toISOString().split('T')[0];
-        const akhirBulan = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).toISOString().split('T')[0];
-
-        try {
-            const { data: dateLogs } = await supabase
-                .from('log_checkin_pcl')
-                .select('tanggal') // Sangat Spesifik (Hanya kolom tanggal untuk meminimalkan transmisi byte data)
-                .eq('petugas_email', cleanEmail)
-                .gte('tanggal', awalBulan)
-                .lte('tanggal', akhirBulan);
-
-            if (dateLogs) {
-                const uniqueDates = [...new Set(dateLogs.map(log => log.tanggal))];
-                setHistoryDates(uniqueDates);
-                localStorage.setItem(cacheKey, JSON.stringify(uniqueDates));
-            }
-        } catch (err) {
-            console.error("Gagal memuat histori bulanan:", err.message);
-        }
-    }, [user, profile]);
-
-    // Pemicu otomatis penarikan log histori baru saat panel bulan kalender diubah
-    useEffect(() => {
-        if (user && !authLoading) {
-            fetchHistoryForMonth(currentMonth);
-        }
-    }, [currentMonth, user, authLoading, fetchHistoryForMonth]);
 
     useEffect(() => {
         const handleSignalToggle = () => checkOfflineQueueCount();
