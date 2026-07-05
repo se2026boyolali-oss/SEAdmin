@@ -64,7 +64,7 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
     const totalTarget = parseInt(matchProgress?.total) || sls.jml_muatan || 0;
 
     // Hitung total realisasi yang sudah dikerjakan (Semua dokumen non-OPEN)
-    const totalRealisasi = approved + edited + submitted + submitted_resp + draft + rejected + revoked;
+    const totalRealisasi = approved + edited + submitted + submitted_resp + rejected + revoked;
 
     // Hitung persentase capaian riil terhadap target total
     const persen = totalTarget > 0 ? Math.min(Math.round((totalRealisasi / totalTarget) * 100), 100) : 0;
@@ -1133,7 +1133,7 @@ if (isDataFetchedRef.current) return;
                     (parseInt(match?.edited_pengawas) || 0) +
                     (parseInt(match?.submitted_pencacah) || 0) +
                     (parseInt(match?.submitted_respondent) || 0) +
-                    (parseInt(match?.draft) || 0) +
+                    //(parseInt(match?.draft) || 0) +
                     (parseInt(match?.rejected_pengawas) || 0) +
                     (parseInt(match?.revoked_pengawas) || 0);
 
@@ -2058,7 +2058,7 @@ historyData.forEach(log => {
                                     const rejected = parseInt(match?.rejected_pengawas) || 0;
                                     const revoked = parseInt(match?.revoked_pengawas) || 0;
 
-                                    const totalSlsRiil = approved + edited + submitted + submitted_resp + draft + rejected + revoked;
+                                    const totalSlsRiil = approved + edited + submitted + submitted_resp + rejected + revoked;
                                     return acc + totalSlsRiil;
                                 }, 0);
 
@@ -2098,13 +2098,18 @@ historyData.forEach(log => {
                                                 </div>
 
                                                 <div className="shrink-0 flex items-center gap-2">
-                                                    <span className="text-xs font-mono font-black text-indigo-600">
-                                                        {persenPcl}%
-                                                    </span>
-                                                    <div className="text-slate-400">
-                                                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                                    </div>
-                                                </div>
+    <div className="flex flex-col items-end">
+        <span className="text-xs font-mono font-black text-indigo-600">
+            {persenPcl}%
+        </span>
+        <span className="text-[7px] font-bold text-orange-500 uppercase tracking-tighter mt-0.5">
+            (Tidak Termasuk Status Draft)
+        </span>
+    </div>
+    <div className="text-slate-400">
+        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+    </div>
+</div>
                                             </div>
 
                                             {/* SUNTIKAN 1: PROGRESS BAR HORIZONTAL */}
