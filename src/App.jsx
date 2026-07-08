@@ -9,20 +9,33 @@ import Layout from './components/Layout';
 // 🤖 Impor komponen Chat Assistant AI global
 import ChatAssistant from './components/ChatAssistant';
 
-const KabupatenDashboardPage = lazy(() => import('./pages/KabupatenDashboardPage'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const AnomaliMonitoringPage = lazy(() => import('./pages/AnomaliMonitoringPage'));
-const AlokasiPage = lazy(() => import('./pages/AlokasiPage'));
-const PrioritasPage = lazy(() => import('./pages/PrioritasPage'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const PMLMonitoringPage = lazy(() => import('./pages/PmlMonitoringPage'));
-const PclAssignmentPage = lazy(() => import('./pages/PclAssignmentPage'));
-const DashboardMonitoring = lazy(() => import('./pages/DashboardMonitoring'));
-const OrangPentingPage = lazy(() => import('./pages/OrangPentingPage'));
-const OrangPentingFormPublik = lazy(() => import('./pages/OrangPentingFormPublik'));
+// ⚡ ENGINE LAZY DENGAN PENANGANAN ERROR RE-FETCH (SOLUSI MIME TYPE ERROR BROWSER CACHE)
+const lazyWithRetry = (componentImport) => 
+  lazy(async () => {
+    try {
+      return await componentImport();
+    } catch (error) {
+      console.error("Versi build baru terdeteksi di server. Memperbarui halaman...", error);
+      // Force reload dari server untuk membuang cache index.html yang usang
+      window.location.reload(true);
+      return { default: () => null };
+    }
+  });
 
-// 🚀 LAZY LOAD UNTUK HALAMAN AUDIT SCANNER BARU
-const StatusPage = lazy(() => import('./pages/StatusPage'));
+const KabupatenDashboardPage = lazyWithRetry(() => import('./pages/KabupatenDashboardPage'));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+const AnomaliMonitoringPage = lazyWithRetry(() => import('./pages/AnomaliMonitoringPage'));
+const AlokasiPage = lazyWithRetry(() => import('./pages/AlokasiPage'));
+const PrioritasPage = lazyWithRetry(() => import('./pages/PrioritasPage'));
+const SettingsPage = lazyWithRetry(() => import('./pages/SettingsPage'));
+const PMLMonitoringPage = lazyWithRetry(() => import('./pages/PmlMonitoringPage'));
+const PclAssignmentPage = lazyWithRetry(() => import('./pages/PclAssignmentPage'));
+const DashboardMonitoring = lazyWithRetry(() => import('./pages/DashboardMonitoring'));
+const OrangPentingPage = lazyWithRetry(() => import('./pages/OrangPentingPage'));
+const OrangPentingFormPublik = lazyWithRetry(() => import('./pages/OrangPentingFormPublik'));
+
+// 🚀 LAZY LOAD UNTUK HALAMAN AUDIT SCANNER BARU DENGAN RETRY HANDLER
+const StatusPage = lazyWithRetry(() => import('./pages/StatusPage'));
 
 // 🧱 Komponen Tampilan Halaman Maintenance
 const MaintenancePage = () => (
