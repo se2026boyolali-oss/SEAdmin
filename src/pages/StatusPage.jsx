@@ -50,15 +50,17 @@ const processRawData = (progresData, muatanData, listPetugas) => {
     if (!pclAgregat[emailPcl]) {
       pclAgregat[emailPcl] = {
         email: emailPcl, namaPcl, namaPml, kdkec: muatan.kdkec, nmkec: muatan.nmkec || "TIDAK TERPLOT",
-        totalTidakDitemukan: 0, totalBgnTutup: 0, totalSlsDikerjakan: 0, semuaSls: []
+        totalTidakDitemukan: 0, totalBgnTutup: 0,totalUsahaBermasalah: 0, totalSlsDikerjakan: 0, semuaSls: []
       };
     }
 
     const tTidakDitemukan = row.status_tidak_ditemukan_stop || 0;
     const tBgnTutup = row.bgn_tutup || 0;
+    const tBgnTidakDitemukan = row.bgn_tidak_ditemukan || 0;
 
     pclAgregat[emailPcl].totalTidakDitemukan += tTidakDitemukan;
     pclAgregat[emailPcl].totalBgnTutup += tBgnTutup;
+    pclAgregat[emailPcl].totalUsahaBermasalah += (tBgnTidakDitemukan + tBgnTutup);
     pclAgregat[emailPcl].totalSlsDikerjakan++;
 
     pclAgregat[emailPcl].semuaSls.push({
@@ -93,9 +95,10 @@ const CustomTooltip = ({ active, payload }) => {
             <span>❌ Keluarga Tidak Ditemukan:</span>
             <span className="font-bold">{data.totalTidakDitemukan}</span>
           </div>
+          {/* 👇 Ganti bagian ini */}
           <div className="flex justify-between gap-4 text-amber-600">
-            <span>🏠 Usaha Tidak Ditemukan:</span>
-            <span className="font-bold">{data.totalBgnTutup}</span>
+            <span>🏠 Usaha Tdk Ditemukan + Tutup:</span>
+            <span className="font-bold">{data.totalUsahaBermasalah}</span>
           </div>
           <div className="flex justify-between gap-4 text-slate-500">
             <span>📦 Total SLS Jalan:</span>
@@ -451,8 +454,8 @@ export default function StatusPage() {
             <thead className="bg-slate-50 text-[9px] text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100">
               <tr className="bg-slate-50 text-slate-600">
                 <th rowSpan={2} className="py-3 px-4 text-left font-black text-[10px] min-w-[220px] sticky left-0 bg-slate-50 z-10 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.01)]">Nama Kecamatan / Petugas</th>
-                <th colSpan={7} className="py-1 px-2 text-center bg-red-50/40 text-red-700 font-black border-r border-slate-100">Agg. Isian Status Keluarga</th>
-                <th colSpan={5} className="py-1 px-2 text-center bg-amber-50/40 text-amber-700 font-black border-r border-slate-100">Agg. Kondisi Bangunan Usaha</th>
+                <th colSpan={7} className="py-1 px-2 text-center bg-red-50/40 text-red-700 font-black border-r border-slate-100">Isian Status Keluarga</th>
+                <th colSpan={5} className="py-1 px-2 text-center bg-amber-50/40 text-amber-700 font-black border-r border-slate-100">Isian Status Usaha</th>
                 <th rowSpan={2} className="py-3 px-2 text-center text-slate-700 font-black">Beban SLS</th>
               </tr>
               <tr className="bg-slate-50/50 divide-x divide-slate-100 text-[9px]">
@@ -538,15 +541,15 @@ export default function StatusPage() {
                 <XAxis type="number" dataKey="totalTidakDitemukan" name="Tidak Ditemukan" stroke="#cbd5e1" tick={{ fontSize: 9, fontFamily: 'monospace', fontSpread: 'bold' }}>
                   <Label value="❌ KELUARGA 'TIDAK DITEMUKAN'" offset={-8} position="insideBottom" fill="#ef4444" style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }} />
                 </XAxis>
-                <YAxis type="number" dataKey="totalBgnTutup" name="Bangunan Tutup" stroke="#cbd5e1" tick={{ fontSize: 9, fontFamily: 'monospace', fontSpread: 'bold' }}>
-                  <Label value="🏠 USAHA 'TIDAK DITEMUKAN'" angle={-90} position="insideLeft" offset={20} fill="#f59e0b" style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }} />
+                <YAxis type="number" dataKey="totalUsahaBermasalah" name="Usaha Tidak Ditemukan/Tutup" stroke="#cbd5e1" tick={{ fontSize: 9, fontFamily: 'monospace', fontSpread: 'bold' }}>
+                  <Label value="🏠 USAHA 'TIDAK DITEMUKAN'/'TUTUP'" angle={-90} position="insideLeft" offset={20} fill="#f59e0b" style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }} />
                 </YAxis>
                 <ChartTooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3', stroke: '#e2e8f0' }} />
                 <ReferenceLine x={40} stroke="#f43f5e" strokeDasharray="5 5" />
                 <ReferenceLine y={40} stroke="#fbbf24" strokeDasharray="5 5" />
                 <Scatter name="Petugas" data={filteredPclData} onClick={(node) => setSelectedAuditPcl(node.payload)} className="cursor-pointer">
                   {filteredPclData.map((entry, index) => {
-                    const isKritis = entry.totalTidakDitemukan > 40 || entry.totalBgnTutup > 40;
+                    const isKritis = entry.totalTidakDitemukan > 40 || entry.totalUsahaBermasalah > 40;
                     return <Cell key={`cell-${index}`} fill={isKritis ? '#f43f5e' : '#4f46e5'} fillOpacity={isKritis ? 0.95 : 0.8} stroke={isKritis ? '#e11d48' : '#3730a3'} strokeWidth={1} r={isKritis ? 7 : 5} />;
                   })}
                 </Scatter>
@@ -574,7 +577,7 @@ export default function StatusPage() {
               </div>
               <div className="flex gap-4 text-[11px] text-slate-500 font-bold">
                 <span className="text-rose-600">Keluarga Tdk Ditemukan: {selectedAuditPcl.totalTidakDitemukan}</span>
-                <span className="text-amber-600">Usaha Tdk Ditemukan: {selectedAuditPcl.totalBgnTutup}</span>
+                <span className="text-amber-600">Usaha Tidak Ditemukan + Tutup: {selectedAuditPcl.totalUsahaBermasalah}</span>
                 <span>SLS Jalan: {selectedAuditPcl.totalSlsDikerjakan}</span>
               </div>
             </div>
