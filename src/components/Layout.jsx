@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-// 🚀 1. TAMBAHKAN ICON SHIELD UNTUK ORANG PENTING
+// 🚀 1. ICON SHIELD & SHIELD ALERT DIGUNAKAN UNTUK MENU BARU DAN ORANG PENTING
 import { Map, BarChart3, Settings, LogOut, User, Menu, X, ShieldAlert, PieChart, ChevronDown, AlertTriangle, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -23,8 +23,10 @@ export default function Layout() {
   // Menu Items disederhanakan karena khusus untuk Admin & Pegawai
   const allMenuItems = [
     { name: 'Progress Lapangan', path: '/dashboard-monitoring', icon: BarChart3, roles: ['admin', 'pegawai'] },
+    // 🔒 2. MENDAFTARKAN MENU AUDIT SCANNER BARU TEPAT DI BAWAH PROGRESS LAPANGAN
+    { name: 'Status Hasil Pendataan', path: '/rekap-status', icon: ShieldAlert, roles: ['admin', 'pegawai'] },
+    
     { name: 'Keaktifan Petugas', path: '/dashboard-lapangan', icon: BarChart3, roles: ['admin', 'pegawai'] },
-    // 🚀 2. DAFTARKAN MENU BARU DI BAWAH PEMANTAUAN LAPANGAN
     { name: 'Pendataan Orang Penting', path: '/orang-penting', icon: Shield, roles: ['admin', 'pegawai'] },
     
     { name: 'SLS Prioritas', path: '/prioritas', icon: ShieldAlert, roles: ['admin', 'pegawai'] },
@@ -62,8 +64,8 @@ export default function Layout() {
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {/* 1. Menu Utama (Pemantauan Atas) */}
         {allowedMenuItems
-          // 🚀 3. MASUKKAN '/orang-penting' KE FILTER BAGIAN UTAMA AGAR GERAKANNYA TIDAK PINDAH KE BAWAH
-          .filter(item => ['/dashboard-monitoring', '/dashboard-lapangan', '/orang-penting', '/prioritas', '/cek-selisih-muatan'].includes(item.path))
+          // 🔒 3. MASUKKAN '/rekap-status' KE FILTER UTAMA AGAR POSISINYA TETAP STABIL DI ATAS
+          .filter(item => ['/dashboard-monitoring', '/rekap-status', '/dashboard-lapangan', '/orang-penting', '/prioritas', '/cek-selisih-muatan'].includes(item.path))
           .map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -105,8 +107,8 @@ export default function Layout() {
 
         {/* 3. Menu Sisa (Pengaturan dll) */}
         {allowedMenuItems
-          // 🚀 4. PASTIKAN '/orang-penting' DIKECUALIKAN DI SINI AGAR TIDAK MUNCUL GANDA DI BAWAH PENGATURAN
-          .filter(item => !['/dashboard-monitoring', '/dashboard-lapangan', '/orang-penting', '/prioritas', '/cek-selisih-muatan', '/dashboard-alokasi', '/alokasi'].includes(item.path))
+          // 🔒 4. KECUALIKAN '/rekap-status' DI SINI JUGA SUPAYA TIDAK DUPLIKAT DI BAWAH PENGATURAN
+          .filter(item => !['/dashboard-monitoring', '/rekap-status', '/dashboard-lapangan', '/orang-penting', '/prioritas', '/cek-selisih-muatan', '/dashboard-alokasi', '/alokasi'].includes(item.path))
           .map(item => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;

@@ -21,6 +21,9 @@ const DashboardMonitoring = lazy(() => import('./pages/DashboardMonitoring'));
 const OrangPentingPage = lazy(() => import('./pages/OrangPentingPage'));
 const OrangPentingFormPublik = lazy(() => import('./pages/OrangPentingFormPublik'));
 
+// 🚀 LAZY LOAD UNTUK HALAMAN AUDIT SCANNER BARU
+const StatusPage = lazy(() => import('./pages/StatusPage'));
+
 // 🧱 Komponen Tampilan Halaman Maintenance
 const MaintenancePage = () => (
   <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6 text-center">
@@ -98,7 +101,7 @@ function AppContent() {
     return <MaintenancePage />;
   }
 
-return (
+  return (
     <Suspense fallback={<PageLoader />}>
       <ChatAssistant />
 
@@ -131,6 +134,10 @@ return (
           <Route path="alokasi" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><AlokasiPage /></ProtectedRoute>} />
           <Route path="prioritas" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><PrioritasPage /></ProtectedRoute>} />
           <Route path="orang-penting" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><OrangPentingPage /></ProtectedRoute>} />
+          
+          {/* 🔓 HALAMAN BARU: Bisa diakses oleh role 'admin' dan 'pegawai' */}
+          <Route path="rekap-status" element={<ProtectedRoute allowedRoles={['admin', 'pegawai']}><StatusPage /></ProtectedRoute>} />
+          
           <Route path="pengaturan" element={<ProtectedRoute allowedRoles={['admin']}><SettingsPage /></ProtectedRoute>} />
         </Route>
 
