@@ -11,98 +11,98 @@ import { useAuth } from '../context/AuthContext';
 // MODIFIKASI: BANNER SEKARANG MEMBACA DARI SUPABASE
 // ==========================================
 function SmartAlertBanner() {
-  const [infos, setInfos] = React.useState([]);
-  const [currentIndex, setCurrentIndex] = React.useState(0);
-  const [isVisible, setIsVisible] = React.useState(true);
-  const [fetching, setFetching] = React.useState(true); // State loading khusus banner
+    const [infos, setInfos] = React.useState([]);
+    const [currentIndex, setCurrentIndex] = React.useState(0);
+    const [isVisible, setIsVisible] = React.useState(true);
+    const [fetching, setFetching] = React.useState(true); // State loading khusus banner
 
-  React.useEffect(() => {
-    async function fetchAnnouncements() {
-      try {
-        setFetching(true);
-        // Mengambil pengumuman yang berstatus aktif (is_active = true) 
-        // dan diurutkan dari yang terbaru (id descending)
-        const { data, error } = await supabase
-          .from('announcements')
-          .select('id, message, type')
-          .eq('is_active', true)
-          .order('id', { ascending: false });
+    React.useEffect(() => {
+        async function fetchAnnouncements() {
+            try {
+                setFetching(true);
+                // Mengambil pengumuman yang berstatus aktif (is_active = true) 
+                // dan diurutkan dari yang terbaru (id descending)
+                const { data, error } = await supabase
+                    .from('announcements')
+                    .select('id, message, type')
+                    .eq('is_active', true)
+                    .order('id', { ascending: false });
 
-        if (error) throw error;
-        setInfos(data || []);
-      } catch (err) {
-        console.error("Gagal mengambil data pengumuman Supabase:", err.message);
-      } finally {
-        setFetching(false);
-      }
-    }
+                if (error) throw error;
+                setInfos(data || []);
+            } catch (err) {
+                console.error("Gagal mengambil data pengumuman Supabase:", err.message);
+            } finally {
+                setFetching(false);
+            }
+        }
 
-    fetchAnnouncements();
-  }, []);
+        fetchAnnouncements();
+    }, []);
 
-  // Jika masih loading, atau banner di-close, atau tidak ada pengumuman aktif, jangan tampilkan apa-apa
-  if (fetching || !isVisible || infos.length === 0) return null;
+    // Jika masih loading, atau banner di-close, atau tidak ada pengumuman aktif, jangan tampilkan apa-apa
+    if (fetching || !isVisible || infos.length === 0) return null;
 
-  const currentInfo = infos[currentIndex];
-  
-  // Mapping warna tajam dan efek glow sesuai tipe dari database
-  const themeMap = {
-    info: { 
-      bg: "bg-blue-50/95 border-l-8 border-blue-600 text-blue-950 shadow-[0_0_15px_rgba(37,99,235,0.15)]", 
-      badge: "bg-blue-600 text-white",
-      dot: "bg-blue-500" 
-    },
-    warning: { 
-      bg: "bg-amber-50/95 border-l-8 border-amber-500 text-amber-950 shadow-[0_0_15px_rgba(245,158,11,0.2)]", 
-      badge: "bg-amber-500 text-white",
-      dot: "bg-amber-500" 
-    },
-    success: { 
-      bg: "bg-emerald-50/95 border-l-8 border-emerald-600 text-emerald-950 shadow-[0_0_15px_rgba(16,185,129,0.15)]", 
-      badge: "bg-emerald-600 text-white",
-      dot: "bg-emerald-500" 
-    }
-  };
-  const currentTheme = themeMap[currentInfo.type] || themeMap.info;
+    const currentInfo = infos[currentIndex];
 
-  return (
-    <div className={`mb-6 p-4 rounded-r-2xl rounded-l-md border border-slate-200/60 flex items-center justify-between gap-4 backdrop-blur-xs transition-all duration-300 relative overflow-hidden ${currentTheme.bg}`}>
-      
-      <div className="flex items-center gap-3.5 w-full">
-        {/* Live Dot Indicator (Sinyal Berkedip) */}
-        <span className="relative flex h-2.5 w-2.5 shrink-0 ml-1">
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${currentTheme.dot}`}></span>
-          <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${currentTheme.dot}`}></span>
-        </span>
+    // Mapping warna tajam dan efek glow sesuai tipe dari database
+    const themeMap = {
+        info: {
+            bg: "bg-blue-50/95 border-l-8 border-blue-600 text-blue-950 shadow-[0_0_15px_rgba(37,99,235,0.15)]",
+            badge: "bg-blue-600 text-white",
+            dot: "bg-blue-500"
+        },
+        warning: {
+            bg: "bg-amber-50/95 border-l-8 border-amber-500 text-amber-950 shadow-[0_0_15px_rgba(245,158,11,0.2)]",
+            badge: "bg-amber-500 text-white",
+            dot: "bg-amber-500"
+        },
+        success: {
+            bg: "bg-emerald-50/95 border-l-8 border-emerald-600 text-emerald-950 shadow-[0_0_15px_rgba(16,185,129,0.15)]",
+            badge: "bg-emerald-600 text-white",
+            dot: "bg-emerald-500"
+        }
+    };
+    const currentTheme = themeMap[currentInfo.type] || themeMap.info;
 
-        {/* Badge Penanda Kategori Pengumuman */}
-        <span className={`text-[9px] font-black tracking-widest px-2 py-0.5 rounded uppercase font-sans shrink-0 ${currentTheme.badge}`}>
-          {currentInfo.type === 'warning' ? 'PENTING' : currentInfo.type === 'success' ? 'SUKSES' : 'INFO BARU'}
-        </span>
+    return (
+        <div className={`mb-6 p-4 rounded-r-2xl rounded-l-md border border-slate-200/60 flex items-center justify-between gap-4 backdrop-blur-xs transition-all duration-300 relative overflow-hidden ${currentTheme.bg}`}>
 
-        {/* Isi Teks dari Supabase */}
-        <div className="text-xs sm:text-sm font-bold tracking-wide leading-relaxed">
-          {currentInfo.message}
+            <div className="flex items-center gap-3.5 w-full">
+                {/* Live Dot Indicator (Sinyal Berkedip) */}
+                <span className="relative flex h-2.5 w-2.5 shrink-0 ml-1">
+                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${currentTheme.dot}`}></span>
+                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${currentTheme.dot}`}></span>
+                </span>
+
+                {/* Badge Penanda Kategori Pengumuman */}
+                <span className={`text-[9px] font-black tracking-widest px-2 py-0.5 rounded uppercase font-sans shrink-0 ${currentTheme.badge}`}>
+                    {currentInfo.type === 'warning' ? 'PENTING' : currentInfo.type === 'success' ? 'SUKSES' : 'INFO BARU'}
+                </span>
+
+                {/* Isi Teks dari Supabase */}
+                <div className="text-xs sm:text-sm font-bold tracking-wide leading-relaxed">
+                    {currentInfo.message}
+                </div>
+            </div>
+
+            {/* Sisi Kanan: Kontrol Navigasi Halaman Pengumuman (Jika Info > 1) */}
+            <div className="flex items-center gap-3 shrink-0 select-none">
+                {infos.length > 1 && (
+                    <div className="flex items-center gap-1.5 text-[10px] font-black bg-white border border-slate-200 px-2 py-1 rounded-xl text-slate-700 shadow-2xs">
+                        <button onClick={() => setCurrentIndex((prev) => (prev - 1 + infos.length) % infos.length)} className="hover:text-indigo-600 px-1 transition">◀</button>
+                        <span className="font-mono text-slate-400">{currentIndex + 1}/{infos.length}</span>
+                        <button onClick={() => setCurrentIndex((prev) => (prev + 1) % infos.length)} className="hover:text-indigo-600 px-1 transition">▶</button>
+                    </div>
+                )}
+
+                {/* Tombol Tutup Banner */}
+                <button onClick={() => setIsVisible(false)} className="p-1 rounded-xl hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
         </div>
-      </div>
-
-      {/* Sisi Kanan: Kontrol Navigasi Halaman Pengumuman (Jika Info > 1) */}
-      <div className="flex items-center gap-3 shrink-0 select-none">
-        {infos.length > 1 && (
-          <div className="flex items-center gap-1.5 text-[10px] font-black bg-white border border-slate-200 px-2 py-1 rounded-xl text-slate-700 shadow-2xs">
-            <button onClick={() => setCurrentIndex((prev) => (prev - 1 + infos.length) % infos.length)} className="hover:text-indigo-600 px-1 transition">◀</button>
-            <span className="font-mono text-slate-400">{currentIndex + 1}/{infos.length}</span>
-            <button onClick={() => setCurrentIndex((prev) => (prev + 1) % infos.length)} className="hover:text-indigo-600 px-1 transition">▶</button>
-          </div>
-        )}
-        
-        {/* Tombol Tutup Banner */}
-        <button onClick={() => setIsVisible(false)} className="p-1 rounded-xl hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition">
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
-    </div>
-  );
+    );
 }
 const CustomLabelTren = (props) => {
     const { x, y, value, strokeColor, isDimmed } = props;
@@ -130,6 +130,9 @@ const susunanBarStatus = [
     { key: "rejected", label: "REJECTED BY Pengawas", fill: "#ef4444", radius: undefined },
     { key: "revoked", label: "REVOKED BY Pengawas", fill: "#991b1b", radius: undefined },
     { key: "approved", label: "APPROVED BY Pengawas", fill: "#10b981", radius: undefined },
+    { key: "edited", label: "EDITED BY Pengawas", fill: "#80ce9a", radius: undefined },     // Tambahan
+    { key: "edited_admin", label: "EDITED BY Admin Kabupaten", fill: "#954eb1", radius: undefined }, // Tambahan
+    { key: "complete_admin", label: "COMPLETED BY Admin Kabupaten", fill: "#dc00d1", radius: undefined },
     { key: "open", label: "OPEN", fill: "#e2e8f0", radius: [4, 4, 0, 0] }
 ];
 
@@ -207,7 +210,7 @@ export default function DashboardMonitoring() {
                     .select(`
                         idsubsls, kecamatan, kode_desa, nama_desa, kode_sls, nama_rt_dusun, updated_at,
                         total, open, draft, submitted_pencacah, approved_pengawas, 
-                        rejected_pengawas, revoked_pengawas, edited_pengawas, submitted_respondent,
+                        rejected_pengawas, revoked_pengawas, edited_pengawas, submitted_respondent, edited_admin_kabupaten, complete_admin_kabupaten,
                         muatan_sls (
                             nmsls, kdkec, nmkec, kddesa, nmdesa, petugas_id,
                             petugas (nama_petugas, posisi_tugas, id_pml_atasan, kecamatan_tugas)
@@ -275,6 +278,7 @@ export default function DashboardMonitoring() {
         const slsList = [];
 
         let fSubmitted = 0, fDraft = 0, fRejected = 0, fRevoked = 0, fApproved = 0, fOpen = 0;
+        let fEdited = 0, fEditedAdmin = 0, fCompleteAdmin = 0;
         let fSlsSelesai = 0, fSlsSedang = 0, fSlsBelum = 0, fSlsTotal = 0;
 
         const pmlSeen = new Set();
@@ -332,8 +336,10 @@ export default function DashboardMonitoring() {
             const s_edited = parseInt(row.edited_pengawas) || 0;
             const s_submitted_resp = parseInt(row.submitted_respondent) || 0;
             const s_open = parseInt(row.open) || 0;
+            const s_edited_admin = parseInt(row.edited_admin_kabupaten) || 0;
+            const s_complete_admin = parseInt(row.complete_admin_kabupaten) || 0;
 
-            const totalTarget = parseInt(row.total) || (s_submitted + s_draft + s_rejected + s_revoked + s_approved + s_edited + s_submitted_resp + s_open);
+            const totalTarget = parseInt(row.total) || (s_submitted + s_draft + s_rejected + s_revoked + s_approved + s_edited + s_submitted_resp + s_open + s_edited_admin + s_complete_admin);
 
             let statusSlsKategori = "belum";
             if (totalTarget > 0) {
@@ -345,7 +351,7 @@ export default function DashboardMonitoring() {
             const initStrukturData = (kode, namaTampilan, namaAsli) => ({
                 kodeKec, kodeDesa, nama: namaTampilan, nama_asli: namaAsli,
                 submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0,
-                edited: 0, submitted_resp: 0, open: 0,
+                edited: 0, submitted_resp: 0, open: 0, edited_admin: 0, complete_admin: 0,
                 t: 0, jml_sls: 0, sls_selesai: 0
             });
 
@@ -359,6 +365,8 @@ export default function DashboardMonitoring() {
             kecMap[kodeKec].edited += s_edited;
             kecMap[kodeKec].submitted_resp += s_submitted_resp;
             kecMap[kodeKec].open += s_open;
+            kecMap[kodeKec].edited_admin += s_edited_admin;
+            kecMap[kodeKec].complete_admin += s_complete_admin;
             kecMap[kodeKec].t += totalTarget;
             kecMap[kodeKec].jml_sls += 1;
             if (statusSlsKategori === "selesai") kecMap[kodeKec].sls_selesai += 1;
@@ -373,6 +381,8 @@ export default function DashboardMonitoring() {
             desaMap[kodeDesa].edited += s_edited;
             desaMap[kodeDesa].submitted_resp += s_submitted_resp;
             desaMap[kodeDesa].open += s_open;
+            desaMap[kodeDesa].complete_admin += s_complete_admin;
+            desaMap[kodeDesa].edited_admin += s_edited_admin;
             desaMap[kodeDesa].t += totalTarget;
             desaMap[kodeDesa].jml_sls += 1;
             if (statusSlsKategori === "selesai") desaMap[kodeDesa].sls_selesai += 1;
@@ -390,7 +400,7 @@ export default function DashboardMonitoring() {
                     namaKec: kecamatanResmiPetugas,
                     emailPml: emailPmlFormated,
                     submitted: 0, draft: 0, rejected: 0, revoked: 0, approved: 0,
-                    edited: 0, submitted_resp: 0, open: 0,
+                    edited: 0, submitted_resp: 0, open: 0, edited_admin: 0, complete_admin: 0,
                     t: 0, jml_sls: 0, sls_selesai: 0
                 };
             }
@@ -402,6 +412,8 @@ export default function DashboardMonitoring() {
             petugasMap[emailPetugas].edited += s_edited;
             petugasMap[emailPetugas].submitted_resp += s_submitted_resp;
             petugasMap[emailPetugas].open += s_open;
+            petugasMap[emailPetugas].edited_admin += s_edited_admin;
+            petugasMap[emailPetugas].complete_admin += s_complete_admin;
             petugasMap[emailPetugas].t += totalTarget;
             petugasMap[emailPetugas].jml_sls += 1;
             if (statusSlsKategori === "selesai") petugasMap[emailPetugas].sls_selesai += 1;
@@ -420,18 +432,21 @@ export default function DashboardMonitoring() {
                 edited: totalTarget > 0 ? Math.round((s_edited / totalTarget) * 100) : 0,
                 submitted_resp: totalTarget > 0 ? Math.round((s_submitted_resp / totalTarget) * 100) : 0,
                 open: totalTarget > 0 ? Math.round((s_open / totalTarget) * 100) : 100,
+                edited_admin: totalTarget > 0 ? Math.round((s_edited_admin / totalTarget) * 100) : 0,
+                complete_admin: totalTarget > 0 ? Math.round((s_complete_admin / totalTarget) * 100) : 0,
                 jml_sls: 1, sls_selesai: statusSlsKategori === "selesai" ? 1 : 0
             });
 
-            if (selectedKecTab === "SEMUA" || kodeKec === selectedKecTab) {
-                if (selectedPml === "SEMUA" || emailPmlFormated === selectedPml.toLowerCase().trim()) {
-                    fSubmitted += s_submitted; fDraft += s_draft; fRejected += s_rejected;
-                    fRevoked += s_revoked; fApproved += s_approved; fOpen += s_open; fSlsTotal++;
-                    if (statusSlsKategori === "selesai") fSlsSelesai++;
-                    else if (statusSlsKategori === "sedang") fSlsSedang++;
-                    else fSlsBelum++;
-                }
-            }
+if (selectedKecTab === "SEMUA" || kodeKec === selectedKecTab) {
+    if (selectedPml === "SEMUA" || emailPmlFormated === selectedPml.toLowerCase().trim()) {
+        fSubmitted += s_submitted; fDraft += s_draft; fRejected += s_rejected;
+        fRevoked += s_revoked; fApproved += s_approved; fOpen += s_open; fSlsTotal++;
+        fEdited += s_edited; fEditedAdmin += s_edited_admin; fCompleteAdmin += s_complete_admin; // ✨ Tambahkan ini
+        if (statusSlsKategori === "selesai") fSlsSelesai++;
+        else if (statusSlsKategori === "sedang") fSlsSedang++;
+        else fSlsBelum++;
+    }
+}
         });
 
         const tanggalAwalSensus = new Date("2026-06-15");
@@ -439,7 +454,8 @@ export default function DashboardMonitoring() {
         const selisihMilidetik = tanggalHariIni - tanggalAwalSensus;
         const kalkulasiHariKe = selisihMilidetik > 0 ? Math.floor(selisihMilidetik / (1000 * 60 * 60 * 24)) + 1 : 1;
 
-        const totalMuatanSelainOpen = fSubmitted + fDraft + fRejected + fRevoked + fApproved;
+        // Baris baru yang sudah diperbaiki & ditutup dengan titik koma
+const totalMuatanSelainOpen = fSubmitted + fDraft + fRejected + fRevoked + fApproved + fEdited + fEditedAdmin + fCompleteAdmin;
         const daftarPetugasValid = Object.values(petugasMap).filter(p => p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab) && (selectedPml === "SEMUA" || p.emailPml === selectedPml.toLowerCase().trim()));
         const jumlahPetugasAktif = daftarPetugasValid.length;
 
@@ -505,31 +521,62 @@ export default function DashboardMonitoring() {
             petugasDiBawahRata2: counterPetugasDiBawahRata2
         });
 
-        const formatKePersen = (obj) => {
-            const total = obj.t || 1;
-            return {
-                ...obj, total_target: obj.t, total_realisasi: obj.t - obj.open,
-                submitted: Math.round((obj.submitted / total) * 100),
-                draft: Math.round((obj.draft / total) * 100),
-                rejected: Math.round((obj.rejected / total) * 100),
-                revoked: Math.round((obj.revoked / total) * 100),
-                approved: Math.round((obj.approved / total) * 100),
-                edited: Math.round((obj.edited / total) * 100),
-                submitted_resp: Math.round((obj.submitted_resp / total) * 100),
-                open: Math.round((obj.open / total) * 100)
-            };
-        };
+const formatKePersen = (obj) => {
+    const total = obj.t || 1;
+    return {
+        ...obj, 
+        total_target: obj.t, 
+        total_realisasi: obj.t - obj.open,
+        
+        // 🌟 SIMPAN DOKUMEN ASLI MENTAH (Untuk Tooltip agar tidak 0)
+        submitted_dokumen: obj.submitted,
+        draft_dokumen: obj.draft,
+        rejected_dokumen: obj.rejected,
+        revoked_dokumen: obj.revoked,
+        approved_dokumen: obj.approved,
+        edited_dokumen: obj.edited,
+        submitted_resp_dokumen: obj.submitted_resp,
+        edited_admin_dokumen: obj.edited_admin,
+        complete_admin_dokumen: obj.complete_admin,
+        open_dokumen: obj.open,
+
+        // Nilai persentase yang dipakai Recharts untuk tinggi batang grafik
+        submitted: Math.round((obj.submitted / total) * 100),
+        draft: Math.round((obj.draft / total) * 100),
+        rejected: Math.round((obj.rejected / total) * 100),
+        revoked: Math.round((obj.revoked / total) * 100),
+        approved: Math.round((obj.approved / total) * 100),
+        edited: Math.round((obj.edited / total) * 100),
+        submitted_resp: Math.round((obj.submitted_resp / total) * 100),
+        edited_admin: Math.round((obj.edited_admin / total) * 100),
+        complete_admin: Math.round((obj.complete_admin / total) * 100),
+        open: Math.round((obj.open / total) * 100)
+    };
+};
 
         const sortedKecamatan = Object.values(kecMap).map(formatKePersen).sort((a, b) => a.kodeKec.localeCompare(b.kodeKec, undefined, { numeric: true }));
         const sortedDesa = Object.values(desaMap).map(formatKePersen).sort((a, b) => a.kodeDesa.localeCompare(b.kodeDesa, undefined, { numeric: true }));
         const sortedPetugas = Object.values(petugasMap).map(obj => ({ ...obj, total_target: obj.t, total_realisasi: obj.t - obj.open })).sort((a, b) => b.total_realisasi - a.total_realisasi);
         const sortedSls = slsList.sort((a, b) => a.idsubsls.localeCompare(b.idsubsls, undefined, { numeric: true }));
 
-        setDataMonitoringWilayah({
-            kecamatan: sortedKecamatan, desa: sortedDesa, petugas: sortedPetugas, sls: sortedSls,
-            muatanStatus: { submitted: fSubmitted, draft: fDraft, rejected: fRejected, revoked: fRevoked, approved: fApproved, open: fOpen },
-            statusSls: { selesai: fSlsSelesai, sedang: fSlsSedang, belum: fSlsBelum, total: fSlsTotal }
-        });
+setDataMonitoringWilayah({
+    kecamatan: sortedKecamatan, 
+    desa: sortedDesa, 
+    petugas: sortedPetugas, 
+    sls: sortedSls,
+    muatanStatus: { 
+        submitted: fSubmitted, 
+        draft: fDraft, 
+        rejected: fRejected, 
+        revoked: fRevoked, 
+        approved: fApproved, 
+        open: fOpen,
+        edited: fEdited,                // ✨ Tambahkan ini
+        edited_admin: fEditedAdmin,      // ✨ Tambahkan ini
+        complete_admin: fCompleteAdmin   // ✨ Tambahkan ini
+    },
+    statusSls: { selesai: fSlsSelesai, sedang: fSlsSedang, belum: fSlsBelum, total: fSlsTotal }
+});
 
     }, [rawData, historyData, selectedKecTab, selectedPml, staffLookup, profile]); // 👈 Ditambahkan profile
 
@@ -771,70 +818,87 @@ export default function DashboardMonitoring() {
         }
     }, [profile, rawData]); // 👈 Kunci dependency
     // 2. Lakukan transformasi data barChartData berdasarkan status switch:
-    const processedBarChartData = useMemo(() => {
-        if (!barChartData) return [];
+const processedBarChartData = useMemo(() => {
+    if (!barChartData) return [];
 
-        // 1. Transformasikan data (Pindahkan draft ke open jika switch mati)
-        let updatedData = barChartData.map(item => {
-            if (!includeDraft) {
-                const draftValue = parseFloat(item.draft) || 0;
-                const openValue = parseFloat(item.open) || 0;
-                const originalRealisasi = parseFloat(item.total_realisasi) || 0;
+    // 1. Transformasikan data
+    let updatedData = barChartData.map(item => {
+        // Cek apakah data saat ini berada di mode persentase (Kecamatan/Desa)
+        const isPersenMode = viewModeTab !== "PETUGAS" && viewModeTab !== "SLS";
 
-                // Hitung ulang total realisasi (dikurangi draft)
-                const newRealisasi = Math.max(0, originalRealisasi - draftValue);
+        if (!includeDraft) {
+            const draftValue = parseFloat(item.draft) || 0;
+            const openValue = parseFloat(item.open) || 0;
+            const originalRealisasi = parseFloat(item.total_realisasi) || 0;
 
-                // PENTING: Pindahkan nilai draft menjadi open agar target tidak berubah
-                const newOpen = openValue + draftValue;
+            // Hitung sisa realisasi setelah dikurangi draft
+            const newRealisasi = Math.max(0, originalRealisasi - (isPersenMode ? draftValue : draftValue));
 
-                return {
-                    ...item,
-                    draft: 0,                // Visual batang draft di-nol-kan
-                    open: newOpen,           // Nilai open bertambah sebesar draft yang hilang
-                    total_realisasi: newRealisasi
-                };
+            // Pindahkan nilai draft menjadi open
+            let newOpen = openValue + draftValue;
+
+            // 🔥 KUNCI UTAMA: Jika di mode persentase, pastikan total akumulasi tumpukan tidak over-budget dari 100%
+            if (isPersenMode) {
+                const totalTanpaOpen = (parseFloat(item.submitted) || 0) + 
+                                       (parseFloat(item.rejected) || 0) + 
+                                       (parseFloat(item.revoked) || 0) + 
+                                       (parseFloat(item.approved) || 0) + 
+                                       (parseFloat(item.edited) || 0) + 
+                                       (parseFloat(item.edited_admin) || 0) + 
+                                       (parseFloat(item.complete_admin) || 0);
+                
+                // Open dipaksa mengisi sisa kuota persen agar total tepat 100%
+                newOpen = Math.max(0, 100 - totalTanpaOpen);
             }
-            return item;
-        });
 
-        // 2. KHUSUS MODE PETUGAS: Urutkan ulang berdasarkan total_realisasi terbaru secara descending
-        if (viewModeTab === "PETUGAS") {
-            updatedData = updatedData.sort((a, b) => {
-                const realisasiA = parseFloat(a.total_realisasi) || 0;
-                const realisasiB = parseFloat(b.total_realisasi) || 0;
-                return realisasiB - realisasiA;
+            return {
+                ...item,
+                draft: 0,           // Visual batang draft di-nol-kan
+                open: newOpen,      // Nilai open menyesuaikan sisa slot persen
+                total_realisasi: newRealisasi
+            };
+        }
+        return item;
+    });
+
+    // 2. KHUSUS MODE PETUGAS: Urutkan ulang berdasarkan total_realisasi terbaru secara descending
+    if (viewModeTab === "PETUGAS") {
+        updatedData = updatedData.sort((a, b) => {
+            const realisasiA = parseFloat(a.total_realisasi) || 0;
+            const realisasiB = parseFloat(b.total_realisasi) || 0;
+            return realisasiB - realisasiA;
+        });
+    }
+
+    return updatedData;
+}, [barChartData, includeDraft, viewModeTab]);
+    // Tambahkan useMemo baru ini di bawah processedBarChartData atau di atas baris Return JSX
+    const processedPetugasData = useMemo(() => {
+        // Ambil basis data petugas murni
+        let dataPetugas = dataMonitoringWilayah.petugas.filter(p =>
+            p.email !== "Tanpa Petugas" && p.total_target > 0
+        );
+
+        // Jika switch includeDraft MATI, kurangi total_realisasi dengan jumlah draft individu
+        if (!includeDraft) {
+            dataPetugas = dataPetugas.map(p => {
+                const draftValue = parseFloat(p.draft) || 0;
+                const originalRealisasi = parseFloat(p.total_realisasi) || 0;
+                return {
+                    ...p,
+                    draft: 0,
+                    total_realisasi: Math.max(0, originalRealisasi - draftValue)
+                };
             });
         }
 
-        return updatedData;
-    }, [barChartData, includeDraft, viewModeTab]);
-// Tambahkan useMemo baru ini di bawah processedBarChartData atau di atas baris Return JSX
-const processedPetugasData = useMemo(() => {
-    // Ambil basis data petugas murni
-    let dataPetugas = dataMonitoringWilayah.petugas.filter(p => 
-        p.email !== "Tanpa Petugas" && p.total_target > 0
-    );
+        // Filter berdasarkan wilayah kecamatan terpilih
+        if (selectedKecTab !== "SEMUA") {
+            dataPetugas = dataPetugas.filter(p => p.kodeKec === selectedKecTab);
+        }
 
-    // Jika switch includeDraft MATI, kurangi total_realisasi dengan jumlah draft individu
-    if (!includeDraft) {
-        dataPetugas = dataPetugas.map(p => {
-            const draftValue = parseFloat(p.draft) || 0;
-            const originalRealisasi = parseFloat(p.total_realisasi) || 0;
-            return {
-                ...p,
-                draft: 0,
-                total_realisasi: Math.max(0, originalRealisasi - draftValue)
-            };
-        });
-    }
-
-    // Filter berdasarkan wilayah kecamatan terpilih
-    if (selectedKecTab !== "SEMUA") {
-        dataPetugas = dataPetugas.filter(p => p.kodeKec === selectedKecTab);
-    }
-
-    return dataPetugas;
-}, [dataMonitoringWilayah.petugas, includeDraft, selectedKecTab]);
+        return dataPetugas;
+    }, [dataMonitoringWilayah.petugas, includeDraft, selectedKecTab]);
     // Membekukan elemen Barchart agar tidak terpengaruh re-render tidak perlu
     const memoizedBarChartElement = useMemo(() => (
         <BarChart
@@ -922,35 +986,119 @@ const processedPetugasData = useMemo(() => {
                 }}
             />
 
-            <Tooltip
-                cursor={{ fill: '#f8fafc', opacity: 0.5 }}
-                content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                        const data = payload[0].payload;
-                        return (
-                            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xl text-[11px] space-y-1.5 font-sans min-w-[210px] z-50">
-                                <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1.5 mb-1 flex items-center gap-1">
-                                    {viewModeTab === "PETUGAS" ? "🏃‍♂️" : viewModeTab === "SLS" ? "🏠" : "📍"} {data.nama_asli}
-                                </div>
-                                <div className="space-y-1 font-medium text-slate-500">
-                                    <div className="flex justify-between border-b border-slate-50 pb-1 mb-1">
-                                        <span>Total Target:</span>
-                                        <strong className="text-slate-800 font-mono">{data.total_target?.toLocaleString('id-ID')} Muatan</strong>
-                                    </div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10b981]"></span> Approved:</span><strong className="text-emerald-600 font-mono">{data.approved}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#3b82f6]"></span> Submitted:</span><strong className="text-blue-600 font-mono">{data.submitted}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#f97316]"></span> Draft:</span><strong className="text-orange-600 font-mono">{data.draft}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#ef4444]"></span> Rejected:</span><strong className="text-red-600 font-mono">{data.rejected}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#991b1b]"></span> Revoked:</span><strong className="text-red-950 font-mono">{data.revoked}{formatSuffixTooltip}</strong></div>
-                                    <div className="flex justify-between items-center"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#94a3b8]"></span> Open:</span><strong className="text-slate-500 font-mono">{data.open}{formatSuffixTooltip}</strong></div>
-                                </div>
-                            </div>
-                        );
-                    }
-                    return null;
-                }}
-            />
+<Tooltip
+    cursor={{ fill: '#f8fafc', opacity: 0.5 }}
+    content={({ active, payload }) => {
+        if (active && payload && payload.length) {
+            const data = payload[0].payload;
 
+            // Tentukan nominal target wilayah dari data grafik
+            const totalTargetMurni = parseInt(data.total_target || data.target || data.t || data.total) || 0;
+            const isPersenMode = viewModeTab !== "PETUGAS" && viewModeTab !== "SLS";
+
+            // Fungsi pembantu untuk mengekstrak Jumlah & Persen secara akurat
+            const dapatkanDetailNilai = (fieldKey) => {
+                let jumlahDokumen = 0;
+                let nilaiPersentase = 0;
+
+                if (!isPersenMode) {
+                    // 🏃 Mode Petugas / SLS: nilai grafik sudah berupa JUMLAH DOKUMEN asli
+                    jumlahDokumen = parseFloat(data[fieldKey]) || 0;
+                    nilaiPersentase = totalTargetMurni > 0 ? (jumlahDokumen / totalTargetMurni) * 100 : 0;
+                } else {
+                    // 📍 Mode Kecamatan / Desa: ambil dari cadangan dokumen murni yang kita buat di Langkah 1
+                    const keyDokumenAsli = `${fieldKey}_dokumen`;
+                    
+                    if (!includeDraft && fieldKey === 'open') {
+                        // Jika switch draft mati, gabungkan nilai open asli + draft asli
+                        const openAsli = parseFloat(data.open_dokumen) || 0;
+                        const draftAsli = parseFloat(data.draft_dokumen) || 0;
+                        jumlahDokumen = openAsli + draftAsli;
+                    } else if (!includeDraft && fieldKey === 'draft') {
+                        jumlahDokumen = 0;
+                    } else {
+                        jumlahDokumen = parseFloat(data[keyDokumenAsli]) || 0;
+                    }
+
+                    // Hitung persentase riil tanpa rounding error dari visual grafik batang
+                    nilaiPersentase = totalTargetMurni > 0 ? (jumlahDokumen / totalTargetMurni) * 100 : 0;
+                }
+
+                return {
+                    jumlah: jumlahDokumen.toLocaleString('id-ID'),
+                    persen: nilaiPersentase.toFixed(1)
+                };
+            };
+
+            // Ekstrak data untuk masing-masing kategori status
+            const approved = dapatkanDetailNilai('approved');
+            const submitted = dapatkanDetailNilai('submitted');
+            const draft = dapatkanDetailNilai('draft');
+            const rejected = dapatkanDetailNilai('rejected');
+            const revoked = dapatkanDetailNilai('revoked');
+            const open = dapatkanDetailNilai('open');
+            const edited = dapatkanDetailNilai('edited');
+            const editedAdmin = dapatkanDetailNilai('edited_admin');
+            const completeAdmin = dapatkanDetailNilai('complete_admin');
+
+            return (
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xl text-[11px] space-y-1.5 font-sans min-w-[240px] z-50">
+                    <div className="font-black text-slate-800 uppercase tracking-wide border-b border-slate-100 pb-1.5 mb-1 flex items-center gap-1">
+                        {viewModeTab === "PETUGAS" ? "🏃‍♂️" : viewModeTab === "SLS" ? "🏠" : "📍"} {data.nama_asli}
+                    </div>
+                    <div className="space-y-1 font-medium text-slate-500">
+                        {/* Target Utama Wilayah */}
+                        <div className="flex justify-between border-b border-slate-100 pb-1 mb-1 bg-slate-50/50 px-1 rounded">
+                            <span className="font-bold">Total Target:</span>
+                            <strong className="text-slate-800 font-mono">
+                                {totalTargetMurni > 0 ? totalTargetMurni.toLocaleString('id-ID') : '-'} Muatan
+                            </strong>
+                        </div>
+                        
+                        {/* Baris Data: Menampilkan "Jumlah Dok (Persen%)" */}
+                        <div className="flex justify-between items-center px-1">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10b981]"></span> Approved:</span>
+                            <span className="font-mono text-right text-emerald-600 font-black">{approved.jumlah} <span className="text-[10px] text-slate-400 font-normal">({approved.persen}%)</span></span>
+                        </div>
+                        <div className="flex justify-between items-center px-1">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#3b82f6]"></span> Submitted:</span>
+                            <span className="font-mono text-right text-blue-600 font-black">{submitted.jumlah} <span className="text-[10px] text-slate-400 font-normal">({submitted.persen}%)</span></span>
+                        </div>
+                        <div className="flex justify-between items-center px-1">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#f97316]"></span> Draft:</span>
+                            <span className="font-mono text-right text-orange-600 font-black">{draft.jumlah} <span className="text-[10px] text-slate-400 font-normal">({draft.persen}%)</span></span>
+                        </div>
+                        <div className="flex justify-between items-center px-1">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#ef4444]"></span> Rejected:</span>
+                            <span className="font-mono text-right text-red-600 font-black">{rejected.jumlah} <span className="text-[10px] text-slate-400 font-normal">({rejected.persen}%)</span></span>
+                        </div>
+                        <div className="flex justify-between items-center px-1">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#991b1b]"></span> Revoked:</span>
+                            <span className="font-mono text-right text-red-950 font-black">{revoked.jumlah} <span className="text-[10px] text-slate-400 font-normal">({revoked.persen}%)</span></span>
+                        </div>
+                        <div className="flex justify-between items-center px-1">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#80ce9a]"></span> Edited Pengawas:</span>
+                            <span className="font-mono text-right text-emerald-700 font-black">{edited.jumlah} <span className="text-[10px] text-slate-400 font-normal">({edited.persen}%)</span></span>
+                        </div>
+                        <div className="flex justify-between items-center px-1">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#954eb1]"></span> Edited Admin:</span>
+                            <span className="font-mono text-right text-purple-600 font-black">{editedAdmin.jumlah} <span className="text-[10px] text-slate-400 font-normal">({editedAdmin.persen}%)</span></span>
+                        </div>
+                        <div className="flex justify-between items-center px-1">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#dc00d1]"></span> Complete Admin:</span>
+                            <span className="font-mono text-right text-purple-800 font-black">{completeAdmin.jumlah} <span className="text-[10px] text-slate-400 font-normal">({completeAdmin.persen}%)</span></span>
+                        </div>
+                        <div className="flex justify-between items-center px-1 border-t border-slate-100 pt-1 mt-1">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#e2e8f0]"></span> Open:</span>
+                            <span className="font-mono text-right text-slate-500 font-black">{open.jumlah} <span className="text-[10px] text-slate-400 font-normal">({open.persen}%)</span></span>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        return null;
+    }}
+/>
             {susunanBarStatus.map((b) => (
                 <Bar
                     key={b.key} dataKey={b.key} stackId="a" fill={b.fill} maxBarSize={30} radius={b.radius}
@@ -1120,6 +1268,9 @@ const processedPetugasData = useMemo(() => {
     // ==========================================
     // 4. ACTION FUNCTIONS (Excel Handler dll)
     // ==========================================
+// ==========================================
+    // 4. ACTION FUNCTIONS (Excel Handler dll)
+    // ==========================================
     const handleDownloadSlsExcel = () => {
         const currentChartData = processedBarChartData;
 
@@ -1129,34 +1280,58 @@ const processedPetugasData = useMemo(() => {
         }
 
         const formattedData = currentChartData.map((item, index) => {
-            const totalTargetMurni = item.total_target || item.t || 0;
+            const totalTargetMurni = parseInt(item.total_target || item.t || 0) || 0;
+            const isPersenMode = viewModeTab !== "PETUGAS" && viewModeTab !== "SLS";
 
             let approvedMurni = 0;
             let submittedMurni = 0;
             let draftMurni = 0;
             let rejectedMurni = 0;
             let revokedMurni = 0;
+            let editedMurni = 0;
+            let editedAdminMurni = 0;
+            let completeAdminMurni = 0;
             let openMurni = 0;
 
-            if (viewModeTab !== "PETUGAS" && viewModeTab !== "SLS") {
-                approvedMurni = totalTargetMurni > 0 ? Math.round((item.approved * totalTargetMurni) / 100) : 0;
-                submittedMurni = totalTargetMurni > 0 ? Math.round((item.submitted * totalTargetMurni) / 100) : 0;
-                draftMurni = totalTargetMurni > 0 ? Math.round((item.draft * totalTargetMurni) / 100) : 0;
-                rejectedMurni = totalTargetMurni > 0 ? Math.round((item.rejected * totalTargetMurni) / 100) : 0;
-                revokedMurni = totalTargetMurni > 0 ? Math.round((item.revoked * totalTargetMurni) / 100) : 0;
+            if (isPersenMode) {
+                // 📍 Mode Kecamatan / Desa: Ambil dari cadangan dokumen murni mentah (Akurat 100%)
+                approvedMurni = parseInt(item.approved_dokumen) || 0;
+                submittedMurni = parseInt(item.submitted_dokumen) || 0;
+                rejectedMurni = parseInt(item.rejected_dokumen) || 0;
+                revokedMurni = parseInt(item.revoked_dokumen) || 0;
+                editedMurni = parseInt(item.edited_dokumen) || 0;
+                editedAdminMurni = parseInt(item.edited_admin_dokumen) || 0;
+                completeAdminMurni = parseInt(item.complete_admin_dokumen) || 0;
 
-                const totalRealisasiMurni = approvedMurni + submittedMurni + draftMurni + rejectedMurni + revokedMurni;
-                openMurni = totalTargetMurni - totalRealisasiMurni;
+                if (!includeDraft) {
+                    draftMurni = 0;
+                    // Jika switch draft mati, jumlah open murni adalah open asli + draft asli
+                    openMurni = (parseInt(item.open_dokumen) || 0) + (parseInt(item.draft_dokumen) || 0);
+                } else {
+                    draftMurni = parseInt(item.draft_dokumen) || 0;
+                    openMurni = parseInt(item.open_dokumen) || 0;
+                }
             } else {
-                approvedMurni = item.approved || 0;
-                submittedMurni = item.submitted || 0;
-                draftMurni = item.draft || 0;
-                rejectedMurni = item.rejected || 0;
-                revokedMurni = item.revoked || 0;
-                openMurni = item.open || 0;
+                // 🏃 Mode Petugas / SLS: Nilai pada item sudah dalam bentuk nominal dokumen riil
+                approvedMurni = parseInt(item.approved) || 0;
+                submittedMurni = parseInt(item.submitted) || 0;
+                rejectedMurni = parseInt(item.rejected) || 0;
+                revokedMurni = parseInt(item.revoked) || 0;
+                editedMurni = parseInt(item.edited) || 0;
+                editedAdminMurni = parseInt(item.edited_admin) || 0;
+                completeAdminMurni = parseInt(item.complete_admin) || 0;
+                
+                if (!includeDraft) {
+                    draftMurni = 0;
+                    openMurni = parseInt(item.open) || 0; // Pada useMemo processedBarChartData, nilai item.open sudah ditambahkan dengan draft otomatis
+                } else {
+                    draftMurni = parseInt(item.draft) || 0;
+                    openMurni = parseInt(item.open) || 0;
+                }
             }
 
-            const totalRealisasi = totalTargetMurni - openMurni;
+            // Total Realisasi adalah semua beban target dikurangi item yang masih OPEN
+            const totalRealisasi = Math.max(0, totalTargetMurni - openMurni);
             const persentaseCapaian = totalTargetMurni > 0
                 ? parseFloat(((totalRealisasi / totalTargetMurni) * 100).toFixed(2))
                 : 0.00;
@@ -1179,11 +1354,15 @@ const processedPetugasData = useMemo(() => {
 
             if (item.namaKec) row["Kecamatan"] = item.namaKec;
 
+            // Mapping Kolom Excel yang telah Disesuaikan & Dilengkapi
             row["Approved PML"] = approvedMurni;
             row["Submitted"] = submittedMurni;
             row["Draft"] = draftMurni;
             row["Rejected"] = rejectedMurni;
             row["Revoked"] = revokedMurni;
+            row["Edited Pengawas"] = editedMurni;
+            row["Edited Admin Kabupaten"] = editedAdminMurni;
+            row["Complete Admin Kabupaten"] = completeAdminMurni;
             row["Open"] = openMurni;
             row["Total Target"] = totalTargetMurni;
             row["Total Realisasi"] = totalRealisasi;
@@ -1220,17 +1399,17 @@ const processedPetugasData = useMemo(() => {
         p.email !== "Tanpa Petugas" && p.total_target > 0 && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
     );
 
-const limitPetugas = selectedKecTab === "SEMUA" ? 20 : 10;
+    const limitPetugas = selectedKecTab === "SEMUA" ? 20 : 10;
 
-// Urutkan ulang secara Descending untuk TOP PERFORMER
-const topPerformers = [...processedPetugasData]
-    .sort((a, b) => b.total_realisasi - a.total_realisasi)
-    .slice(0, limitPetugas);
+    // Urutkan ulang secara Descending untuk TOP PERFORMER
+    const topPerformers = [...processedPetugasData]
+        .sort((a, b) => b.total_realisasi - a.total_realisasi)
+        .slice(0, limitPetugas);
 
-// Urutkan ulang secara Ascending untuk BOTTOM PERFORMER
-const bottomPerformers = [...processedPetugasData]
-    .sort((a, b) => a.total_realisasi - b.total_realisasi)
-    .slice(0, limitPetugas);
+    // Urutkan ulang secara Ascending untuk BOTTOM PERFORMER
+    const bottomPerformers = [...processedPetugasData]
+        .sort((a, b) => a.total_realisasi - b.total_realisasi)
+        .slice(0, limitPetugas);
 
     // ================= MODIFIKASI DIMULAI DI SINI =================
     // 1. Ambil nilai draft dan open mentah terlebih dahulu
@@ -1247,6 +1426,10 @@ const bottomPerformers = [...processedPetugasData]
         { name: "REJECTED BY Pengawas", value: dataMonitoringWilayah.muatanStatus.rejected, color: "#ef4444" },
         { name: "REVOKED BY Pengawas", value: dataMonitoringWilayah.muatanStatus.revoked, color: "#991b1b" },
         { name: "APPROVED BY Pengawas", value: dataMonitoringWilayah.muatanStatus.approved, color: "#10b981" },
+        { name: "EDITED BY Pengawas", value: dataMonitoringWilayah.muatanStatus.edited, color: "#9af788" },
+        { name: "EDITED BY Admin", value: dataMonitoringWilayah.muatanStatus.edited_admin, color: "#e75ad4" },
+        { name: "COMPLETE BY Admin", value: dataMonitoringWilayah.muatanStatus.complete_admin, color: "#d400ca" },
+        
         { name: "OPEN", value: finalOpen, color: "#e2e8f0" } // 🟢 Menggunakan nilai final
     ].filter(item => item.value > 0);
     // ==============================================================
@@ -1611,7 +1794,7 @@ const bottomPerformers = [...processedPetugasData]
                     <p className="text-[8px] text-slate-400 mt-1 font-bold">Assignment yang telah diapprove pengawas</p>
                 </div>
             </div>
-<SmartAlertBanner />
+            <SmartAlertBanner />
             {/* BARIS GRAPH UTAMA: GRAFIK BATANG & REKAP BULAT */}
             <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
                 {/* HEADER UTAMA: Judul & Navigasi Utama */}
@@ -1674,26 +1857,40 @@ const bottomPerformers = [...processedPetugasData]
                 </div>
 
                 {/* AREA LEGENDA UTAMA: Dibagi menjadi 2 baris terpisah agar tetap ramping */}
-                <div className="bg-slate-50 border border-slate-200/60 p-3 rounded-2xl mb-6 text-[10px]">
-                    {/* BARIS 1: Daftar Nilai & Warna Status Utama */}
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-2.5 border-b border-slate-200/50">
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider mr-1">Legenda Status:</span>
-                        {susunanBarStatus.map((b) => {
-                            const totalKategori = dataPieStatus.find(item => item.name === b.label)?.value || 0;
-                            const persenKategori = totalSeluruhMuatan > 0 ? ((totalKategori / totalSeluruhMuatan) * 100).toFixed(2) : "0.00";
-                            return (
-                                <div key={b.key} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs text-[10px]">
-                                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: b.fill }}></span>
-                                    <span className="font-bold text-slate-500 uppercase text-[9px]">
-                                        {b.label.toUpperCase().replace(" BY PENCACAH", "").replace(" BY PENGAWAS", "").replace("SUBMITTED ", "")}
-                                    </span>
-                                    <span className="font-mono font-black text-slate-800 border-l border-slate-200 pl-1.5 ml-0.5">
-                                        {totalKategori.toLocaleString('id-ID')} <span className="text-[9px] font-sans font-bold text-slate-600 ml-0.5">({persenKategori}%)</span>
-                                    </span>
-                                </div>
-                            );
-                        })}
-                    </div>
+<div className="bg-slate-50 border border-slate-200/60 p-3 rounded-2xl mb-6 text-[10px]">
+    {/* BARIS 1: Daftar Nilai & Warna Status Utama */}
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-2.5 border-b border-slate-200/50">
+        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider mr-1">Legenda Status:</span>
+        {susunanBarStatus.map((b) => {
+            // 🔥 PERBAIKAN: Cari langsung ke objek dataMonitoringWilayah menggunakan key (jauh lebih akurat)
+            let totalKategori = 0;
+            
+            if (b.key === 'submitted') totalKategori = dataMonitoringWilayah.muatanStatus.submitted || 0;
+            else if (b.key === 'draft') totalKategori = finalDraft; // Menggunakan variabel finalDraft switch Anda
+            else if (b.key === 'rejected') totalKategori = dataMonitoringWilayah.muatanStatus.rejected || 0;
+            else if (b.key === 'revoked') totalKategori = dataMonitoringWilayah.muatanStatus.revoked || 0;
+            else if (b.key === 'approved') totalKategori = dataMonitoringWilayah.muatanStatus.approved || 0;
+            else if (b.key === 'edited') totalKategori = dataMonitoringWilayah.muatanStatus.edited || 0;
+            else if (b.key === 'edited_admin') totalKategori = dataMonitoringWilayah.muatanStatus.edited_admin || 0;
+            else if (b.key === 'complete_admin') totalKategori = dataMonitoringWilayah.muatanStatus.complete_admin || 0;
+            else if (b.key === 'open') totalKategori = finalOpen; // Menggunakan variabel finalOpen switch Anda
+
+            const persenKategori = totalSeluruhMuatan > 0 ? ((totalKategori / totalSeluruhMuatan) * 100).toFixed(2) : "0.00";
+            
+            return (
+                <div key={b.key} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs text-[10px]">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: b.fill }}></span>
+                    <span className="font-bold text-slate-500 uppercase text-[9px]">
+                        {/* Menampilkan ringkasan teks label agar rapi di UI */}
+                        {b.label.toUpperCase().replace(" BY PENCACAH", "").replace(" BY PENGAWAS", "").replace("SUBMITTED ", "").replace(" BY", "").replace(" KABUPATEN", "")}
+                    </span>
+                    <span className="font-mono font-black text-slate-800 border-l border-slate-200 pl-1.5 ml-0.5">
+                        {totalKategori.toLocaleString('id-ID')} <span className="text-[9px] font-sans font-bold text-slate-600 ml-0.5">({persenKategori}%)</span>
+                    </span>
+                </div>
+            );
+        })}
+    </div>
 
                     {/* BARIS 2: Panel Kontrol Dinamis (Switch Draft & Indikator Sumbu X) */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5">

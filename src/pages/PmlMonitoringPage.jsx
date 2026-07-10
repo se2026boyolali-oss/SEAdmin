@@ -61,7 +61,7 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
     const open = parseInt(matchProgress?.open) || 0;
 
     // Target total diambil dari kolom 'total'
-    const totalTarget = parseInt(matchProgress?.total) || sls.jml_muatan || 0;
+    const totalTarget = parseInt(matchProgress?.total) || 0;
 
     // Hitung total realisasi yang sudah dikerjakan (Semua dokumen non-OPEN)
     const totalRealisasi = approved + edited + submitted + submitted_resp + rejected + revoked;
@@ -141,7 +141,7 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
 
 export default function PmlMonitoringPage() {
     const { user, profile, loading: authLoading, logout, allowManualMode } = useAuth();
-const isDataFetchedRef = useRef(false);
+    const isDataFetchedRef = useRef(false);
     const pmlCameraInputRef = useRef(null);
     const pmlGalleryInputRef = useRef(null);
 
@@ -299,14 +299,14 @@ const isDataFetchedRef = useRef(false);
     // =========================================================================
     // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL
     // =========================================================================
-// =========================================================================
+    // =========================================================================
     // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL (OPTIMIZED)
     // =========================================================================
     const fetchPmlData = async () => {
         const pmlEmail = user?.email || profile?.email;
         if (!pmlEmail) return;
 
-if (isDataFetchedRef.current) return;
+        if (isDataFetchedRef.current) return;
         isDataFetchedRef.current = true;
 
         setLoading(true);
@@ -443,7 +443,7 @@ if (isDataFetchedRef.current) return;
                         .select(`
                             idsubsls, total, open, draft, 
                             submitted_pencacah, approved_pengawas, rejected_pengawas, 
-                            revoked_pengawas, edited_pengawas, submitted_respondent
+                            revoked_pengawas, edited_pengawas, submitted_respondent, edited_admin_kabupaten, complete_admin_kabupaten
                         `)
                         .in('idsubsls', idsubslsBinaanArray);
 
@@ -1133,6 +1133,8 @@ if (isDataFetchedRef.current) return;
                     (parseInt(match?.edited_pengawas) || 0) +
                     (parseInt(match?.submitted_pencacah) || 0) +
                     (parseInt(match?.submitted_respondent) || 0) +
+                    (parseInt(match?.edited_admin_kabupaten) || 0) +
+                    (parseInt(match?.complete_admin_kabupaten) || 0) +
                     //(parseInt(match?.draft) || 0) +
                     (parseInt(match?.rejected_pengawas) || 0) +
                     (parseInt(match?.revoked_pengawas) || 0);
@@ -1553,16 +1555,16 @@ if (isDataFetchedRef.current) return;
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
-    <button
-        disabled={!navigator.onLine}
-        onClick={() => {
-            isDataFetchedRef.current = false; // Buka gembok dulu sebelum reload manual
-            fetchPmlData();
-        }}
-        className="p-2 bg-slate-800 ... "
-    >
-        <RefreshCw size={16} />
-    </button>
+                            <button
+                                disabled={!navigator.onLine}
+                                onClick={() => {
+                                    isDataFetchedRef.current = false; // Buka gembok dulu sebelum reload manual
+                                    fetchPmlData();
+                                }}
+                                className="p-2 bg-slate-800 ... "
+                            >
+                                <RefreshCw size={16} />
+                            </button>
 
                             <button
                                 onClick={logout}
@@ -1817,22 +1819,22 @@ if (isDataFetchedRef.current) return;
                                     return targetDate.toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }).split(" ")[0];
                                 };
 
-const historyMap = new Map();
-historyData.forEach(log => {
-    if (log.petugas_id) {
-        const sanitizedPclId = log.petugas_id.replace(/\s+/g, '').toLowerCase();
-        const key = `${sanitizedPclId}_${log.tanggal}`;
-        const capaianBaru = log.total_capaian || 0;
+                                const historyMap = new Map();
+                                historyData.forEach(log => {
+                                    if (log.petugas_id) {
+                                        const sanitizedPclId = log.petugas_id.replace(/\s+/g, '').toLowerCase();
+                                        const key = `${sanitizedPclId}_${log.tanggal}`;
+                                        const capaianBaru = log.total_capaian || 0;
 
-        // JIKA sudah ada data tanggal tersebut, TAMBAHKAN nilainya (Agregasi Multi-Desa)
-        if (historyMap.has(key)) {
-            historyMap.set(key, historyMap.get(key) + capaianBaru);
-        } else {
-            // JIKA belum ada, masukkan sebagai data awal
-            historyMap.set(key, capaianBaru);
-        }
-    }
-});
+                                        // JIKA sudah ada data tanggal tersebut, TAMBAHKAN nilainya (Agregasi Multi-Desa)
+                                        if (historyMap.has(key)) {
+                                            historyMap.set(key, historyMap.get(key) + capaianBaru);
+                                        } else {
+                                            // JIKA belum ada, masukkan sebagai data awal
+                                            historyMap.set(key, capaianBaru);
+                                        }
+                                    }
+                                });
 
                                 // Bersihkan juga email pembanding dari data petugas utama
                                 const sanitizedCleanEmail = cleanEmail.replace(/\s+/g, '').toLowerCase();
@@ -1850,10 +1852,10 @@ historyData.forEach(log => {
                                     <div
                                         key={pcl.email}
                                         className={`bg-white border rounded-xl p-3 shadow-xs flex flex-col gap-2 transition-all ${isPclLuarWilayah
-                                                ? 'border-orange-200 bg-orange-50/10'
-                                                : !isAktif
-                                                    ? 'border-slate-100 bg-slate-50/30'
-                                                    : 'border-slate-200'
+                                            ? 'border-orange-200 bg-orange-50/10'
+                                            : !isAktif
+                                                ? 'border-slate-100 bg-slate-50/30'
+                                                : 'border-slate-200'
                                             }`}
                                     >
                                         {/* ====== BARIS 1: NAMA, EMAIL & STATUS ABSEN ====== */}
@@ -1883,10 +1885,10 @@ historyData.forEach(log => {
                                             {/* Indikator Status Absen Ringkas */}
                                             <div className="shrink-0">
                                                 <span className={`text-[9px] font-black px-2 py-0.5 rounded-md border uppercase tracking-tight ${isAktif
-                                                        ? isPclLuarWilayah
-                                                            ? 'bg-orange-50 text-orange-600 border-orange-200 animate-pulse'
-                                                            : 'bg-emerald-50 text-emerald-600 border-emerald-200'
-                                                        : 'bg-slate-50 text-slate-400 border-slate-200'
+                                                    ? isPclLuarWilayah
+                                                        ? 'bg-orange-50 text-orange-600 border-orange-200 animate-pulse'
+                                                        : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                                                    : 'bg-slate-50 text-slate-400 border-slate-200'
                                                     }`}>
                                                     {isAktif ? (isPclLuarWilayah ? 'Luar Wilayah' : 'Lapangan') : 'Belum Absen'}
                                                 </span>
@@ -1912,27 +1914,73 @@ historyData.forEach(log => {
                                         )}
 
                                         {/* ====== BARIS 3: TREN HISTORI DOKUMEN SLIM ====== */}
-                                        <div className="bg-slate-900 text-white rounded-lg p-1.5 px-2 flex items-center justify-between text-[10px]">
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-slate-400 text-[8px] font-bold uppercase">Kirim 3H Terakhir:</span>
-                                                <div className="flex gap-1.5 font-mono font-bold">
-                                                    <span title="3 Hari Lalu" className={deltaH3 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
-                                                        {deltaH3 > 0 ? `+${deltaH3}` : '0'}
-                                                    </span>
-                                                    <span className="text-slate-700">|</span>
-                                                    <span title="2 Hari Lalu" className={deltaH2 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
-                                                        {deltaH2 > 0 ? `+${deltaH2}` : '0'}
-                                                    </span>
-                                                    <span className="text-slate-700">|</span>
-                                                    <span title="Kemarin" className={deltaH1 > 0 ? 'text-emerald-400' : 'text-slate-500'}>
-                                                        {deltaH1 > 0 ? `+${deltaH1}` : '0'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <span className="text-[9px] font-bold bg-slate-800 text-slate-300 px-1 py-0.2 rounded font-mono">
-                                                (Total 3H: {totalDelta4Hari})
-                                            </span>
-                                        </div>
+{/* KOTAK MONITORING DENGAN DYNAMIC BACKGROUND & PULSE */}
+{(() => {
+    const isMacet3Hari = deltaH1 === 0 && deltaH2 === 0 && deltaH3 === 0;
+    const isMacet2Hari = deltaH1 === 0 && deltaH2 === 0 && !isMacet3Hari;
+
+    // 1. Atur Class Kontainer Utama (Background, Text dasar, Border, dan Efek Mengedip)
+    let containerClass = "rounded-lg p-1.5 px-2 flex items-center justify-between text-[10px] transition-all duration-300 ";
+    let dividerColor = "text-slate-700"; // Warna default untuk pembatas '|'
+    let textLabelColor = "text-slate-400"; // Warna default untuk teks label kiri
+
+    if (isMacet3Hari) {
+        // Latar belakang merah pudar, teks merah pekat, border merah intens, dan seluruh kotak berkedip
+        containerClass += "bg-rose-200 text-rose-700 border border-rose-200 animate-pulse font-bold";
+        dividerColor = "text-rose-300";
+        textLabelColor = "text-rose-500";
+    } else if (isMacet2Hari) {
+        // Latar belakang kuning pudar, teks oranye/amber pekat, border amber, dan seluruh kotak berkedip
+        containerClass += "bg-amber-200 text-amber-700 border border-amber-200 animate-pulse font-bold";
+        dividerColor = "text-amber-300";
+        textLabelColor = "text-amber-500";
+    } else {
+        // Kondisi Normal: Kembali ke tema gelap bawaan Anda
+        containerClass += "bg-slate-900 text-white border border-slate-800";
+    }
+
+    // 2. Atur Class Mini Badge di Sebelah Kanan
+    const badgeClass = isMacet3Hari
+        ? "bg-rose-600 text-white font-black"
+        : isMacet2Hari
+            ? "bg-amber-500 text-white font-black"
+            : "bg-slate-800 text-slate-300 font-bold";
+
+    const labelStatus = isMacet3Hari 
+        ? "🚨 TIDAK KIRIM SELAMA 3 HARI" 
+        : isMacet2Hari 
+            ? "⚠️ TIDAK KIRIM SELAMA 2 HARI" 
+            : `Total 3H: ${totalDelta4Hari}`;
+
+    return (
+        <div className={containerClass}>
+            {/* SISI KIRI: INDIKATOR HARI */}
+            <div className="flex items-center gap-1">
+                <span className={`${textLabelColor} text-[8px] font-bold uppercase transition-colors`}>
+                    Kirim 3H Terakhir:
+                </span>
+                <div className="flex gap-1.5 font-mono font-bold">
+                    <span title="3 Hari Lalu" className={deltaH3 > 0 ? 'text-emerald-500 font-black' : isMacet3Hari || isMacet2Hari ? 'text-slate-400' : 'text-slate-500'}>
+                        {deltaH3 > 0 ? `+${deltaH3}` : '0'}
+                    </span>
+                    <span className={dividerColor}>|</span>
+                    <span title="2 Hari Lalu" className={deltaH2 > 0 ? 'text-emerald-500 font-black' : isMacet3Hari || isMacet2Hari ? 'text-slate-400' : 'text-slate-500'}>
+                        {deltaH2 > 0 ? `+${deltaH2}` : '0'}
+                    </span>
+                    <span className={dividerColor}>|</span>
+                    <span title="Kemarin" className={deltaH1 > 0 ? 'text-emerald-500 font-black' : isMacet3Hari || isMacet2Hari ? 'text-slate-400' : 'text-slate-500'}>
+                        {deltaH1 > 0 ? `+${deltaH1}` : '0'}
+                    </span>
+                </div>
+            </div>
+            
+            {/* SISI KANAN: BADGE STATUS RINGKAS */}
+            <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono shadow-2xs ${badgeClass}`}>
+                {labelStatus}
+            </span>
+        </div>
+    );
+})()}
 
                                         {/* ====== BARIS 4: LOG ABSENSI MINGGUAN MINI ====== */}
                                         <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
@@ -1947,10 +1995,10 @@ historyData.forEach(log => {
                                                         <div
                                                             key={tgl}
                                                             className={`w-4 h-4 rounded-sm text-[8px] font-bold flex items-center justify-center border transition-all ${masukPadaTanggalIni
-                                                                    ? 'bg-emerald-500 border-emerald-600 text-white'
-                                                                    : isHariIni && !isAktif
-                                                                        ? 'bg-rose-500 border-rose-600 text-white animate-pulse'
-                                                                        : 'bg-slate-100 border-slate-200 text-slate-400'
+                                                                ? 'bg-emerald-500 border-emerald-600 text-white'
+                                                                : isHariIni && !isAktif
+                                                                    ? 'bg-rose-500 border-rose-600 text-white animate-pulse'
+                                                                    : 'bg-slate-100 border-slate-200 text-slate-400'
                                                                 }`}
                                                         >
                                                             {angkaTanggal}
@@ -2000,37 +2048,55 @@ historyData.forEach(log => {
                             </div>
                         </div>
 
-                        {/* FILTER DESA & TOMBOL BATCH SUBMIT */}
-                        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-stretch">
-                            <div className="flex-1 bg-white border border-slate-200 p-2.5 rounded-2xl shadow-xs flex items-center gap-2 w-full">
-                                <div className="bg-indigo-50 p-1.5 rounded-xl text-indigo-600 shrink-0">
-                                    <Filter size={14} className="font-bold" />
-                                </div>
-                                <select
-                                    className="flex-1 bg-transparent p-1 text-xs font-black text-slate-700 outline-none appearance-none cursor-pointer"
-                                    value={selectedDesa}
-                                    onChange={(e) => {
-                                        setSelectedDesa(e.target.value);
-                                        setExpandedPetugasSls(null);
-                                    }}
-                                >
-                                    <option value="SEMUA">Semua Desa / Kelurahan</option>
-                                    {desaList.map(d => <option key={d} value={d}>Desa {d}</option>)}
-                                </select>
-                                <ChevronDown size={14} className="text-slate-400 mr-1 shrink-0 pointer-events-none" />
-                            </div>
+<div className="flex flex-col sm:flex-row gap-2 items-start sm:items-stretch">
+    {/* FILTER DESA */}
+    <div className="flex-1 bg-white border border-slate-200 p-2.5 rounded-2xl shadow-xs flex items-center gap-2 w-full">
+        <div className="bg-indigo-50 p-1.5 rounded-xl text-indigo-600 shrink-0">
+            <Filter size={14} className="font-bold" />
+        </div>
+        <select
+            className="flex-1 bg-transparent p-1 text-xs font-black text-slate-700 outline-none appearance-none cursor-pointer"
+            value={selectedDesa}
+            onChange={(e) => {
+                setSelectedDesa(e.target.value);
+                setExpandedPetugasSls(null);
+            }}
+        >
+            <option value="SEMUA">Semua Desa / Kelurahan</option>
+            {desaList.map(d => <option key={d} value={d}>Desa {d}</option>)}
+        </select>
+        <ChevronDown size={14} className="text-slate-400 mr-1 shrink-0 pointer-events-none" />
+    </div>
 
-                            <div className="flex flex-col gap-1 w-full sm:w-auto shrink-0">
-                                <button
-                                    disabled={submitSiklusLoading || filteredSlsInputs.length === 0}
-                                    onClick={handleTriggerEvaluasiFlow}
-                                    className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider transition-all shadow-xs flex items-center justify-center gap-2 uppercase w-full"
-                                >
-                                    <Send size={14} />
-                                    <span>Kirim Rekap Untuk Evaluasi</span>
-                                </button>
-                            </div>
-                        </div>
+    {/* GRUP TOMBOL AKSI (SELEBIHNYA NYELARAS) */}
+    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
+        {/* TOMBOL MONITORING KECAMATAN */}
+        <a
+            href="https://se3309.vercel.app/dashboard-monitoring"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Rekomendasi dibuka di PC / Laptop"
+            className="bg-slate-900 hover:bg-slate-800 active:scale-95 text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider transition-all shadow-xs flex items-center justify-center gap-2 uppercase w-full sm:w-auto min-h-[42px]"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                <rect width="20" height="14" x="2" y="3" rx="2" />
+                <line x1="8" x2="16" y1="21" y2="21" />
+                <line x1="12" x2="12" y1="17" y2="21" />
+            </svg>
+            <span className="truncate">Monitoring Kecamatan</span>
+        </a>
+
+        {/* TOMBOL EVALUASI */}
+        <button
+            disabled={submitSiklusLoading || filteredSlsInputs.length === 0}
+            onClick={handleTriggerEvaluasiFlow}
+            className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:bg-slate-200 disabled:text-slate-400 text-white px-4 py-2.5 rounded-2xl text-xs font-black tracking-wider transition-all shadow-xs flex items-center justify-center gap-2 uppercase w-full sm:w-auto min-h-[42px]"
+        >
+            <Send size={14} />
+            <span className="truncate">Kirim Rekap Evaluasi</span>
+        </button>
+    </div>
+</div>
 
                         <div className="space-y-3">
                             <div className="px-1 flex justify-between items-center text-[10px] font-black uppercase text-slate-400 tracking-wider">
@@ -2039,111 +2105,164 @@ historyData.forEach(log => {
                             </div>
 
 
-                            {Object.keys(groupedSlsByPetugas).map((namaPetugas) => {
-                                const isExpanded = expandedPetugasSls === namaPetugas;
-                                const listSlsPetugas = groupedSlsByPetugas[namaPetugas];
+{Object.keys(groupedSlsByPetugas).map((namaPetugas) => {
+    const isExpanded = expandedPetugasSls === namaPetugas;
+    const listSlsPetugas = groupedSlsByPetugas[namaPetugas];
 
-                                // 1. Hitung total muatan/target dari target SLS resmi
-                                const totalMuatanPcl = listSlsPetugas.reduce((acc, curr) => acc + (curr.jml_muatan || 0), 0);
+    // =========================================================================
+    // 1. HITUNG TOTAL MUATAN / TARGET DILEVEL PCL DARI TABEL progress_boyolali
+    // =========================================================================
+    const totalMuatanPcl = listSlsPetugas.reduce((acc, sls) => {
+        const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
+        
+        // Ekstraksi seluruh status volume untuk fallback perhitungan total target yang akurat
+        const s_submitted = parseInt(match?.submitted_pencacah) || 0;
+        const s_draft = parseInt(match?.draft) || 0;
+        const s_rejected = parseInt(match?.rejected_pengawas) || 0;
+        const s_revoked = parseInt(match?.revoked_pengawas) || 0;
+        const s_approved = parseInt(match?.approved_pengawas) || 0;
+        const s_edited = parseInt(match?.edited_pengawas) || 0;
+        const s_submitted_resp = parseInt(match?.submitted_respondent) || 0;
+        const s_open = parseInt(match?.open) || 0;
+        const s_edited_admin = parseInt(match?.edited_admin_kabupaten) || 0;
+        const s_complete_admin = parseInt(match?.complete_admin_kabupaten) || 0;
 
-                                // 2. HITUNG ULANG TOTAL REALISASI BERDASARKAN AGREGASI STATUS DOKUMEN (KUNCI PERBAIKAN)
-                                const totalRealisasiPcl = listSlsPetugas.reduce((acc, sls) => {
-                                    const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
+        const targetSls = parseInt(match?.total) || (
+            s_submitted + s_draft + s_rejected + s_revoked + s_approved + 
+            s_edited + s_submitted_resp + s_open + s_edited_admin + s_complete_admin
+        );
 
-                                    const approved = parseInt(match?.approved_pengawas) || 0;
-                                    const edited = parseInt(match?.edited_pengawas) || 0;
-                                    const submitted = parseInt(match?.submitted_pencacah) || 0;
-                                    const submitted_resp = parseInt(match?.submitted_respondent) || 0;
-                                    const draft = parseInt(match?.draft) || 0;
-                                    const rejected = parseInt(match?.rejected_pengawas) || 0;
-                                    const revoked = parseInt(match?.revoked_pengawas) || 0;
+        return acc + targetSls;
+    }, 0);
 
-                                    const totalSlsRiil = approved + edited + submitted + submitted_resp + rejected + revoked;
-                                    return acc + totalSlsRiil;
-                                }, 0);
+    // =========================================================================
+    // 2. REKAP NOMINAL MURNI MASING-MASING STATUS DOKUMEN PCL
+    // =========================================================================
+    let draftPcl = 0, submitPcl = 0, appPcl = 0, rejPcl = 0;
+    
+    listSlsPetugas.forEach(sls => {
+        const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
 
-                                // 3. Hitung persentase dinamis (opsional: hilangkan Math.min jika ingin mengakomodir over-target/muatan baru)
-                                const persenPcl = totalMuatanPcl > 0 ? Math.min(Math.round((totalRealisasiPcl / totalMuatanPcl) * 100), 100) : 0;
+        draftPcl += (parseInt(match?.draft) || 0);
+        submitPcl += (parseInt(match?.submitted_pencacah) || 0) + (parseInt(match?.submitted_respondent) || 0);
+        appPcl += (parseInt(match?.approved_pengawas) || 0) + (parseInt(match?.edited_pengawas) || 0) + (parseInt(match?.edited_admin_kabupaten) || 0) + (parseInt(match?.complete_admin_kabupaten) || 0);
+        rejPcl += (parseInt(match?.rejected_pengawas) || 0) + (parseInt(match?.revoked_pengawas) || 0);
+    });
 
-                                // Hitung rekap status dokumen untuk ringkasan di bawah (tetap seperti kode awal Anda)
-                                let draftPcl = 0, submitPcl = 0, appPcl = 0, rejPcl = 0;
-                                listSlsPetugas.forEach(sls => {
-                                    const match = realtimeProgressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
+    // Total Realisasi Riil (Semua dokumen non-OPEN dan non-DRAFT)
+    const totalRealisasiPcl = submitPcl + appPcl + rejPcl;
 
-                                    draftPcl += (parseInt(match?.draft) || 0);
-                                    submitPcl += (parseInt(match?.submitted_pencacah) || 0) + (parseInt(match?.submitted_respondent) || 0);
-                                    appPcl += (parseInt(match?.approved_pengawas) || 0) + (parseInt(match?.edited_pengawas) || 0);
-                                    rejPcl += (parseInt(match?.rejected_pengawas) || 0) + (parseInt(match?.revoked_pengawas) || 0);
-                                });
+    // =========================================================================
+    // 3. HITUNG PERSENTASE PROPORSIONAL UNTUK KOMPONEN STACKED BAR
+    // =========================================================================
+const kalkulasiPersen = totalMuatanPcl > 0 ? Math.min((totalRealisasiPcl / totalMuatanPcl) * 100, 100) : 0;
+// Format menjadi string dengan 2 angka di belakang koma
+const persenPcl = kalkulasiPersen.toFixed(2);
+    
+    const persenApprove = totalMuatanPcl > 0 ? Math.round((appPcl / totalMuatanPcl) * 100) : 0;
+    const persenSubmit = totalMuatanPcl > 0 ? Math.round((submitPcl / totalMuatanPcl) * 100) : 0;
+    const persenDraft = totalMuatanPcl > 0 ? Math.round((draftPcl / totalMuatanPcl) * 100) : 0;
+    const persenReject = totalMuatanPcl > 0 ? Math.round((rejPcl / totalMuatanPcl) * 100) : 0;
 
-                                return (
-                                    <div key={namaPetugas} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs transition-all">
+    return (
+        <div key={namaPetugas} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs transition-all">
 
-                                        {/* HEADER AKORDION SIMPEL */}
-                                        <div
-                                            onClick={() => setExpandedPetugasSls(isExpanded ? null : namaPetugas)}
-                                            className={`p-3 flex flex-col gap-2 cursor-pointer transition-colors active:bg-slate-100 ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
-                                        >
-                                            <div className="flex items-center justify-between gap-2">
-                                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                                    <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0 uppercase shadow-xs">
-                                                        {namaPetugas.charAt(0)}
-                                                    </div>
-                                                    <div className="min-w-0 flex-1">
-                                                        <h4 className="text-xs font-black text-slate-800 uppercase truncate tracking-tight">{namaPetugas}</h4>
-                                                        <p className="text-[9px] font-bold text-slate-400 font-mono mt-0.5">
-                                                            {listSlsPetugas.length} SLS • {totalRealisasiPcl}/{totalMuatanPcl} TARGET
-                                                        </p>
-                                                    </div>
-                                                </div>
+            {/* HEADER AKORDION SIMPEL */}
+            <div
+                onClick={() => setExpandedPetugasSls(isExpanded ? null : namaPetugas)}
+                className={`p-3 flex flex-col gap-2.5 cursor-pointer transition-colors active:bg-slate-100 ${isExpanded ? 'bg-slate-50 border-b border-slate-100' : ''}`}
+            >
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0 uppercase shadow-xs">
+                            {namaPetugas.charAt(0)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <h4 className="text-xs font-black text-slate-800 uppercase truncate tracking-tight">{namaPetugas}</h4>
+                            <p className="text-[9px] font-bold text-slate-400 font-mono mt-0.5">
+                                {listSlsPetugas.length} SLS • {totalRealisasiPcl}/{totalMuatanPcl} TARGET
+                            </p>
+                        </div>
+                    </div>
 
-                                                <div className="shrink-0 flex items-center gap-2">
-    <div className="flex flex-col items-end">
-        <span className="text-xs font-mono font-black text-indigo-600">
-            {persenPcl}%
-        </span>
-        <span className="text-[7px] font-bold text-orange-500 uppercase tracking-tighter mt-0.5">
-            (Tidak Termasuk Status Draft)
-        </span>
-    </div>
-    <div className="text-slate-400">
-        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-    </div>
-</div>
-                                            </div>
+                    <div className="shrink-0 flex items-center gap-2">
+                        <div className="flex flex-col items-end">
+                            <span className="text-xs font-mono font-black text-indigo-600">
+                                {persenPcl}%
+                            </span>
+                            <span className="text-[7px] font-bold text-blue-500 uppercase tracking-tighter mt-0.5">
+                                (Penyesuaian Perhitungan Persentase)
+                            </span>
+                        </div>
+                        <div className="text-slate-400">
+                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </div>
+                    </div>
+                </div>
 
-                                            {/* SUNTIKAN 1: PROGRESS BAR HORIZONTAL */}
-                                            <div className="w-full bg-slate-100 rounded-full h-1 overflow-hidden">
-                                                <div
-                                                    className="h-full bg-indigo-600 rounded-full transition-all duration-300"
-                                                    style={{ width: `${persenPcl}%` }}
-                                                ></div>
-                                            </div>
+                {/* SUNTIKAN 1: STACKED PROGRESS BAR HORIZONTAL DINAMIS */}
+                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex shadow-inner">
+                    {/* Segmen 1: Approve / Complete (Emerald) */}
+                    {persenApprove > 0 && (
+                        <div 
+                            className="h-full bg-emerald-500 transition-all duration-300 first:rounded-l-full last:rounded-r-full"
+                            style={{ width: `${persenApprove}%` }}
+                            title={`Approve: ${appPcl} Dok (${persenApprove}%)`}
+                        />
+                    )}
+                    
+                    {/* Segmen 2: Submit (Blue) */}
+                    {persenSubmit > 0 && (
+                        <div 
+                            className="h-full bg-blue-500 transition-all duration-300 first:rounded-l-full last:rounded-r-full"
+                            style={{ width: `${persenSubmit}%` }}
+                            title={`Submit: ${submitPcl} Dok (${persenSubmit}%)`}
+                        />
+                    )}
 
-                                            {/* SUNTIKAN 2: RINGKASAN STATUS DOKUMEN MINI */}
-                                            <div className="flex justify-end gap-2 text-[9px] font-mono font-bold text-slate-400 border-t border-slate-50 pt-1">
-                                                <span>Draft: <strong className="text-amber-600">{draftPcl}</strong></span>
-                                                <span>Submit: <strong className="text-blue-600">{submitPcl}</strong></span>
-                                                <span>Approve: <strong className="text-emerald-600">{appPcl}</strong></span>
-                                                {rejPcl > 0 && <span>Reject: <strong className="text-rose-600">{rejPcl}</strong></span>}
-                                            </div>
-                                        </div>
+                    {/* Segmen 3: Draft (Amber) */}
+                    {persenDraft > 0 && (
+                        <div 
+                            className="h-full bg-amber-500 transition-all duration-300 first:rounded-l-full last:rounded-r-full"
+                            style={{ width: `${persenDraft}%` }}
+                            title={`Draft: ${draftPcl} Dok (${persenDraft}%)`}
+                        />
+                    )}
 
-                                        {/* ISI ACCORDION (KEMBALI KE STRUKTUR LAMA ANDA) */}
-                                        {isExpanded && (
-                                            <div className="p-2.5 bg-slate-50/50 space-y-2 animate-fadeIn border-t border-slate-100">
-                                                {listSlsPetugas.map((sls) => (
-                                                    <SlsCardRow
-                                                        key={sls.idsubsls}
-                                                        sls={sls}
-                                                        progressData={realtimeProgressData}
-                                                    />
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                    {/* Segmen 4: Reject / Revoke (Rose) */}
+                    {persenReject > 0 && (
+                        <div 
+                            className="h-full bg-rose-500 transition-all duration-300 first:rounded-l-full last:rounded-r-full"
+                            style={{ width: `${persenReject}%` }}
+                            title={`Reject: ${rejPcl} Dok (${persenReject}%)`}
+                        />
+                    )}
+                </div>
+
+                {/* SUNTIKAN 2: RINGKASAN STATUS DOKUMEN MINI */}
+                <div className="flex flex-wrap justify-end gap-x-2.5 gap-y-0.5 text-[9px] font-mono font-bold text-slate-400 border-t border-slate-100/70 pt-1.5">
+                    <span>Draft: <strong className="text-amber-600 font-black">{draftPcl}</strong></span>
+                    <span>Submit: <strong className="text-blue-600 font-black">{submitPcl}</strong></span>
+                    <span>Approve: <strong className="text-emerald-600 font-black">{appPcl}</strong></span>
+                    {rejPcl > 0 && <span>Reject: <strong className="text-rose-600 font-black">{rejPcl}</strong></span>}
+                </div>
+            </div>
+
+            {/* ISI ACCORDION DETAIL DAFTAR SLS */}
+            {isExpanded && (
+                <div className="p-2.5 bg-slate-50/50 space-y-2 animate-fadeIn border-t border-slate-100">
+                    {listSlsPetugas.map((sls) => (
+                        <SlsCardRow
+                            key={sls.idsubsls}
+                            sls={sls}
+                            progressData={realtimeProgressData}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+})}
 
 
                             {filteredSlsInputs.length === 0 && (
