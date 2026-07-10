@@ -997,38 +997,62 @@ const processedBarChartData = useMemo(() => {
             const isPersenMode = viewModeTab !== "PETUGAS" && viewModeTab !== "SLS";
 
             // Fungsi pembantu untuk mengekstrak Jumlah & Persen secara akurat
-            const dapatkanDetailNilai = (fieldKey) => {
-                let jumlahDokumen = 0;
-                let nilaiPersentase = 0;
+const dapatkanDetailNilai = (fieldKey) => {
+    let jumlahDokumen = 0;
+    let nilaiPersentase = 0;
 
-                if (!isPersenMode) {
-                    // 🏃 Mode Petugas / SLS: nilai grafik sudah berupa JUMLAH DOKUMEN asli
-                    jumlahDokumen = parseFloat(data[fieldKey]) || 0;
-                    nilaiPersentase = totalTargetMurni > 0 ? (jumlahDokumen / totalTargetMurni) * 100 : 0;
-                } else {
-                    // 📍 Mode Kecamatan / Desa: ambil dari cadangan dokumen murni yang kita buat di Langkah 1
-                    const keyDokumenAsli = `${fieldKey}_dokumen`;
-                    
-                    if (!includeDraft && fieldKey === 'open') {
-                        // Jika switch draft mati, gabungkan nilai open asli + draft asli
-                        const openAsli = parseFloat(data.open_dokumen) || 0;
-                        const draftAsli = parseFloat(data.draft_dokumen) || 0;
-                        jumlahDokumen = openAsli + draftAsli;
-                    } else if (!includeDraft && fieldKey === 'draft') {
-                        jumlahDokumen = 0;
-                    } else {
-                        jumlahDokumen = parseFloat(data[keyDokumenAsli]) || 0;
-                    }
+    // 🏃 Mode PETUGAS murni: Nilai grafik di sini adalah JUMLAH DOKUMEN asli
+    if (viewModeTab === "PETUGAS") {
+        if (!includeDraft && fieldKey === 'open') {
+            const openAsli = parseFloat(data.open) || 0;
+            const draftAsli = parseFloat(data.draft) || 0;
+            jumlahDokumen = openAsli + draftAsli;
+        } else if (!includeDraft && fieldKey === 'draft') {
+            jumlahDokumen = 0;
+        } else {
+            jumlahDokumen = parseFloat(data[fieldKey]) || 0;
+        }
+        nilaiPersentase = totalTargetMurni > 0 ? (jumlahDokumen / totalTargetMurni) * 100 : 0;
+    } 
+    
+    // 🏠 Mode SLS: Nilai grafik berupa PERSENTASE, hitung balik ke JUMLAH DOKUMEN murni
+    else if (viewModeTab === "SLS") {
+        let persenStatus = parseFloat(data[fieldKey]) || 0;
 
-                    // Hitung persentase riil tanpa rounding error dari visual grafik batang
-                    nilaiPersentase = totalTargetMurni > 0 ? (jumlahDokumen / totalTargetMurni) * 100 : 0;
-                }
+        if (!includeDraft && fieldKey === 'open') {
+            const openPersen = parseFloat(data.open) || 0;
+            const draftPersen = parseFloat(data.draft) || 0;
+            persenStatus = openPersen + draftPersen;
+        } else if (!includeDraft && fieldKey === 'draft') {
+            persenStatus = 0;
+        }
 
-                return {
-                    jumlah: jumlahDokumen.toLocaleString('id-ID'),
-                    persen: nilaiPersentase.toFixed(1)
-                };
-            };
+        // Konversi dari persen kembali ke jumlah dokumen asli
+        jumlahDokumen = Math.round((persenStatus / 100) * totalTargetMurni);
+        nilaiPersentase = persenStatus;
+    } 
+    
+    // 📍 Mode KECAMATAN / DESA: Ambil dari cadangan dokumen murni (`_dokumen`)
+    else {
+        const keyDokumenAsli = `${fieldKey}_dokumen`;
+        
+        if (!includeDraft && fieldKey === 'open') {
+            const openAsli = parseFloat(data.open_dokumen) || 0;
+            const draftAsli = parseFloat(data.draft_dokumen) || 0;
+            jumlahDokumen = openAsli + draftAsli;
+        } else if (!includeDraft && fieldKey === 'draft') {
+            jumlahDokumen = 0;
+        } else {
+            jumlahDokumen = parseFloat(data[keyDokumenAsli]) || 0;
+        }
+        nilaiPersentase = totalTargetMurni > 0 ? (jumlahDokumen / totalTargetMurni) * 100 : 0;
+    }
+
+    return {
+        jumlah: jumlahDokumen.toLocaleString('id-ID'),
+        persen: nilaiPersentase.toFixed(1)
+    };
+};
 
             // Ekstrak data untuk masing-masing kategori status
             const approved = dapatkanDetailNilai('approved');
