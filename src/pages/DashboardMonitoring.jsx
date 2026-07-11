@@ -759,14 +759,41 @@ export default function DashboardMonitoring() {
     const nilaiTargetYAxis = isPetugasMode ? targetVolumePetugas : targetPersenWilayah;
     const teksLabelTarget = isPetugasMode ? `${targetVolumePetugas.toLocaleString('id-ID')} Dokumen` : `${targetPersenWilayah}%`;
 
-    const metrikEstimasiProyek = useMemo(() => {
-        const masterPetugasWilayah = dataMonitoringWilayah.petugas.filter(p =>
-            p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
+const metrikEstimasiProyek = useMemo(() => {
+        // 1. Tentukan target grup petugas berdasarkan filter wilayah atau individu petugas yang aktif
+        let masterPetugasWilayah = dataMonitoringWilayah.petugas.filter(p =>
+            p.email !== "Tanpa Petugas" && p.total_target > 0
         );
 
-        const totalSisaOpenAktif = masterPetugasWilayah.reduce((sum, p) => sum + (p.open || 0), 0);
+        const isSkupPetugasIndividu = (viewModeTab === "PETUGAS" || viewModeTab === "SLS") && 
+                                      (selectedPetugasEmail || hoveredTrend);
+
+        // Jika sedang fokus ke satu petugas (melalui klik tabel/dropdown atau hover chart)
+        if (isSkupPetugasIndividu) {
+            const keyAktif = hoveredTrend || "";
+            const objekPetugasTerpilih = dataMonitoringWilayah.petugas.find(p => {
+                const namaMurni = (p.nama_asli || p.nama || "").toLowerCase().trim();
+                return namaMurni === keyAktif.toLowerCase().trim() || p.email === selectedPetugasEmail;
+            });
+
+            if (objekPetugasTerpilih) {
+                masterPetugasWilayah = [objekPetugasTerpilih];
+            }
+        } else {
+            // Mode Wilayah Standar
+            if (selectedKecTab !== "SEMUA") {
+                masterPetugasWilayah = masterPetugasWilayah.filter(p => p.kodeKec === selectedKecTab);
+            }
+        }
+
+        // 2. Hitung sisa berkas open berdasarkan grup petugas terpilih di atas
+        const totalSisaOpenAktif = masterPetugasWilayah.reduce((sum, p) => {
+            return sum + (includeDraft ? (p.open || 0) : ((p.open || 0) + (p.draft || 0)));
+        }, 0);
+
         const totalBebanAwal = masterPetugasWilayah.reduce((sum, p) => sum + (p.total_target || 0), 0) || 1;
 
+        // 3. Ambil data histori 4 hari terakhir untuk menghitung laju harian
         const tglHariIni = new Date();
         const dapatkanStrTgl = (minusHari) => {
             const d = new Date();
@@ -783,7 +810,8 @@ export default function DashboardMonitoring() {
         historyData.forEach(h => {
             const petId = (h.petugas_id || "").toLowerCase().trim();
             if (setValidEmails.has(petId) && logHarian[h.tanggal] !== undefined) {
-                logHarian[h.tanggal] += (h.total_capaian || 0);
+                // Gunakan kolom progres yang sesuai dengan switch includeDraft
+                logHarian[h.tanggal] += includeDraft ? (h.total_capaian || 0) : (h.total_capaian_tanpa_draft || 0);
             }
         });
 
@@ -791,19 +819,43 @@ export default function DashboardMonitoring() {
         const dW2 = Math.max((logHarian[tglH2] || 0) - (logHarian[tglH3] || 0), 0);
         const dW3 = Math.max((logHarian[tglH3] || 0) - (logHarian[tglH4] || 0), 0);
 
-        const lajuHarianSaatIni = Math.max(parseFloat(((dW1 + dW2 + dW3) / 3).toFixed(1)), 1);
-        const rasioSisaDokumen = totalSisaOpenAktif / totalBebanAwal;
-        const faktorPelambatanEkor = 0.4 + (0.6 * rasioSisaDokumen);
-        const lajuPrediktif = Math.max(parseFloat((lajuHarianSaatIni * faktorPelambatanEkor).toFixed(1)), 1);
+        // 4. Kalkulasi Laju Kirim Harian
+        const lajuHarianSaatIni = Math.max(parseFloat(((dW1 + dW2 + dW3) / 3).toFixed(1)), 0.1);
+        
+        let lajuPrediktif = lajuHarianSaatIni;
+        if (!isSkupPetugasIndividu) {
+            // Berikan faktor pelambatan ekor hanya jika di level wilayah makro
+            const rasioSisaDokumen = totalSisaOpenAktif / totalBebanAwal;
+            const faktorPelambatanEkor = 0.4 + (0.6 * rasioSisaDokumen);
+            lajuPrediktif = Math.max(parseFloat((lajuHarianSaatIni * faktorPelambatanEkor).toFixed(1)), 0.1);
+        }
+
+        // 5. Hitung Prediksi Sisa Hari & Tanggal Selesai
         const sisaHariDibutuhkan = Math.ceil(totalSisaOpenAktif / lajuPrediktif);
+        
+        const TANGGAL_SELESAI_TREN = new Date("2026-08-31");
+        let stringPrediksiSelesai = "-";
+        let isTerlambat = false;
+        let selisihDariDeadline = 0;
 
-        const tglPrediksiSelesai = new Date();
-        tglPrediksiSelesai.setDate(tglHariIni.getDate() + sisaHariDibutuhkan);
-
-        const stringPrediksiSelesai = tglPrediksiSelesai.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-        const DEADLINE_PROYEK = new Date("2026-08-31");
-        const isTerlambat = tglPrediksiSelesai > DEADLINE_PROYEK;
-        const selisihDariDeadline = Math.ceil(Math.abs((tglPrediksiSelesai - DEADLINE_PROYEK) / (1000 * 60 * 60 * 24)));
+        if (totalSisaOpenAktif === 0) {
+            stringPrediksiSelesai = "SELESAI";
+        } else if (lajuHarianSaatIni <= 0.2 && totalSisaOpenAktif > 0) {
+            stringPrediksiSelesai = "STAGNAN (0 DOK/HARI)";
+            isTerlambat = true;
+            const hariIni = new Date();
+            hariIni.setHours(0,0,0,0);
+            selisihDariDeadline = Math.ceil(Math.max((TANGGAL_SELESAI_TREN - hariIni) / (1000 * 60 * 60 * 24), 1));
+        } else {
+            const tglPrediksiSelesai = new Date();
+            tglPrediksiSelesai.setDate(tglPrediksiSelesai.getDate() + sisaHariDibutuhkan);
+            stringPrediksiSelesai = tglPrediksiSelesai.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+            
+            if (tglPrediksiSelesai > TANGGAL_SELESAI_TREN) {
+                isTerlambat = true;
+                selisihDariDeadline = Math.ceil(Math.abs((tglPrediksiSelesai - TANGGAL_SELESAI_TREN) / (1000 * 60 * 60 * 24)));
+            }
+        }
 
         return {
             rataKirimHarian: lajuHarianSaatIni,
@@ -812,9 +864,10 @@ export default function DashboardMonitoring() {
             tanggalPrediksi: stringPrediksiSelesai,
             isTerlambat,
             selisihDariDeadline,
-            totalSisaOpenAktif
+            totalSisaOpenAktif,
+            isModeIndividu: isSkupPetugasIndividu
         };
-    }, [dataMonitoringWilayah.petugas, historyData, selectedKecTab]);
+    }, [dataMonitoringWilayah.petugas, historyData, selectedKecTab, viewModeTab, selectedPetugasEmail, hoveredTrend, includeDraft]);
 
     const jumlahPetugasDiBawahTarget = useMemo(() => {
         if (!dataMonitoringWilayah.petugas) return 0;
@@ -1220,160 +1273,274 @@ export default function DashboardMonitoring() {
         // 👈 JANGAN LUPA menambahkan processedBarChartData ke dependency array di bawah ini
     ), [processedBarChartData, viewModeTab, selectedKecTab, isPetugasMode, unitSatuanYAxis, formatSuffixTooltip, nilaiTargetYAxis, teksLabelTarget, HARI_KE]);
 
-    // Membekukan elemen AreaChart (Tren) agar tidak boros re-render
     // ==========================================
-    // MODIFIKASI ELEMENT AREA CHART (RENDERING LINE)
+    // PERBAIKAN LOGIKA: GARIS RATA-RATA BERDASARKAN KLIK & HOVER
     // ==========================================
     // ==========================================
-    // MODIFIKASI AREA CHART DENGAN BLOK ARSIR MERAH (NO DATA ZONE)
+    // FIX: RESET HOVER SAAT FILTER BERUBAH
     // ==========================================
-    const memoizedAreaChartElement = useMemo(() => {
-        const petugasFilterGaris = dataMonitoringWilayah.petugas.filter(p =>
-            p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
+    useEffect(() => {
+        // Reset status hover ke null agar grafik kembali normal/tidak abu-abu
+        if (typeof setHoveredTrend === 'function') {
+            setHoveredTrend(null);
+        }
+    }, [selectedKecTab, viewModeTab, includeDraft, selectedPetugasEmail]);
+    // Tambahkan state filter lain di dalam array dependency di atas jika ada
+  const memoizedAreaChartElement = useMemo(() => {
+    // 1. Filter Petugas berdasarkan kecamatan yang dipilih dan kecualikan "Tanpa Petugas"
+    const petugasFilterGaris = dataMonitoringWilayah.petugas.filter(p =>
+        p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab)
+    );
+
+    const totalOpenKecamatan = petugasFilterGaris.reduce((sum, p) => sum + (p.open || 0), 0);
+    const jumlahPetugasAktif = petugasFilterGaris.length || 1;
+
+    // 2. Perhitungan Periode dan Sisa Hari Target Tren
+    const TANGGAL_SELESAI_TREN = new Date("2026-08-31");
+    const hariIni = new Date();
+    hariIni.setHours(0, 0, 0, 0); // Reset time
+    
+    const selisihSisaHari = TANGGAL_SELESAI_TREN - hariIni;
+    const SISA_HARI_TREN = selisihSisaHari > 0 
+        ? Math.floor(selisihSisaHari / (1000 * 60 * 60 * 24)) + 1 
+        : 1;
+
+    // 3. Tentukan Key Nama Garis yang Sedang Aktif
+    let keyNamaGarisAktif = trendKeys[0] || "";
+
+    if (viewModeTab === "PETUGAS" || viewModeTab === "SLS") {
+        if (hoveredTrend) {
+            keyNamaGarisAktif = hoveredTrend;
+        } else if (selectedPetugasEmail) {
+            const objekPetugasTerpilih = dataMonitoringWilayah.petugas.find(p => p.email === selectedPetugasEmail);
+            if (objekPetugasTerpilih) {
+                keyNamaGarisAktif = objekPetugasTerpilih.nama_asli || objekPetugasTerpilih.nama;
+            }
+        }
+    }
+
+    // 4. Dapatkan sisa open spesifik milik petugas/wilayah yang aktif
+    let openTargetDinamis = totalOpenKecamatan; 
+    
+    if ((viewModeTab === "PETUGAS" || viewModeTab === "SLS") && keyNamaGarisAktif) {
+        const objekPetugasTerpilih = dataMonitoringWilayah.petugas.find(p => {
+            const namaMurni = (p.nama_asli || p.nama || "").toLowerCase().trim();
+            return namaMurni === keyNamaGarisAktif.toLowerCase().trim() || p.email === selectedPetugasEmail;
+        });
+        
+        if (objekPetugasTerpilih) {
+            openTargetDinamis = includeDraft 
+                ? (objekPetugasTerpilih.open || 0) 
+                : ((objekPetugasTerpilih.open || 0) + (objekPetugasTerpilih.draft || 0));
+        }
+    }
+
+    // 5. Hitung Target Harian Garis (Beban Individu / Sisa Hari)
+    const targetHarianGaris = parseFloat((openTargetDinamis / SISA_HARI_TREN).toFixed(1));
+
+    // 6. Cari Nilai Tertinggi Data Aktual Chart
+    const nilaiMaksimalData = chartTrenData.reduce((max, item) => {
+        let maxInRow = 0;
+        trendKeys.forEach(key => {
+            if (item[key] > maxInRow) maxInRow = item[key];
+        });
+        return maxInRow > max ? maxInRow : max;
+    }, 0);
+
+    // 7. Kondisi Pembatas Rata-Rata Harian
+    const janganTampilkanRataRata = viewModeTab === "PETUGAS" && !selectedPetugasEmail && !hoveredTrend;
+
+    // 8. Filter Data Berdasarkan Mode 'Include Draft' untuk Rata-Rata
+    const dataDiFilterUntukRataRata = chartTrenData.filter(item => {
+        if (!includeDraft) {
+            return new Date(item.tanggalRaw) >= new Date("2026-07-05");
+        }
+        return true;
+    });
+
+    const jumlahHariData = dataDiFilterUntukRataRata.length || 1;
+
+    // 9. Hitung Rata-Rata Harian Petugas Terpilih
+    const totalDokumenKirimPeriode = dataDiFilterUntukRataRata.reduce((sum, item) => {
+        const targetKeyMurni = Object.keys(item).find(
+            k => k.toLowerCase().trim() === keyNamaGarisAktif.toLowerCase().trim()
         );
+        const nilaiDokumen = targetKeyMurni ? (parseFloat(item[targetKeyMurni]) || 0) : 0;
+        return sum + nilaiDokumen;
+    }, 0);
 
-        const totalOpenAktif = petugasFilterGaris.reduce((sum, p) => sum + (p.open || 0), 0);
-        const jumlahPetugasAktif = petugasFilterGaris.length || 1;
+    const nilaiRataRataHarian = parseFloat((totalDokumenKirimPeriode / jumlahHariData).toFixed(1));
 
-        const TANGGAL_MULAI_TREN = new Date("2026-06-15");
-        const TANGGAL_SELESAI_TREN = new Date("2026-08-31");
-        const TOTAL_HARI_TREN = Math.floor((TANGGAL_SELESAI_TREN - TANGGAL_MULAI_TREN) / (1000 * 60 * 60 * 24)) + 1;
-        const selisihHariTren = new Date() - TANGGAL_MULAI_TREN;
-        const HARI_KE_TREN = selisihHariTren > 0 ? Math.floor(selisihHariTren / (1000 * 60 * 60 * 24)) + 1 : 1;
-        const SISA_HARI_TREN = Math.max(TOTAL_HARI_TREN - HARI_KE_TREN + 1, 1);
+    // =======================================================
+    // 🌟 FIX DI SINI: KALKULASI METRIK ESTIMASI MENGGUNAKAN openTargetDinamis
+    // =======================================================
+  // =======================================================
+    // 🌟 KALKULASI METRIK ESTIMASI (WILAYAH VS PETUGAS INDIVIDU)
+    // =======================================================
+    
+    // 1. Deteksi apakah user sedang fokus melihat performa individual petugas
+    const isSkupPetugasIndividu = (viewModeTab === "PETUGAS" || viewModeTab === "SLS") && 
+                                  (selectedPetugasEmail || hoveredTrend);
 
-        const targetHarianGaris = viewModeTab === "PETUGAS"
-            ? parseFloat(((totalOpenAktif / jumlahPetugasAktif) / SISA_HARI_TREN).toFixed(1))
-            : parseFloat((totalOpenAktif / SISA_HARI_TREN).toFixed(1));
+    // 2. Gunakan perhitungan murni dari state luar sebagai default (Level Makro)
+    let finalMetrikEstimasi = { ...metrikEstimasiProyek }; 
 
-        // Dapatkan label tanggal awal dan tanggal 4 juli dari data riil chart untuk koordinat X
-        const labelTanggalAwal = chartTrenData.length > 0 ? chartTrenData[0].label : undefined;
+    // 3. Jika sedang di mode individu, TIMPA dengan perhitungan mikro
+    if (isSkupPetugasIndividu) {
+        let sisaHariDibutuhkanMicro = nilaiRataRataHarian > 0 ? Math.ceil(openTargetDinamis / nilaiRataRataHarian) : 0;
+        let tanggalPrediksiMicro = "-";
+        let isTerlambatMicro = false;
+        let selisihDariDeadlineMicro = 0;
 
-        // Cari label untuk tanggal 4 Juli di dalam data Anda
-        const objekEmpatJuli = chartTrenData.find(d => d.tanggalRaw === "2026-07-04");
-        const labelEmpatJuli = objekEmpatJuli ? objekEmpatJuli.label : undefined;
+        if (nilaiRataRataHarian > 0 && openTargetDinamis > 0) {
+            const targetTanggalSelesai = new Date();
+            targetTanggalSelesai.setDate(targetTanggalSelesai.getDate() + sisaHariDibutuhkanMicro);
+            
+            tanggalPrediksiMicro = targetTanggalSelesai.toLocaleDateString('id-ID', {
+                day: 'numeric', month: 'short', year: 'numeric'
+            });
 
-        return (
-            <AreaChart data={chartTrenData} margin={{ left: -20, right: 10, bottom: 5, top: 15 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="label" stroke="#94a3b8" fontSize={9} tickLine={false} tick={{ fontWeight: 600 }} />
-                <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} />
+            if (targetTanggalSelesai > TANGGAL_SELESAI_TREN) {
+                isTerlambatMicro = true;
+                const selisihWaktu = targetTanggalSelesai - TANGGAL_SELESAI_TREN;
+                selisihDariDeadlineMicro = Math.ceil(selisihWaktu / (1000 * 60 * 60 * 24));
+            }
+        } else if (openTargetDinamis === 0) {
+            tanggalPrediksiMicro = "SELESAI";
+            isTerlambatMicro = false;
+        } else {
+            tanggalPrediksiMicro = "STAGNAN (0 DOK/HARI)";
+            isTerlambatMicro = true;
+            selisihDariDeadlineMicro = SISA_HARI_TREN; 
+        }
 
-                {/* 🔴 BLOK AREA ARSIR MERAH: HANYA MUNCUL JIKA SWITCH PADA MODE 'TANPA DRAFT' */}
-                {!includeDraft && labelTanggalAwal && labelEmpatJuli && (
-                    <ReferenceArea
-                        x1={labelTanggalAwal}
-                        x2={labelEmpatJuli}
-                        fill="#ef4444"
-                        fillOpacity={0.07}
-                        stroke="#fca5a5"
-                        strokeDasharray="3 3"
-                        strokeWidth={1}
-                        label={{
-                            value: "⚠️ DATA KIRIM HARIAN TANPA DRAFT BELUM DIREKAM (SEBELUM 5 JULI)",
-                            position: "insideBottomLeft",
-                            offset: 15,
-                            fill: "#b91c1c",
-                            fontSize: 9,
-                            fontWeight: 900,
-                            style: { letterSpacing: '0.5px' }
-                        }}
-                    />
-                )}
+        // Terapkan hasil perhitungan khusus individu
+        finalMetrikEstimasi = {
+            tanggalPrediksi: tanggalPrediksiMicro,
+            isTerlambat: isTerlambatMicro,
+            selisihDariDeadline: selisihDariDeadlineMicro,
+            sisaHariDibutuhkan: sisaHariDibutuhkanMicro,
+            rataKirimHarian: nilaiRataRataHarian,
+            totalSisaOpenAktif: openTargetDinamis
+        };
+    }
 
-                <ReferenceLine
-                    y={targetHarianGaris}
-                    stroke="#ef4444"
-                    strokeWidth={2}
-                    strokeDasharray="4 4"
-                    className="z-40"
+    // 10. Konfigurasi Tampilan Area dan Sumbu
+    const labelTanggalAwal = chartTrenData.length > 0 ? chartTrenData[0].label : undefined;
+    const objekEmpatJuli = chartTrenData.find(d => d.tanggalRaw === "2026-07-04");
+    const labelEmpatJuli = objekEmpatJuli ? objekEmpatJuli.label : undefined;
+    
+    const batasAtasYAxis = Math.ceil(Math.max(nilaiMaksimalData, targetHarianGaris, nilaiRataRataHarian) * 1.15);
+
+    return (
+        
+
+        <AreaChart data={chartTrenData} margin={{ left: -20, right: 10, bottom: 5, top: 15 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <XAxis dataKey="label" stroke="#94a3b8" fontSize={9} tickLine={false} tick={{ fontWeight: 600 }} />
+            <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} domain={[0, batasAtasYAxis]} />
+
+            {!includeDraft && labelTanggalAwal && labelEmpatJuli && (
+                <ReferenceArea
+                    x1={labelTanggalAwal} x2={labelEmpatJuli}
+                    fill="#ef4444" fillOpacity={0.07} stroke="#fca5a5" strokeDasharray="3 3" strokeWidth={1}
                     label={{
-                        value: `⚠️ TARGET MINIMAL: +${targetHarianGaris.toLocaleString('id-ID')} DOKUMEN / HARI`,
-                        position: 'insideLeftTop',
-                        offset: 10,
-                        fill: '#b91c1c',
-                        fontSize: 10,
-                        fontWeight: 900,
-                        style: {
-                            textShadow: '2px 2px 0px #fff, -2px -2px 0px #fff, 2px -2px 0px #fff, -2px 2px 0px #fff',
-                            letterSpacing: '0.5px'
-                        }
+                        value: "⚠️ DATA KIRIM HARIAN TANPA DRAFT BELUM DIREKAM (SEBELUM 5 JULI)",
+                        position: "insideBottomLeft", offset: 15, fill: "#b91c1c", fontSize: 9, fontWeight: 900,
+                        style: { letterSpacing: '0.5px' }
                     }}
                 />
+            )}
 
-                <Tooltip
-                    shared={true}
-                    wrapperStyle={{ pointerEvents: 'auto' }}
-                    content={({ active, payload }) => {
-                        if (active && payload && payload.length) {
-                            const filteredPayload = hoveredTrend
-                                ? payload.filter(entry => entry.name === hoveredTrend)
-                                : payload;
+            <ReferenceLine
+                y={targetHarianGaris}
+                stroke="#ef4444" strokeWidth={2} strokeDasharray="4 4" className="z-40"
+                label={{
+                    value: `⚠️ TARGET MINIMAL: +${targetHarianGaris.toLocaleString('id-ID')} KIRIM / HARI`,
+                    position: 'insideLeftTop', offset: 10, fill: '#b91c1c', fontSize: 10, fontWeight: 900,
+                    style: { textShadow: '2px 2px 0px #fff, -2px -2px 0px #fff', letterSpacing: '0.5px' }
+                }}
+            />
 
-                            if (filteredPayload.length === 0) return null;
-                            const sortedPayload = [...filteredPayload].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
+            {!janganTampilkanRataRata && nilaiRataRataHarian > 0 && (
+                <ReferenceLine
+                    y={nilaiRataRataHarian}
+                    stroke="#3b82f6" strokeWidth={2} strokeDasharray="3 3" className="z-40"
+                    label={{
+                        value: `📊 RATA-RATA ${keyNamaGarisAktif.toUpperCase()}: +${nilaiRataRataHarian.toLocaleString('id-ID')} KIRIM / HARI`,
+                        position: 'insideRightTop', offset: 10, fill: '#1d4ed8', fontSize: 10, fontWeight: 900,
+                        style: { textShadow: '2px 2px 0px #fff, -2px -2px 0px #fff', letterSpacing: '0.5px' }
+                    }}
+                />
+            )}
 
-                            return (
-                                <div className="bg-slate-900 text-white p-3 rounded-xl text-[11px] font-mono shadow-xl border border-slate-800 min-w-[220px] max-w-[280px] z-50 flex flex-col select-text">
-                                    <div className="font-sans font-black border-b border-slate-700 pb-1.5 mb-2 text-slate-400 flex justify-between">
-                                        <span>Tanggal: {payload[0].payload.tanggalRaw}</span>
-                                    </div>
-                                    <div className="max-h-48 overflow-y-auto scrollbar-thin pr-1.5 flex flex-col gap-1.5">
-                                        {sortedPayload.map((entry, index) => (
-                                            <div key={index} className="flex justify-between items-center gap-4">
-                                                <span className="font-bold flex items-center gap-1.5 truncate max-w-[160px]" style={{ color: entry.color }}>
-                                                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }}></span>
-                                                    <span className="truncate uppercase">{entry.name}</span>
-                                                </span>
-                                                <strong className="text-white bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0 font-bold">
-                                                    +{entry.value.toLocaleString('id-ID')}
-                                                </strong>
-                                            </div>
-                                        ))}
-                                    </div>
+            <Tooltip
+                shared={true}
+                wrapperStyle={{ pointerEvents: 'auto' }}
+                content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                        const filteredPayload = hoveredTrend ? payload.filter(entry => entry.name === hoveredTrend) : payload;
+                        if (filteredPayload.length === 0) return null;
+                        const sortedPayload = [...filteredPayload].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
+                        return (
+                            <div className="bg-slate-900 text-white p-3 rounded-xl text-[11px] font-mono shadow-xl border border-slate-800 min-w-[220px] max-w-[280px] z-50 flex flex-col select-text">
+                                <div className="font-sans font-black border-b border-slate-700 pb-1.5 mb-2 text-slate-400 flex justify-between">
+                                    <span>Tanggal: {payload[0].payload.tanggalRaw}</span>
                                 </div>
-                            );
-                        }
-                        return null;
-                    }}
-                />
+                                <div className="max-h-48 overflow-y-auto scrollbar-thin pr-1.5 flex flex-col gap-1.5">
+                                    {sortedPayload.map((entry, index) => (
+                                        <div key={index} className="flex justify-between items-center gap-4">
+                                            <span className="font-bold flex items-center gap-1.5 truncate max-w-[160px]" style={{ color: entry.color }}>
+                                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }}></span>
+                                                <span className="truncate uppercase">{entry.name}</span>
+                                            </span>
+                                            <strong className="text-white bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0 font-bold">
+                                                +{entry.value.toLocaleString('id-ID')}
+                                            </strong>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    }
+                    return null;
+                }}
+            />
 
-                <Legend content={() => null} />
+            <Legend content={() => null} />
 
-                {trendKeys.map((keyName, index) => {
-                    const palette = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#06b6d4", "#8b5cf6", "#ec4899", "#84cc16", "#f43f5e", "#3b82f6"];
+            {trendKeys.map((keyName, index) => {
+                const palette = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#06b6d4", "#8b5cf6", "#ec4899", "#84cc16", "#f43f5e", "#3b82f6"];
+                let strokeColor = palette[index % palette.length];
+                if (keyName.includes("Dengan Draft")) strokeColor = "#3b82f6";
+                else if (keyName.includes("Tanpa Draft")) strokeColor = "#10b981";
 
-                    let strokeColor = palette[index % palette.length];
-                    if (keyName.includes("Dengan Draft")) strokeColor = "#3b82f6";
-                    else if (keyName.includes("Tanpa Draft")) strokeColor = "#10b981";
+                const isHovered = hoveredTrend === keyName;
+                const isDimmed = hoveredTrend && !isHovered;
 
-                    const isHovered = hoveredTrend === keyName;
-                    const isDimmed = hoveredTrend && !isHovered;
-
-                    return (
-                        <Area
-                            key={keyName}
-                            type="linear"
+                return (
+                    <Area
+                        key={keyName} 
+                        type="linear" 
+                        dataKey={keyName} 
+                        stroke={strokeColor}
+                        strokeWidth={isHovered ? 4 : 2} 
+                        strokeOpacity={isDimmed ? 0.08 : 1}
+                        fillOpacity={trendKeys.length > 2 ? 0 : isHovered ? 0.15 : 0.03} 
+                        fill={strokeColor}
+                        style={{ transition: 'stroke-width 0.15s, stroke-opacity 0.15s' }}
+                    >
+                        <LabelList
                             dataKey={keyName}
-                            stroke={strokeColor}
-                            strokeWidth={isHovered ? 4 : 2}
-                            strokeOpacity={isDimmed ? 0.08 : 1}
-                            fillOpacity={trendKeys.length > 2 ? 0 : isHovered ? 0.15 : 0.03}
-                            fill={strokeColor}
-                            style={{ transition: 'stroke-width 0.15s, stroke-opacity 0.15s' }}
-                        >
-                            <LabelList
-                                dataKey={keyName}
-                                content={<CustomLabelTren strokeColor={strokeColor} isDimmed={isDimmed || trendKeys.length > 2} />}
-                            />
-                        </Area>
-                    );
-                })}
-            </AreaChart>
-        );
-    }, [chartTrenData, dataMonitoringWilayah.petugas, viewModeTab, selectedKecTab, trendKeys, hoveredTrend, includeDraft]); // ✨ Pastikan includeDraft masuk dependency useMemo
-
-    // ==========================================
+                            content={<CustomLabelTren strokeColor={strokeColor} isDimmed={isDimmed} />}
+                        />
+                    </Area>
+                );
+            })}
+        </AreaChart>
+    );
+// Tambahkan 'metrikEstimasiProyek' ke dalam array ini:
+}, [chartTrenData, dataMonitoringWilayah.petugas, viewModeTab, selectedKecTab, trendKeys, hoveredTrend, includeDraft, selectedPetugasEmail, metrikEstimasiProyek]);
     // 4. ACTION FUNCTIONS (Excel Handler dll)
     // ==========================================
     // ==========================================
@@ -1490,94 +1657,94 @@ export default function DashboardMonitoring() {
     };
 
     // ⚡ TAMBAH KAN FUNGSI INI DI AREA ACTION FUNCTIONS (DI BAWAH handleDownloadSlsExcel)
-const handleExportAllSlsKabupatenExcel = () => {
-    if (!rawData || rawData.length === 0) {
-        alert("Tidak ada data mentah yang dapat diexport saat ini.");
-        return;
-    }
-
-    // 1. Urutkan rawData berdasarkan idsubsls secara ascending
-    const sortedRawData = [...rawData].sort((a, b) => {
-        const idA = a.idsubsls ? a.idsubsls.toString() : "";
-        const idB = b.idsubsls ? b.idsubsls.toString() : "";
-        return idA.localeCompare(idB, undefined, { numeric: true });
-    });
-
-    // 2. Petakan data ke format kolom yang diinginkan
-    const formattedData = sortedRawData.map((row, index) => {
-        const relMuatan = row.muatan_sls || {};
-        const relPetugas = relMuatan.petugas || {};
-        
-        const s_submitted = parseInt(row.submitted_pencacah) || 0;
-        const s_draft = parseInt(row.draft) || 0;
-        const s_rejected = parseInt(row.rejected_pengawas) || 0;
-        const s_revoked = parseInt(row.revoked_pengawas) || 0;
-        const s_approved = parseInt(row.approved_pengawas) || 0;
-        const s_edited = parseInt(row.edited_pengawas) || 0;
-        const s_edited_admin = parseInt(row.edited_admin_kabupaten) || 0;
-        const s_complete_admin = parseInt(row.complete_admin_kabupaten) || 0;
-        const s_open = parseInt(row.open) || 0;
-
-        const totalTargetMurni = parseInt(row.total) || 
-            (s_submitted + s_draft + s_rejected + s_revoked + s_approved + s_edited + s_open + s_edited_admin + s_complete_admin);
-
-        // Proteksi opsi includeDraft
-        let finalDraft = s_draft;
-        let finalOpen = s_open;
-        if (!includeDraft) {
-            finalDraft = 0;
-            finalOpen = s_open + s_draft;
+    const handleExportAllSlsKabupatenExcel = () => {
+        if (!rawData || rawData.length === 0) {
+            alert("Tidak ada data mentah yang dapat diexport saat ini.");
+            return;
         }
 
-        const totalRealisasi = Math.max(0, totalTargetMurni - finalOpen);
-        const persentaseCapaian = totalTargetMurni > 0
-            ? parseFloat(((totalRealisasi / totalTargetMurni) * 100).toFixed(2))
-            : 0.00;
+        // 1. Urutkan rawData berdasarkan idsubsls secara ascending
+        const sortedRawData = [...rawData].sort((a, b) => {
+            const idA = a.idsubsls ? a.idsubsls.toString() : "";
+            const idB = b.idsubsls ? b.idsubsls.toString() : "";
+            return idA.localeCompare(idB, undefined, { numeric: true });
+        });
 
-        // Identifikasi Nama PCL (Petugas)
-        const emailPclClean = relMuatan.petugas_id ? relMuatan.petugas_id.toLowerCase().trim() : "tanpa petugas";
-        const namaPcl = emailPclClean === "tanpa petugas" 
-            ? "Tanpa Petugas" 
-            : (staffLookup[emailPclClean] || relMuatan.petugas_id);
+        // 2. Petakan data ke format kolom yang diinginkan
+        const formattedData = sortedRawData.map((row, index) => {
+            const relMuatan = row.muatan_sls || {};
+            const relPetugas = relMuatan.petugas || {};
 
-        // Identifikasi Nama PML (Pengawas)
-        const emailPmlClean = relPetugas.id_pml_atasan ? relPetugas.id_pml_atasan.toLowerCase().trim() : "tanpa pengawas";
-        const namaPml = emailPmlClean === "tanpa pengawas" 
-            ? "Tanpa Pengawas" 
-            : (staffLookup[emailPmlClean] || relPetugas.id_pml_atasan);
+            const s_submitted = parseInt(row.submitted_pencacah) || 0;
+            const s_draft = parseInt(row.draft) || 0;
+            const s_rejected = parseInt(row.rejected_pengawas) || 0;
+            const s_revoked = parseInt(row.revoked_pengawas) || 0;
+            const s_approved = parseInt(row.approved_pengawas) || 0;
+            const s_edited = parseInt(row.edited_pengawas) || 0;
+            const s_edited_admin = parseInt(row.edited_admin_kabupaten) || 0;
+            const s_complete_admin = parseInt(row.complete_admin_kabupaten) || 0;
+            const s_open = parseInt(row.open) || 0;
 
-        // Struktur kolom baru sesuai request Anda
-        return {
-            "No": index + 1,
-            "Kecamatan": row.kecamatan || relMuatan.nmkec || "Unknown",
-            "Desa": row.nama_desa || relMuatan.nmdesa || "Unknown",
-            "Nama SLS": row.nama_rt_dusun || relMuatan.nmsls || row.idsubsls,
-            "ID SLS": row.idsubsls || "-",
-            "Nama PCL": namaPcl,
-            "Nama PML": namaPml,
-            // Kolom dokumen di bawah ini urutannya tetap sama
-            "Approved PML": s_approved,
-            "Submitted": s_submitted,
-            "Draft": finalDraft,
-            "Rejected": s_rejected,
-            "Revoked": s_revoked,
-            "Edited Pengawas": s_edited,
-            "Edited Admin Kabupaten": s_edited_admin,
-            "Complete Admin Kabupaten": s_complete_admin,
-            "Open": finalOpen,
-            "Total Target": totalTargetMurni,
-            "Total Realisasi": totalRealisasi,
-            "Persentase Capaian (%)": persentaseCapaian
-        };
-    });
+            const totalTargetMurni = parseInt(row.total) ||
+                (s_submitted + s_draft + s_rejected + s_revoked + s_approved + s_edited + s_open + s_edited_admin + s_complete_admin);
 
-    const worksheet = XLSX.utils.json_to_sheet(formattedData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Data SLS Se-Kabupaten");
+            // Proteksi opsi includeDraft
+            let finalDraft = s_draft;
+            let finalOpen = s_open;
+            if (!includeDraft) {
+                finalDraft = 0;
+                finalOpen = s_open + s_draft;
+            }
 
-    const namaFileExcel = `ALL_SLS_SORTED_KAB_BOYOLALI_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    XLSX.writeFile(workbook, namaFileExcel);
-};
+            const totalRealisasi = Math.max(0, totalTargetMurni - finalOpen);
+            const persentaseCapaian = totalTargetMurni > 0
+                ? parseFloat(((totalRealisasi / totalTargetMurni) * 100).toFixed(2))
+                : 0.00;
+
+            // Identifikasi Nama PCL (Petugas)
+            const emailPclClean = relMuatan.petugas_id ? relMuatan.petugas_id.toLowerCase().trim() : "tanpa petugas";
+            const namaPcl = emailPclClean === "tanpa petugas"
+                ? "Tanpa Petugas"
+                : (staffLookup[emailPclClean] || relMuatan.petugas_id);
+
+            // Identifikasi Nama PML (Pengawas)
+            const emailPmlClean = relPetugas.id_pml_atasan ? relPetugas.id_pml_atasan.toLowerCase().trim() : "tanpa pengawas";
+            const namaPml = emailPmlClean === "tanpa pengawas"
+                ? "Tanpa Pengawas"
+                : (staffLookup[emailPmlClean] || relPetugas.id_pml_atasan);
+
+            // Struktur kolom baru sesuai request Anda
+            return {
+                "No": index + 1,
+                "Kecamatan": row.kecamatan || relMuatan.nmkec || "Unknown",
+                "Desa": row.nama_desa || relMuatan.nmdesa || "Unknown",
+                "Nama SLS": row.nama_rt_dusun || relMuatan.nmsls || row.idsubsls,
+                "ID SLS": row.idsubsls || "-",
+                "Nama PCL": namaPcl,
+                "Nama PML": namaPml,
+                // Kolom dokumen di bawah ini urutannya tetap sama
+                "Approved PML": s_approved,
+                "Submitted": s_submitted,
+                "Draft": finalDraft,
+                "Rejected": s_rejected,
+                "Revoked": s_revoked,
+                "Edited Pengawas": s_edited,
+                "Edited Admin Kabupaten": s_edited_admin,
+                "Complete Admin Kabupaten": s_complete_admin,
+                "Open": finalOpen,
+                "Total Target": totalTargetMurni,
+                "Total Realisasi": totalRealisasi,
+                "Persentase Capaian (%)": persentaseCapaian
+            };
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(formattedData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Data SLS Se-Kabupaten");
+
+        const namaFileExcel = `ALL_SLS_SORTED_KAB_BOYOLALI_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        XLSX.writeFile(workbook, namaFileExcel);
+    };
     // ==========================================
     // 5. GAURD CLAUSE LOADING RENDER
     // ==========================================
@@ -2234,63 +2401,71 @@ const handleExportAllSlsKabupatenExcel = () => {
                             </button>
 
                             {/* 🟢 TOMBOL TAMBAHAN BARU: HANYA MUNCUL JIKA USER ADALAH ADMIN */}
-{profile?.role === 'admin' && (
-    <button
-        onClick={handleExportAllSlsKabupatenExcel}
-        className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition-all duration-150 mt-2 flex items-center justify-center gap-1.5 animate-fade-in"
-        title="Fitur Khusus Admin: Unduh seluruh data SLS se-kabupaten"
-    >
-        <span>🏢</span> Export Realisasi per SLS (Admin)
-    </button>
-)}
+                            {profile?.role === 'admin' && (
+                                <button
+                                    onClick={handleExportAllSlsKabupatenExcel}
+                                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-md transition-all duration-150 mt-2 flex items-center justify-center gap-1.5 animate-fade-in"
+                                    title="Fitur Khusus Admin: Unduh seluruh data SLS se-kabupaten"
+                                >
+                                    <span>🏢</span> Export Realisasi per SLS (Admin)
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
             </div>
 
             {/* DIAGRAM TREN TIME-SERIES DENGAN PREDICTIVE KPI */}
-            <div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
-                <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-4">
-                    <div>
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                            📈 Grafik Penambahan Kirim Assignment per Hari (2 Minggu Terakhir)
-                        </h4>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
-                            Wilayah: {selectedKecTab === "SEMUA" ? "Satu Kabupaten Boyolali" : selectedPetugasEmail ? `PCL ${selectedPetugas}` : selectedDesaCode ? `Desa ${selectedDesaName}` : `Kecamatan ${namaKecamatanTerpilihText}`}
-                        </p>
-                    </div>
+            {/* DIAGRAM TREN TIME-SERIES DENGAN PREDICTIVE KPI */}
+<div className="bg-white p-5 border border-slate-200 rounded-3xl shadow-sm">
+    <div className="mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-4">
+        <div>
+            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                📈 Grafik Penambahan Kirim Assignment per Hari (2 Minggu Terakhir)
+            </h4>
+            <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                Wilayah: {selectedKecTab === "SEMUA" ? "Satu Kabupaten Boyolali" : selectedPetugasEmail ? `PCL ${selectedPetugas}` : selectedDesaCode ? `Desa ${selectedDesaName}` : `Kecamatan ${namaKecamatanTerpilihText}`}
+            </p>
+        </div>
 
-                    <div className="flex flex-col sm:items-end justify-center select-none">
-                        <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wide">
-                            <span className="relative flex h-2 w-2">
-                                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${metrikEstimasiProyek.isTerlambat ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
-                                <span className={`relative inline-flex rounded-full h-2 w-2 ${metrikEstimasiProyek.isTerlambat ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
-                            </span>
-                            <span className={metrikEstimasiProyek.isTerlambat ? 'text-rose-600' : 'text-emerald-600'}>
-                                Perkiraan Selesai: {metrikEstimasiProyek.tanggalPrediksi}
-                            </span>
-                        </div>
+{/* 🌟 TAMPILAN HEADER YANG SUDAH DINAMIS & MEMUNCULKAN TANGGAL PETUGAS */}
+        <div className="flex flex-col sm:items-end justify-center select-none text-right">
+            <div className="flex items-center sm:justify-end gap-2 text-[11px] font-black uppercase tracking-wide">
+                <span className="relative flex h-2 w-2">
+                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${metrikEstimasiProyek.isTerlambat ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+                    <span className={`relative inline-flex rounded-full h-2 w-2 ${metrikEstimasiProyek.isTerlambat ? 'bg-rose-500' : 'bg-emerald-500'}`}></span>
+                </span>
+                <span className={metrikEstimasiProyek.isTerlambat ? 'text-rose-600' : 'text-emerald-600'}>
+                    Perkiraan Selesai: {metrikEstimasiProyek.tanggalPrediksi}
+                </span>
+            </div>
 
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
-                            {metrikEstimasiProyek.isTerlambat ? (
-                                <span className="text-rose-500/90">⚠️ Terancam Mundur ±{metrikEstimasiProyek.selisihDariDeadline} Hari Dari Target</span>
-                            ) : (
-                                <span className="text-slate-400">Status Aman ({metrikEstimasiProyek.sisaHariDibutuhkan} Hari Kerja Tersisa)</span>
-                            )}
-                        </p>
+<p className="text-[10px] font-bold uppercase mt-0.5">
+    {metrikEstimasiProyek.isTerlambat ? (
+        <span className="text-rose-500/90">
+            ⚠️ {metrikEstimasiProyek.isModeIndividu ? "Petugas" : "Wilayah"} Terancam Mundur ±{metrikEstimasiProyek.selisihDariDeadline} Hari Dari Target
+        </span>
+    ) : (
+        <span className="text-emerald-600">
+            Status Aman ({metrikEstimasiProyek.isModeIndividu ? "Estimasi Selesai dalam" : "Tersisa"} {metrikEstimasiProyek.sisaHariDibutuhkan} Hari Kerja)
+        </span>
+    )}
+</p>
 
-                        <div className="text-[9px] text-slate-400/80 font-mono mt-0.5">
-                            Laju Riil: +{metrikEstimasiProyek.rataKirimHarian.toLocaleString('id-ID')} dok/hari | Sisa: {metrikEstimasiProyek.totalSisaOpenAktif.toLocaleString('id-ID')} dok
-                        </div>
-                    </div>
-                </div>
+            <div className="text-[9px] text-slate-400/80 font-mono mt-0.5">
+                Rata-rata Kirim : +{metrikEstimasiProyek.rataKirimHarian.toLocaleString('id-ID')} kirim/hari | Sisa: {metrikEstimasiProyek.totalSisaOpenAktif.toLocaleString('id-ID')} Assignment Open
+            </div>
+        </div>
+    </div>
 
-                <div className="flex flex-col lg:flex-row gap-4 h-64 w-full">
-                    <div className="flex-1 h-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            {memoizedAreaChartElement}
-                        </ResponsiveContainer>
-                    </div>
+    <div className="flex flex-col lg:flex-row gap-4 h-64 w-full">
+        <div className="flex-1 h-full">
+            <ResponsiveContainer width="100%" height="100%">
+                {memoizedAreaChartElement}
+            </ResponsiveContainer>
+        </div>
+        
+        {/* ... Batas komponen list parameter trenKeys ke bawah tetap biarkan seperti semula ... */}
 
                     {trendKeys.length > 1 && (
                         <div className="w-full lg:w-64 h-full border border-slate-100 bg-slate-50/50 rounded-2xl p-3 flex flex-col justify-start">
