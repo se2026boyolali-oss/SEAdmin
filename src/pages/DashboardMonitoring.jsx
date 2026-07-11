@@ -1467,7 +1467,7 @@ const metrikEstimasiProyek = useMemo(() => {
                     y={nilaiRataRataHarian}
                     stroke="#3b82f6" strokeWidth={2} strokeDasharray="3 3" className="z-40"
                     label={{
-                        value: `📊 RATA-RATA ${keyNamaGarisAktif.toUpperCase()}: +${nilaiRataRataHarian.toLocaleString('id-ID')} KIRIM / HARI`,
+                        value: `📊 RATA-RATA (14 HARI) ${keyNamaGarisAktif.toUpperCase()}: +${nilaiRataRataHarian.toLocaleString('id-ID')} KIRIM / HARI`,
                         position: 'insideRightTop', offset: 10, fill: '#1d4ed8', fontSize: 10, fontWeight: 900,
                         style: { textShadow: '2px 2px 0px #fff, -2px -2px 0px #fff', letterSpacing: '0.5px' }
                     }}
@@ -2447,14 +2447,20 @@ const metrikEstimasiProyek = useMemo(() => {
         </span>
     ) : (
         <span className="text-emerald-600">
-            Status Aman ({metrikEstimasiProyek.isModeIndividu ? "Estimasi Selesai dalam" : "Tersisa"} {metrikEstimasiProyek.sisaHariDibutuhkan} Hari Kerja)
+            Status Aman ({metrikEstimasiProyek.isModeIndividu ? "Estimasi Selesai dalam" : "Estimasi Selesai dalam"} {metrikEstimasiProyek.sisaHariDibutuhkan} Hari)
         </span>
     )}
 </p>
 
-            <div className="text-[9px] text-slate-400/80 font-mono mt-0.5">
-                Rata-rata Kirim : +{metrikEstimasiProyek.rataKirimHarian.toLocaleString('id-ID')} kirim/hari | Sisa: {metrikEstimasiProyek.totalSisaOpenAktif.toLocaleString('id-ID')} Assignment Open
-            </div>
+<div className="text-[11px] text-slate-600 mt-1 flex items-center gap-x-2 tracking-wide">
+  <span>
+    Rata-rata Kirim 3 hari terakhir: <strong className="font-semibold text-slate-800">+{metrikEstimasiProyek.rataKirimHarian.toLocaleString('id-ID')}</strong> kirim/hari
+  </span>
+  <span className="text-slate-300">•</span>
+  <span>
+    Sisa Open: <strong className="font-semibold text-slate-800">{metrikEstimasiProyek.totalSisaOpenAktif.toLocaleString('id-ID')}</strong> Assignment
+  </span>
+</div>
         </div>
     </div>
 
