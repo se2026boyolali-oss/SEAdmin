@@ -32,8 +32,8 @@ const OrangPentingFormPublik = lazyWithRetry(() => import('./pages/OrangPentingF
 const StatusPage = lazyWithRetry(() => import('./pages/StatusPage'));
 
 // 🧱 Tampilan Halaman Pembatasan Akses Sementara dengan Info Tanggal Buka
+// Ganti komponen AccessRestrictedPage lama Anda di App.jsx dengan ini:
 const AccessRestrictedPage = ({ message, openedAt }) => {
-  // Fungsi untuk memformat tanggal database menjadi format lokal Indonesia yang mudah dibaca
   const formatTanggal = (isoString) => {
     if (!isoString) return null;
     try {
@@ -55,20 +55,53 @@ const AccessRestrictedPage = ({ message, openedAt }) => {
   const waktuBuka = formatTanggal(openedAt);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900 text-white p-6 text-center">
-      <div className="text-4xl mb-4 animate-pulse">⏳</div>
-      <h1 className="text-xl font-black uppercase tracking-wider text-amber-400">Akses Ditutup Sementara</h1>
-      <p className="text-sm text-slate-300 max-w-sm mt-3 font-sans leading-relaxed">
-        {message || "Halaman ini sedang dinonaktifkan sementara untuk meningkatkan kelancaran sistem. Silakan buka kembali beberapa saat lagi. Terima kasih."}
-      </p>
-      
-      {/* 📅 TAMPILAN ESTIMASI WAKTU BUKA */}
-      {waktuBuka && (
-        <div className="mt-6 p-3 bg-slate-950/80 border border-slate-800 rounded-2xl max-w-xs w-full animate-fadeIn">
-          <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest">Direncanakan Buka Kembali:</span>
-          <span className="block text-xs font-bold text-emerald-400 mt-1">{waktuBuka}</span>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-tr from-slate-950 via-slate-900 to-slate-850 p-6">
+      {/* Kartu Utama Berbasis Efek Kaca */}
+      <div className="max-w-md w-full bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] p-8 rounded-3xl shadow-2xl text-center space-y-6 animate-fadeIn">
+        
+        {/* Lingkaran Indikator */}
+        <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/20 rounded-full flex items-center justify-center mx-auto shadow-inner relative">
+          <span className="text-3xl animate-pulse">⏳</span>
+          <span className="absolute inset-0 rounded-full border border-amber-500/30 animate-ping opacity-25"></span>
         </div>
-      )}
+
+        {/* Teks Judul */}
+        <div className="space-y-2">
+          <h1 className="text-lg font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400 uppercase">
+            Akses Ditutup Sementara
+          </h1>
+          <div className="w-12 h-0.5 bg-gradient-to-r from-amber-500 to-transparent mx-auto rounded-full" />
+        </div>
+
+        {/* Isi Pesan */}
+        <p className="text-slate-300 text-sm leading-relaxed font-normal px-2">
+          {message || "Halaman ini sedang dinonaktifkan sementara untuk meningkatkan kelancaran sistem. Silakan buka kembali beberapa saat lagi."}
+        </p>
+        
+        {/* Indikator Waktu Pembukaan */}
+        {waktuBuka ? (
+          <div className="bg-slate-950/60 border border-slate-800/80 p-4 rounded-2xl transition-all">
+            <span className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">
+              Estimasi Selesai Pemeliharaan:
+            </span>
+            <span className="block text-xs font-bold text-emerald-400 mt-1.5 font-mono">
+              {waktuBuka}
+            </span>
+          </div>
+        ) : (
+          <div className="text-[10px] font-mono text-slate-500 tracking-wider">
+            ⚙️ Sistem sedang disesuaikan oleh Administrator
+          </div>
+        )}
+
+        {/* Tombol Segarkan Manual */}
+        <button 
+          onClick={() => window.location.reload()}
+          className="w-full py-2.5 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 hover:text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all active:scale-[0.98] cursor-pointer"
+        >
+          Perbarui Halaman 🔄
+        </button>
+      </div>
     </div>
   );
 };
