@@ -13,11 +13,17 @@ export const AuthProvider = ({ children }) => {
   const [allowManualMode, setAllowManualMode] = useState(false);
   const [isMaintenance, setIsMaintenance] = useState(false);
 
+  // 🛡️ STATE BARU: KONTROL AKSES GRANULAR PER ROLE DENGAN DATA ESTIMASI BUKA
+  const [accessControl, setAccessControl] = useState({
+    pcl: { status: 'allowed', openedAt: null },
+    pml: { status: 'allowed', openedAt: null },
+    pegawai: { status: 'allowed', openedAt: null }
+  });
+
   // 🔄 OPTIMASI: Menyimpan email terakhir yang sukses di-fetch agar tidak balapan
   const lastFetchedEmail = useRef(null);
 
   // ─── OPTIMASI ULTIMATE: FETCH SEMUA SETTING & PROFILE GABUNGAN ───
-// ─── OPTIMASI ULTIMATE: FETCH SEMUA SETTING & PROFILE GABUNGAN ───
   const initSessionData = async (currentUser) => {
     const email = currentUser?.email;
     const cleanEmail = email ? email.toLowerCase().trim() : null;
@@ -39,6 +45,10 @@ export const AuthProvider = ({ children }) => {
       const cachedMaint = localStorage.getItem('cache_is_maintenance');
       if (cachedMaint !== null) setIsMaintenance(JSON.parse(cachedMaint));
 
+      // 🔄 Cache Offline untuk Access Control Baru
+      const cachedAccess = localStorage.getItem('cache_access_control');
+      if (cachedAccess !== null) setAccessControl(JSON.parse(cachedAccess));
+
       if (cleanEmail) {
         const cachedProfile = localStorage.getItem(`cache_profile_${cleanEmail}`);
         if (cachedProfile) setProfile(JSON.parse(cachedProfile));
@@ -48,15 +58,18 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      // 2. TEMBAK KEYS SEKALIGUS
+      // 2. TEMBAK KEYS SEKALIGUS (Ditambahkan tabel system_access ke parallel request)
       const requests = [
         supabase.from('app_settings')
           .select('key, value_boolean')
           .in('key', ['allow_allocation_changes', 'allow_manual_upload', 'is_maintenance']),
+        
+        // 🚀 Tambahan request untuk system_access (dengan select opened_at)
+        supabase.from('system_access')
+          .select('role_name, status, opened_at')
       ];
 
       if (cleanEmail) {
-        // 🚀 SOLUSI .ilike(): Kebal terhadap perbedaan huruf besar/kecil di tabel database
         requests.push(
           supabase.from('app_users')
             .select('nama_pengguna, role, kecamatan_tugas, is_first_login')
@@ -67,7 +80,9 @@ export const AuthProvider = ({ children }) => {
 
       const responses = await Promise.all(requests);
       const settingsRes = responses[0];
-      const userRes = responses[1] || null;
+      const accessRes = responses[1];
+      // Jika user terotentikasi, profilnya ada di index ke-2
+      const userRes = cleanEmail ? responses[2] : null;
 
       // Pemrosesan Array Setting Gabungan
       if (settingsRes && settingsRes.data) {
@@ -91,12 +106,24 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
+      // 🛡️ Pemrosesan Data Hasil Pembatasan Akses Per-Role + Estimasi Tanggal Buka
+      if (accessRes && accessRes.data) {
+        const config = {};
+        accessRes.data.forEach(item => {
+          config[item.role_name] = {
+            status: item.status,
+            openedAt: item.opened_at
+          };
+        });
+        setAccessControl(config);
+        localStorage.setItem('cache_access_control', JSON.stringify(config));
+      }
+
       // Proses hasil profil user
       if (userRes && userRes.data) {
         setProfile(userRes.data);
         localStorage.setItem(`cache_profile_${cleanEmail}`, JSON.stringify(userRes.data));
       } else if (cleanEmail) {
-        // 🛡️ FAIL-SAFE: Jika akun auth Supabase ada tapi email tidak terdaftar di tabel app_users
         console.warn(`Email ${cleanEmail} tidak ditemukan di tabel app_users.`);
         setProfile(null);
       }
@@ -106,8 +133,34 @@ export const AuthProvider = ({ children }) => {
         const fallback = localStorage.getItem(`cache_profile_${cleanEmail}`);
         if (fallback) setProfile(JSON.parse(fallback));
       }
+      // Fallback cache untuk access control jika error network tengah jalan
+      const fallbackAccess = localStorage.getItem('cache_access_control');
+      if (fallbackAccess) setAccessControl(JSON.parse(fallbackAccess));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 🔄 Fungsi tambahan untuk menyegarkan data pengaturan akses secara manual (dipakai di SettingsPage nanti)
+  const refreshAccessControl = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('system_access')
+        .select('role_name, status, opened_at');
+        
+      if (!error && data) {
+        const config = {};
+        data.forEach(item => {
+          config[item.role_name] = {
+            status: item.status,
+            openedAt: item.opened_at
+          };
+        });
+        setAccessControl(config);
+        localStorage.setItem('cache_access_control', JSON.stringify(config));
+      }
+    } catch (err) {
+      console.error('Gagal refresh access control:', err);
     }
   };
 
@@ -159,7 +212,9 @@ export const AuthProvider = ({ children }) => {
       setAllowAllocation,  
       allowManualMode,      
       setAllowManualMode,
-      isMaintenance,        
+      isMaintenance, 
+      accessControl,         // 👈 Diekspos agar bisa dibaca di App.jsx
+      refreshAccessControl,  // 👈 Diekspos agar bisa dipicu ulang setelah admin melakukan update data
       logout, 
       refreshProfile 
     }}>
