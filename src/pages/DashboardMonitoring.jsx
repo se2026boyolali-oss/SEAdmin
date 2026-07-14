@@ -224,7 +224,7 @@ useEffect(() => {
                 if (syncError) throw syncError;
 
                 const serverTimestamp = syncData?.last_update || null;
-                const localTimestamp = localStorage.getItem('cache_progress_boyolali_timestamp');
+                let localTimestamp = localStorage.getItem('cache_progress_boyolali_timestamp');
 
                 // Siapkan variabel penampung data
                 let finalProgress = [];
