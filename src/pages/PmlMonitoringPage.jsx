@@ -6,10 +6,19 @@ import {
     Save, RefreshCw, Search, ChevronDown, ChevronUp,
     Navigation, Camera, WifiOff, CloudLightning, Filter, LogOut, Send, HelpCircle, ShieldAlert, Image
 } from 'lucide-react';
-
+import Dexie from 'dexie';
 // Cache global memori untuk menampung file GeoJSON kecamatan agar tidak di-fetch berulang kali
 const geojsonCache = {};
-
+const db = new Dexie("BpsPmlOfflineDB");
+// Upgrade versi ke 4 karena ada penambahan/perubahan struktur store cache
+db.version(4).stores({
+    pending_realisasi: '++id, idsubsls',
+    pending_absen_pml: '++id, tanggal, pml_email',
+    // 🎯 TARGET penyelarasan Hybrid Storage:
+    cache_muatan_sls: 'idsubsls, petugas_id', 
+    cache_progress_boyolali: 'idsubsls',
+    cache_history_progress: '++, tanggal, petugas_id'
+});
 // =========================================================================
 // ENGINE INITIALIZATION: INDEXEDDB UNTUK ANTREAN INPUT REALISASI OFFLINE PML
 // =========================================================================
@@ -302,254 +311,242 @@ export default function PmlMonitoringPage() {
     // =========================================================================
     // MANAGEMENT DATA: AMBIL DATA DARI SERVER SUPABASE / STORAGE LOKAL (OPTIMIZED)
     // =========================================================================
-    const fetchPmlData = async () => {
-        const pmlEmail = user?.email || profile?.email;
-        if (!pmlEmail) return;
+const fetchPmlData = async () => {
+    const pmlEmail = user?.email || profile?.email;
+    if (!pmlEmail) return;
 
-        if (isDataFetchedRef.current) return;
-        isDataFetchedRef.current = true;
+    if (isDataFetchedRef.current) return;
+    isDataFetchedRef.current = true;
 
-        setLoading(true);
-        const tglHariIni = getTodayDateString();
-        const cleanPmlEmail = pmlEmail.toLowerCase().trim();
+    setLoading(true);
+    const tglHariIni = getTodayDateString();
+    const cleanPmlEmail = pmlEmail.toLowerCase().trim();
 
-        const rentangTanggal = generateLast7Days();
-        setLast7Dates(rentangTanggal);
-        const tglHMinus6 = rentangTanggal[0];
+    const rentangTanggal = generateLast7Days();
+    setLast7Dates(rentangTanggal);
+    const tglHMinus6 = rentangTanggal[0];
 
-        await checkOfflineInputQueueCount();
+    await checkOfflineInputQueueCount();
 
-        // ─── OPTIMASI 1: AMBIL SAKELAR DARI GLOBAL AUTHCONTEXT (HAPUS FETCH APP_SETTINGS) ───
-        // Variabel allowManualMode kini disuplai langsung oleh useAuth() di tingkat atas halaman
+    // ─── KONDISI LURING / OFFLINE (MEMUAT DARI DEXIE MURNI) ───
+    if (!navigator.onLine) {
+        console.warn("⚠️ Mode Luring PML: Mengambil status pengawasan dari cache lokal HP.");
+        const pmlCheckInStatus = localStorage.getItem(`cache_pml_checkedin_${cleanPmlEmail}_${tglHariIni}`);
+        setPmlCheckedInToday(pmlCheckInStatus === 'true');
 
-        if (!navigator.onLine) {
-            console.warn("⚠️ Mode Luring PML: Mengambil status pengawasan dari cache lokal HP.");
-            const pmlCheckInStatus = localStorage.getItem(`cache_pml_checkedin_${cleanPmlEmail}_${tglHariIni}`);
-            setPmlCheckedInToday(pmlCheckInStatus === 'true');
+        const cachedPclList = localStorage.getItem(`cache_pml_monitoring_list_${cleanPmlEmail}`);
+        if (cachedPclList) {
+            const parsedPcls = JSON.parse(cachedPclList);
+            setPcls(parsedPcls);
+            const aktif = parsedPcls.filter(p => p.statusHariIni === 'AKTIF').length;
+            setRekapStatusTim({ aktif, absen: parsedPcls.length - aktif });
+        }
 
-            const cachedPclList = localStorage.getItem(`cache_pml_monitoring_list_${cleanPmlEmail}`);
-            if (cachedPclList) {
-                const parsedPcls = JSON.parse(cachedPclList);
-                setPcls(parsedPcls);
-                const aktif = parsedPcls.filter(p => p.statusHariIni === 'AKTIF').length;
-                setRekapStatusTim({ aktif, absen: parsedPcls.length - aktif });
-            }
+        // AMBIL HISTORI PROGRESS DARI DEXIE INDEXEDDB
+        const cachedHistory = await db.cache_history_progress.toArray();
+        setHistoryData(cachedHistory);
 
-            const cachedHistory = localStorage.getItem(`cache_pml_history_progress_${cleanPmlEmail}`);
-            if (cachedHistory) setHistoryData(JSON.parse(cachedHistory));
+        // 🎯 HYBRID OFFLINE HIT: Ambil master muatan_sls langsung dari Dexie IndexedDB
+        const cachedFlatSls = await db.cache_muatan_sls.toArray();
+        if (cachedFlatSls && cachedFlatSls.length > 0) {
+            setAllSlsFlat(cachedFlatSls);
+            setDesaList([...new Set(cachedFlatSls.map(s => s.nmdesa))]);
 
-            const cachedFlatSls = localStorage.getItem(`cache_pml_flat_sls_${cleanPmlEmail}`);
-            if (cachedFlatSls) {
-                const flatData = JSON.parse(cachedFlatSls);
-                setAllSlsFlat(flatData);
-                setDesaList([...new Set(flatData.map(s => s.nmdesa))]);
+            const initialSlsInputs = {};
+            cachedFlatSls.forEach(s => {
+                initialSlsInputs[s.idsubsls] = s.realisasi_pencacahan || 0;
+            });
+            setSlsInputs(initialSlsInputs);
+        }
 
-                const initialSlsInputs = {};
-                flatData.forEach(s => {
-                    initialSlsInputs[s.idsubsls] = s.realisasi_pencacahan || 0;
-                });
-                setSlsInputs(initialSlsInputs);
+        const cachedProgress = await db.cache_progress_boyolali.toArray();
+        setRealtimeProgressData(cachedProgress);
 
-                const cachedProgress = localStorage.getItem(`cache_pml_realtime_progress_${cleanPmlEmail}`);
-                if (cachedProgress) setRealtimeProgressData(JSON.parse(cachedProgress));
-            }
+        const cachedSyncText = localStorage.getItem(`cache_pml_last_sync_text_${cleanPmlEmail}`);
+        if (cachedSyncText) setLastSyncProgressTime(cachedSyncText);
+
+        setLoading(false);
+        return;
+    }
+
+    // ─── KONDISI DARING / ONLINE (HYBRID SMART CACHE CAUGHT) ───
+    try {
+        const { data: petugasData, error: petugasError } = await supabase
+            .from('petugas')
+            .select('email, nama_petugas, kecamatan_tugas, posisi_tugas, id_pml_atasan')
+            .eq('posisi_tugas', 'PCL')
+            .eq('id_pml_atasan', cleanPmlEmail)
+            .eq('status', 'Diterima');
+
+        if (petugasError) throw petugasError;
+        const daftarEmailBinaan = (petugasData || []).map(pcl => pcl.email.toLowerCase().trim());
+
+        if (daftarEmailBinaan.length === 0) {
+            setPcls([]);
+            setAllSlsFlat([]);
             setLoading(false);
             return;
         }
 
-        try {
-            // Fetch Awal: Dapatkan data PCL resmi di bawah naungan PML aktif
-            const { data: petugasData, error: petugasError } = await supabase
-                .from('petugas')
-                .select('email, nama_petugas, kecamatan_tugas, posisi_tugas, id_pml_atasan')
-                .eq('posisi_tugas', 'PCL')
-                .eq('id_pml_atasan', cleanPmlEmail)
-                .eq('status', 'Diterima');
+        const { data: syncStatusServer } = await supabase
+            .from('sync_status')
+            .select('last_update')
+            .eq('nama_tabel', 'progress_boyolali')
+            .maybeSingle();
 
-            if (petugasError) throw petugasError;
+        const serverTimestamp = syncStatusServer?.last_update || null;
+        let localTimestamp = localStorage.getItem(`cache_pml_progress_timestamp_${cleanPmlEmail}`);
 
-            const daftarEmailBinaan = (petugasData || []).map(pcl => pcl.email.toLowerCase().trim());
+        let finalProgress = [];
+        let finalHistory = [];
 
-            // Jika PML belum memiliki tim binaan terdaftar, hentikan proses untuk cegah eror query .in()
-            if (daftarEmailBinaan.length === 0) {
-                setPcls([]);
-                setAllSlsFlat([]);
-                setLoading(false);
-                return;
+        if (localTimestamp && serverTimestamp && localTimestamp === serverTimestamp) {
+            console.log("🚀 [PML CACHE HIT] Progres sama, memuat dari Dexie IndexedDB...");
+            finalProgress = await db.cache_progress_boyolali.toArray();
+            finalHistory = await db.cache_history_progress.toArray();
+
+            if (finalProgress.length === 0) {
+                localTimestamp = null; 
             }
+        }
 
-            // 1. Cek status check-in PML hari ini
-            const { data: pmlCheckInLog } = await supabase
-                .from('log_checkin_pml')
-                .select('id')
-                .eq('pml_email', cleanPmlEmail)
-                .eq('tanggal', tglHariIni);
-
-            const isCheckedIn = pmlCheckInLog && pmlCheckInLog.length > 0;
-            setPmlCheckedInToday(isCheckedIn);
-            localStorage.setItem(`cache_pml_checkedin_${cleanPmlEmail}_${tglHariIni}`, isCheckedIn);
-
-            // 2. Tarik tren performa historis khusus untuk anggota binaan saja
+        if (!localTimestamp || !serverTimestamp || localTimestamp !== serverTimestamp) {
+            console.log("🔄 [PML CACHE MISS] Perubahan progres terdeteksi. Mengunduh data Supabase...");
+            
             const duaMingguLalu = new Date();
             duaMingguLalu.setDate(duaMingguLalu.getDate() - 15);
             const strFilterTanggal = duaMingguLalu.toISOString().split('T')[0];
 
-            const { data: historicalLogs } = await supabase
-                .from('history_progress_petugas')
-                .select('tanggal, petugas_id, total_capaian')
-                .in('petugas_id', daftarEmailBinaan) // KUNCI 1: Khusus binaan
-                .gte('tanggal', strFilterTanggal);
+            const [progressRes, historyRes] = await Promise.all([
+                supabase.from('progress_boyolali')
+                    .select('idsubsls, total, open, draft, submitted_pencacah, approved_pengawas, rejected_pengawas, revoked_pengawas, edited_pengawas, submitted_respondent, edited_admin_kabupaten, complete_admin_kabupaten')
+                    .in('idsubsls', allSlsFlat.length > 0 ? allSlsFlat.map(s => String(s.idsubsls).trim()) : []),
+                supabase.from('history_progress_petugas')
+                    .select('tanggal, petugas_id, total_capaian')
+                    .in('petugas_id', daftarEmailBinaan)
+                    .gte('tanggal', strFilterTanggal)
+            ]);
 
-            if (historicalLogs) {
-                setHistoryData(historicalLogs);
-                localStorage.setItem(`cache_pml_history_progress_${cleanPmlEmail}`, JSON.stringify(historicalLogs));
+            finalProgress = progressRes.data || [];
+            finalHistory = historyRes.data || [];
+
+            await db.transaction('rw', [db.cache_progress_boyolali, db.cache_history_progress], async () => {
+                if (finalProgress.length > 0) {
+                    await db.cache_progress_boyolali.clear();
+                    await db.cache_progress_boyolali.bulkAdd(finalProgress);
+                }
+                await db.cache_history_progress.clear();
+                if (finalHistory.length > 0) await db.cache_history_progress.bulkAdd(finalHistory);
+            });
+
+            if (serverTimestamp) {
+                localStorage.setItem(`cache_pml_progress_timestamp_${cleanPmlEmail}`, serverTimestamp);
             }
-
-            // ─── OPTIMASI 2: LOCK LOG ABSENSI HANYA UNTUK EMAIL BINAAN TIM ───
-            const { data: rentangLogs } = await supabase
-                .from('log_checkin_pcl')
-                .select('petugas_email, tanggal, idsubsls, foto_bukti')
-                .in('petugas_email', daftarEmailBinaan) // KUNCI 2: Saring ketat di server Supabase
-                .gte('tanggal', tglHMinus6)
-                .lte('tanggal', tglHariIni)
-                .order('tanggal', { ascending: false });
-
-            // ─── OPTIMASI 3: LOCK DATA BEBAN MUATAN SLS HANYA UNTUK TIM BINAAN ───
-            const { data: masterSls } = await supabase
-                .from('muatan_sls')
-                .select('idsubsls, kdsls, nmsls, nmdesa, petugas_id, jml_muatan, realisasi_pencacahan, is_selesai')
-                .in('petugas_id', daftarEmailBinaan); // KUNCI 3: Hapus query sapu jagat seluruh kabupaten!
-
-            const allMasterSlsArray = masterSls || [];
-            const masterSlsMap = new Map(allMasterSlsArray.map(m => [String(m.idsubsls).trim(), m]));
-
-            const logsPclMap = new Map();
-            (rentangLogs || []).forEach(log => {
-                const emailKey = log.petugas_email.toLowerCase().trim();
-                if (!logsPclMap.has(emailKey)) logsPclMap.set(emailKey, []);
-                logsPclMap.get(emailKey).push(log);
-            });
-
-            // Karena data masterSls sudah dikunci di level server lewat filter .in(), array ini otomatis berisi SLS binaan riil
-            setAllSlsFlat(allMasterSlsArray);
-            setDesaList([...new Set(allMasterSlsArray.map(s => s.nmdesa))]);
-            localStorage.setItem(`cache_pml_flat_sls_${cleanPmlEmail}`, JSON.stringify(allMasterSlsArray));
-
-            if (allMasterSlsArray.length > 0) {
-                try {
-                    const idsubslsBinaanArray = allMasterSlsArray.map(s => String(s.idsubsls).trim());
-                    const { data: progressData, error: progressError } = await supabase
-                        .from('progress_boyolali')
-                        .select(`
-                            idsubsls, total, open, draft, 
-                            submitted_pencacah, approved_pengawas, rejected_pengawas, 
-                            revoked_pengawas, edited_pengawas, submitted_respondent, edited_admin_kabupaten, complete_admin_kabupaten
-                        `)
-                        .in('idsubsls', idsubslsBinaanArray);
-
-                    if (!progressError && progressData) {
-                        setRealtimeProgressData(progressData);
-                        localStorage.setItem(`cache_pml_realtime_progress_${cleanPmlEmail}`, JSON.stringify(progressData));
-
-                        try {
-                            const { data: syncData } = await supabase
-                                .from('sync_status')
-                                .select('last_update')
-                                .eq('nama_tabel', 'progress_boyolali')
-                                .single();
-
-                            if (syncData?.last_update) {
-                                const d = new Date(syncData.last_update);
-                                const pad = (num) => String(num).padStart(2, '0');
-                                const tanggalHari = pad(d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", day: "numeric" }));
-                                const bulanHari = pad(d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", month: "numeric" }));
-                                const tahunHari = d.toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", year: "numeric" });
-                                const jam = d.toLocaleTimeString("id-ID", { hour12: false, timeZone: "Asia/Jakarta" }).replace(/\./g, ':');
-                                const formatLengkap = `${tanggalHari}/${bulanHari}/${tahunHari} ${jam}`;
-
-                                setLastSyncProgressTime(formatLengkap);
-                                localStorage.setItem(`cache_pml_last_sync_text_${cleanPmlEmail}`, formatLengkap);
-                            }
-                        } catch (errSync) {
-                            console.warn("Gagal lookup timestamp sync_status:", errSync.message);
-                        }
-                    }
-                } catch (errProgress) {
-                    console.warn("Gagal otomatisasi database progress dashboard:", errProgress.message);
-                }
-            }
-
-            let countAktif = 0;
-            const combinedData = (petugasData || []).map(pcl => {
-                const cleanPclEmail = pcl.email.toLowerCase().trim();
-                const logsPcl = logsPclMap.get(cleanPclEmail) || [];
-
-                const semuaAbsenHariIni = logsPcl.filter(l => {
-                    const stringTanggalLog = l.tanggal ? l.tanggal.substring(0, 10) : "";
-                    return stringTanggalLog === tglHariIni;
-                });
-
-                const checkInHariIni = semuaAbsenHariIni.length > 0 ? semuaAbsenHariIni[0] : null;
-                const totalCheckInHariIni = semuaAbsenHariIni.length;
-                const tanggalMasukList = logsPcl.map(l => l.tanggal ? l.tanggal.substring(0, 10) : "");
-
-                if (checkInHariIni) countAktif++;
-
-                let hariTanpaKabar = 0;
-                if (!checkInHariIni) {
-                    if (logsPcl.length > 0 && logsPcl[0]?.tanggal) {
-                        const tglTerakhir = new Date(logsPcl[0].tanggal.substring(0, 10));
-                        const tglSkrg = new Date(tglHariIni);
-                        const diffTime = Math.abs(tglSkrg - tglTerakhir);
-                        hariTanpaKabar = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    } else {
-                        hariTanpaKabar = 99;
-                    }
-                }
-
-                const logTerpilih = checkInHariIni || logsPcl[0];
-                const idSlsPetugas = logTerpilih?.idsubsls;
-                const infoSlsGlobal = idSlsPetugas ? masterSlsMap.get(String(idSlsPetugas).trim()) : null;
-
-                let isLuarWilayahLast = false;
-                if (infoSlsGlobal && infoSlsGlobal.petugas_id) {
-                    if (infoSlsGlobal.petugas_id.toLowerCase().trim() !== cleanPclEmail) {
-                        isLuarWilayahLast = true;
-                    }
-                }
-
-                return {
-                    email: pcl.email,
-                    nama_pengguna: pcl.nama_petugas || 'Tanpa Nama',
-                    kecamatan_tugas: pcl.kecamatan_tugas,
-                    statusHariIni: checkInHariIni ? 'AKTIF' : 'ABSEN',
-                    lastSls: idSlsPetugas || 'Belum Masuk SLS',
-                    namaSlsLast: infoSlsGlobal?.nmsls || idSlsPetugas || 'Belum Masuk SLS',
-                    namaDesaLast: infoSlsGlobal?.nmdesa || 'Kec. Ampel',
-                    isLuarWilayahLast: isLuarWilayahLast,
-                    totalAbsenHariIni: totalCheckInHariIni,
-                    absenDays: hariTanpaKabar,
-                    history7Hari: tanggalMasukList,
-                    fotoBuktiHariIni: checkInHariIni?.foto_bukti || null
-                };
-            });
-
-            setPcls(combinedData);
-            setRekapStatusTim({ aktif: countAktif, absen: combinedData.length - countAktif });
-            localStorage.setItem(`cache_pml_monitoring_list_${cleanPmlEmail}`, JSON.stringify(combinedData));
-
-            const initialSlsInputs = {};
-            allMasterSlsArray.forEach(s => {
-                initialSlsInputs[s.idsubsls] = s.realisasi_pencacahan || 0;
-            });
-            setSlsInputs(initialSlsInputs);
-
-        } catch (globalErr) {
-            console.error("Gagal memuat data online:", globalErr.message);
-        } finally {
-            setLoading(false);
         }
-    };
+
+        setHistoryData(finalHistory);
+        setRealtimeProgressData(finalProgress);
+
+        // 3. Ambil data Check-In Hari Ini & Master Spasial Muatan SLS Tim
+        // 🌟 DI SINI: Kita menyertakan kolom 'perkiraan_jumlah_beban' ke dalam query select
+        const [pmlCheckInLog, rentangLogs, masterSls] = await Promise.all([
+            supabase.from('log_checkin_pml').select('id').eq('pml_email', cleanPmlEmail).eq('tanggal', tglHariIni),
+            supabase.from('log_checkin_pcl').select('petugas_email, tanggal, idsubsls, foto_bukti').in('petugas_email', daftarEmailBinaan).gte('tanggal', tglHMinus6).lte('tanggal', tglHariIni).order('tanggal', { ascending: false }),
+            supabase.from('muatan_sls').select('idsubsls, kdsls, nmsls, nmdesa, petugas_id, jml_muatan, realisasi_pencacahan, is_selesai, perkiraan_jumlah_beban').in('petugas_id', daftarEmailBinaan)
+        ]);
+
+        const isCheckedIn = pmlCheckInLog.data && pmlCheckInLog.data.length > 0;
+        setPmlCheckedInToday(isCheckedIn);
+        localStorage.setItem(`cache_pml_checkedin_${cleanPmlEmail}_${tglHariIni}`, isCheckedIn);
+
+        const allMasterSlsArray = masterSls.data || [];
+        const masterSlsMap = new Map(allMasterSlsArray.map(m => [String(m.idsubsls).trim(), m]));
+
+        setAllSlsFlat(allMasterSlsArray);
+        setDesaList([...new Set(allMasterSlsArray.map(s => s.nmdesa))]);
+
+        // 🎯 SMART HYBRID SYNC: Simpan/Timpa data master muatan_sls ke Dexie IndexedDB
+        if (allMasterSlsArray.length > 0) {
+            await db.cache_muatan_sls.clear();
+            await db.cache_muatan_sls.bulkAdd(allMasterSlsArray);
+        }
+
+        if (finalProgress.length === 0 && allMasterSlsArray.length > 0) {
+            const idsubslsBinaanArray = allMasterSlsArray.map(s => String(s.idsubsls).trim());
+            const { data: freshProg } = await supabase.from('progress_boyolali').select('idsubsls, total, open, draft, submitted_pencacah, approved_pengawas, rejected_pengawas, revoked_pengawas, edited_pengawas, submitted_respondent, edited_admin_kabupaten, complete_admin_kabupaten').in('idsubsls', idsubslsBinaanArray);
+            if (freshProg) {
+                finalProgress = freshProg;
+                setRealtimeProgressData(freshProg);
+                await db.cache_progress_boyolali.clear();
+                await db.cache_progress_boyolali.bulkAdd(freshProg);
+            }
+        }
+
+        if (serverTimestamp) {
+            const d = new Date(serverTimestamp);
+            const pad = (num) => String(num).padStart(2, '0');
+            const formatLengkap = `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())} WIB`;
+            setLastSyncProgressTime(formatLengkap);
+            localStorage.setItem(`cache_pml_last_sync_text_${cleanPmlEmail}`, formatLengkap);
+        }
+
+        const logsPclMap = new Map();
+        (rentangLogs.data || []).forEach(log => {
+            const emailKey = log.petugas_email.toLowerCase().trim();
+            if (!logsPclMap.has(emailKey)) logsPclMap.set(emailKey, []);
+            logsPclMap.get(emailKey).push(log);
+        });
+
+        let countAktif = 0;
+        const combinedData = (petugasData || []).map(pcl => {
+            const cleanPclEmail = pcl.email.toLowerCase().trim();
+            const logsPcl = logsPclMap.get(cleanPclEmail) || [];
+            const semuaAbsenHariIni = logsPcl.filter(l => l.tanggal && l.tanggal.substring(0, 10) === tglHariIni);
+            
+            const checkInHariIni = semuaAbsenHariIni.length > 0 ? semuaAbsenHariIni[0] : null;
+            if (checkInHariIni) countAktif++;
+
+            let hariTanpaKabar = 0;
+            if (!checkInHariIni && logsPcl.length > 0) {
+                const diffTime = Math.abs(new Date(tglHariIni) - new Date(logsPcl[0].tanggal.substring(0, 10)));
+                hariTanpaKabar = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            } else if (!checkInHariIni) {
+                hariTanpaKabar = 99;
+            }
+
+            const logTerpilih = checkInHariIni || logsPcl[0];
+            const infoSlsGlobal = logTerpilih ? masterSlsMap.get(String(logTerpilih.idsubsls).trim()) : null;
+
+            return {
+                email: pcl.email,
+                nama_pengguna: pcl.nama_petugas || 'Tanpa Nama',
+                kecamatan_tugas: pcl.kecamatan_tugas,
+                statusHariIni: checkInHariIni ? 'AKTIF' : 'ABSEN',
+                lastSls: logTerpilih?.idsubsls || 'Belum Masuk SLS',
+                namaSlsLast: infoSlsGlobal?.nmsls || logTerpilih?.idsubsls || 'Belum Masuk SLS',
+                namaDesaLast: infoSlsGlobal?.nmdesa || 'Kec. Ampel',
+                isLuarWilayahLast: infoSlsGlobal ? infoSlsGlobal.petugas_id.toLowerCase().trim() !== cleanPclEmail : false,
+                totalAbsenHariIni: semuaAbsenHariIni.length,
+                absenDays: hariTanpaKabar,
+                history7Hari: logsPcl.map(l => l.tanggal.substring(0, 10)),
+                fotoBuktiHariIni: checkInHariIni?.foto_bukti || null
+            };
+        });
+
+        setPcls(combinedData);
+        setRekapStatusTim({ aktif: countAktif, absen: combinedData.length - countAktif });
+        localStorage.setItem(`cache_pml_monitoring_list_${cleanPmlEmail}`, JSON.stringify(combinedData));
+
+        const initialSlsInputs = {};
+        allMasterSlsArray.forEach(s => { initialSlsInputs[s.idsubsls] = s.realisasi_pencacahan || 0; });
+        setSlsInputs(initialSlsInputs);
+
+    } catch (globalErr) {
+        console.error("Gagal sinkronisasi control center PML online:", globalErr.message);
+    } finally {
+        setLoading(false);
+    }
+};
 
     useEffect(() => {
         if (!authLoading) {

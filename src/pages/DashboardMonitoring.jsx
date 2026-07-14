@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { supabase } from '../supabaseClient';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
+import Dexie from 'dexie';
 // Komponen dipisah ke luar agar tidak di-recreate oleh React setiap kali hover
 // ==========================================
 // 1. TAMBAHKAN KOMPONEN INI DI PALING ATAS FILE DASBOR ANDA
@@ -193,82 +194,152 @@ const [viewSlsPercentage, setViewSlsPercentage] = useState(false);
     const namaKecamatanTerpilihText = selectedKecTab !== "SEMUA"
         ? (dataMonitoringWilayah.kecamatan.find(k => k.kodeKec === selectedKecTab)?.nama_asli || selectedKecTab)
         : "";
-
+const db = useMemo(() => {
+        const localDb = new Dexie('DashboardMonitoringCache');
+        localDb.version(1).stores({
+            progress_boyolali: 'idsubsls', // primary key
+            history_progress_petugas: '++, tanggal, petugas_id', // auto-incremented primary key + indeks
+            petugas: 'email' // primary key
+        });
+        return localDb;
+    }, []);
     // ==========================================
     // 2. DATA EFFECTS MANAGEMENT (useEffect)
     // ==========================================
-    useEffect(() => {
+useEffect(() => {
         async function loadAllDashboardData() {
-            // Jika gembok bernilai true, gagalkan eksekusi duplikat
             if (isMasterDataLoadedRef.current) return;
             isMasterDataLoadedRef.current = true;
 
             try {
                 setLoading(true);
 
-                const { data: currentProgress, error: progressError } = await supabase
-                    .from('progress_boyolali')
-                    .select(`
-                        idsubsls, kecamatan, kode_desa, nama_desa, kode_sls, nama_rt_dusun, updated_at,
-                        total, open, draft, submitted_pencacah, approved_pengawas, 
-                        rejected_pengawas, revoked_pengawas, edited_pengawas, submitted_respondent, edited_admin_kabupaten, complete_admin_kabupaten,
-                        muatan_sls (
-                            nmsls, kdkec, nmkec, kddesa, nmdesa, petugas_id,
-                            petugas (nama_petugas, posisi_tugas, id_pml_atasan, kecamatan_tugas)
-                        )
-                    `);
-                if (progressError) throw progressError;
-
-                // 🌟 OPTIMISASI SERVER-SIDE: Filter tanggal 15 hari terakhir langsung di server Supabase
-                const duaMingguLalu = new Date();
-                duaMingguLalu.setDate(duaMingguLalu.getDate() - 15);
-                const strFilterTanggal = duaMingguLalu.toISOString().split('T')[0];
-
-                // Cari blok ini di useEffect loadAllDashboardData Anda, lalu ubah select-nya menjadi:
-                const { data: historicalLogs, error: historyError } = await supabase
-                    .from('history_progress_petugas')
-                    .select('tanggal, petugas_id, total_capaian, total_capaian_tanpa_draft, kode_kec, kode_desa') // ✨ Tambahkan kolom ini
-                    .gte('tanggal', strFilterTanggal)
-                    .order('tanggal', { ascending: true });
-                if (historyError) throw historyError;
-
-                const { data: masterStaff, error: staffError } = await supabase
-                    .from('petugas')
-                    .select('email, nama_petugas');
-                if (staffError) throw staffError;
-
-                if (masterStaff) {
-                    const lookupObj = {};
-                    masterStaff.forEach(st => {
-                        lookupObj[st.email.toLowerCase().trim()] = st.nama_petugas;
-                    });
-                    setStaffLookup(lookupObj);
-                }
-
+                // 1. Ambil token/timestamp update terbaru dari Supabase (Egress super minimal)
                 const { data: syncData, error: syncError } = await supabase
                     .from('sync_status')
                     .select('last_update')
-                    .order('last_update', { ascending: false })
-                    .limit(1);
+                    .eq('nama_tabel', 'progress_boyolali') // Pastikan nama_tabel sesuai di DB Anda
+                    .maybeSingle();
+                
                 if (syncError) throw syncError;
 
-                if (syncData && syncData.length > 0 && syncData[0].last_update) {
-                    const syncTime = new Date(syncData[0].last_update);
+                const serverTimestamp = syncData?.last_update || null;
+                const localTimestamp = localStorage.getItem('cache_progress_boyolali_timestamp');
+
+                // Siapkan variabel penampung data
+                let finalProgress = [];
+                let finalHistory = [];
+                let finalPetugas = [];
+
+                // 2. LOGIKA KONDISIONAL CACHE
+                if (localTimestamp && serverTimestamp && localTimestamp === serverTimestamp) {
+                    // KONDISI A: Timestamp SAMA -> Ambil dari offline cache (0 Bytes Egress Supabase!)
+                    console.log("🚀 [CACHE HIT] Menggunakan data lokal IndexedDB...");
+                    
+                    finalProgress = await db.progress_boyolali.toArray();
+                    finalHistory = await db.history_progress_petugas.toArray();
+                    finalPetugas = await db.petugas.toArray();
+
+                    // Fallback proteksi: jika cache localStorage ada tapi IndexedDB kosong, paksa download
+                    if (finalProgress.length === 0) {
+                        console.warn("Cache terdeteksi kosong di IndexedDB, memaksa unduh ulang...");
+                        localTimestamp = null; // trigger else block di bawah
+                    }
+                }
+
+                // Jika timestamp berbeda atau data kosong, tembak data segar dari Supabase
+                if (!localTimestamp || !serverTimestamp || localTimestamp !== serverTimestamp) {
+                    console.log("🔄 [CACHE MISS] Data baru/berubah terdeteksi. Mengunduh dari Supabase...");
+
+                    // Batasan tanggal 15 hari terakhir untuk histori log
+                    const duaMingguLalu = new Date();
+                    duaMingguLalu.setDate(duaMingguLalu.getDate() - 15);
+                    const strFilterTanggal = duaMingguLalu.toISOString().split('T')[0];
+
+                    // Tarik data paralel
+                    const [progressRes, historyRes, petugasRes] = await Promise.all([
+                        supabase.from('progress_boyolali').select(`
+                            idsubsls, kecamatan, kode_desa, nama_desa, kode_sls, nama_rt_dusun, updated_at,
+                            total, open, draft, submitted_pencacah, approved_pengawas, 
+                            rejected_pengawas, revoked_pengawas, edited_pengawas, submitted_respondent, edited_admin_kabupaten, complete_admin_kabupaten,
+                            muatan_sls (
+                                nmsls, kdkec, nmkec, kddesa, nmdesa, petugas_id,
+                                petugas (nama_petugas, posisi_tugas, id_pml_atasan, kecamatan_tugas)
+                            )
+                        `),
+                        supabase.from('history_progress_petugas')
+                            .select('tanggal, petugas_id, total_capaian, total_capaian_tanpa_draft, kode_kec, kode_desa')
+                            .gte('tanggal', strFilterTanggal)
+                            .order('tanggal', { ascending: true }),
+                        supabase.from('petugas').select('email, nama_petugas')
+                    ]);
+
+                    if (progressRes.error) throw progressRes.error;
+                    if (historyRes.error) throw historyRes.error;
+                    if (petugasRes.error) throw petugasRes.error;
+
+                    finalProgress = progressRes.data || [];
+                    finalHistory = historyRes.data || [];
+                    finalPetugas = petugasRes.data || [];
+
+                    // 🏢 SIMPAN KE INDEXEDDB UNTUK KUNJUNGAN BERIKUTNYA
+                    await db.transaction('rw', [db.progress_boyolali, db.history_progress_petugas, db.petugas], async () => {
+                        await db.progress_boyolali.clear();
+                        await db.history_progress_petugas.clear();
+                        await db.petugas.clear();
+
+                        if (finalProgress.length > 0) await db.progress_boyolali.bulkAdd(finalProgress);
+                        if (finalHistory.length > 0) await db.history_progress_petugas.bulkAdd(finalHistory);
+                        if (finalPetugas.length > 0) await db.petugas.bulkAdd(finalPetugas);
+                    });
+
+                    // Simpan token timestamp terbaru ke LocalStorage
+                    if (serverTimestamp) {
+                        localStorage.setItem('cache_progress_boyolali_timestamp', serverTimestamp);
+                    }
+                }
+
+                // 3. SET METADATA WAKTU SYNC UNTUK UI BANNER (Tetap sinkron dengan DB)
+                if (serverTimestamp) {
+                    const syncTime = new Date(serverTimestamp);
                     setLastSyncedTime(syncTime.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB');
                 } else {
                     setLastSyncedTime(new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ' WIB');
                 }
 
-                setRawData(currentProgress || []);
-                setHistoryData(historicalLogs || []);
+                // 4. OPER DATA KE STATE KONTROL UTAMA
+                if (finalPetugas.length > 0) {
+                    const lookupObj = {};
+                    finalPetugas.forEach(st => {
+                        lookupObj[st.email.toLowerCase().trim()] = st.nama_petugas;
+                    });
+                    setStaffLookup(lookupObj);
+                }
+
+                setRawData(finalProgress);
+                setHistoryData(finalHistory);
+
             } catch (err) {
-                console.error("Control Center Load Error:", err.message);
+                console.error("Control Center Load Error (Mencoba fallback ke cache lokal):", err.message);
+                
+                // FALLBACK EMERGENCY: Jika koneksi internet down di tengah jalan, paksa baca data lokal seadanya
+                try {
+                    const cachedProgress = await db.progress_boyolali.toArray();
+                    const cachedHistory = await db.history_progress_petugas.toArray();
+                    if (cachedProgress.length > 0) {
+                        setRawData(cachedProgress);
+                        setHistoryData(cachedHistory);
+                        console.log("⚠️ Menggunakan fallback data offline karena galat jaringan.");
+                    }
+                } catch (dbErr) {
+                    console.error("Gagal memuat fallback database lokal:", dbErr);
+                }
             } finally {
                 setLoading(false);
             }
         }
         loadAllDashboardData();
-    }, []);
+    }, [db]); // 👈 Tambahkan db di dependency array
 
     // Effect Pengolah Agregasi Wilayah & Deteksi Petugas Bermasalah
     useEffect(() => {
@@ -1191,7 +1262,7 @@ if (viewModeTab === "PETUGAS" && itemData) {
 
                             return {
                                 jumlah: jumlahDokumen.toLocaleString('id-ID'),
-                                persen: nilaiPersentase.toFixed(2)
+                                persen: nilaiPersentase.toFixed(1)
                             };
                         };
 
@@ -1305,7 +1376,7 @@ if (viewModeTab === "PETUGAS" && itemData) {
                                 } else {
     const totalProgres = 100 - (parseFloat(rData.open) || 0);
     // 🟢 Diubah menjadi toFixed(2) agar memunculkan 2 angka di belakang koma
-    return totalProgres > 0 ? `${totalProgres.toFixed(2)}%` : "0.00%";
+    return totalProgres > 0 ? `${totalProgres.toFixed(0)}%` : "0.00%";
 }
                             }}
                         />
@@ -1380,7 +1451,7 @@ if (viewModeTab === "PETUGAS" && itemData) {
     }
 
     // 5. Hitung Target Harian Garis (Beban Individu / Sisa Hari)
-    const targetHarianGaris = parseFloat((openTargetDinamis / SISA_HARI_TREN).toFixed(1));
+    const targetHarianGaris = parseFloat((openTargetDinamis / SISA_HARI_TREN).toFixed(2));
 
     // 6. Cari Nilai Tertinggi Data Aktual Chart
     const nilaiMaksimalData = chartTrenData.reduce((max, item) => {

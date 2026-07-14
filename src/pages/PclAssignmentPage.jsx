@@ -36,7 +36,7 @@ export default function PclAssignmentPage() {
 
     // Objek Canvas tersembunyi yang persisten untuk merender watermark on-demand saat kirim absen (Hemat RAM)
     const canvasRef = useRef(null);
-    if (!canvasRef.current) {
+    if (!canvasRef.current && typeof window !== 'undefined') {
         canvasRef.current = document.createElement('canvas');
     }
 
@@ -58,7 +58,6 @@ export default function PclAssignmentPage() {
     const [currentCoords, setCurrentCoords] = useState(null);
     const [manualMode, setManualMode] = useState(false);
     const [selectedManualSls, setSelectedManualSls] = useState("");
-
     const [selectedManualDate, setSelectedManualDate] = useState("");
 
     // BLOCKER JIKA PETUGAS DI LUAR WILAYAH KECAMATAN TUGAS
@@ -205,9 +204,9 @@ export default function PclAssignmentPage() {
     }, [photoPreviewUrl]);
 
     // =========================================================================
-    // HANDLER REAKTIF KALENDER BULANAN (OPTIMASI CACHE & HEMAT EGRESS)
+    // HANDLER REAKTIF KALENDER BULANAN (OPTIMASI CACHE STALE-WHILE-REVALIDATE)
     // =========================================================================
-    const fetchHistoryForMonth = useCallback(async (targetMonth) => {
+    const fetchHistoryForMonth = useCallback(async (targetMonth, forceRefresh = false) => {
         const pclEmail = user?.email || profile?.email;
         if (!pclEmail) return;
 
@@ -215,13 +214,20 @@ export default function PclAssignmentPage() {
         const cleanEmail = pclEmail.toLowerCase().trim();
         const cacheKey = `cache_history_${cleanEmail}_${monthKey}`;
 
+        // Strategi Optimasi: Ambil dari cache lokal terlebih dahulu untuk kecepatan instan
         const cachedData = localStorage.getItem(cacheKey);
-        if (cachedData) {
+        if (cachedData && !forceRefresh) {
             setHistoryDates(JSON.parse(cachedData));
-            return;
+            
+            // Jika terhubung online dan merujuk pada bulan saat ini, perbarui data secara pasif di balik layar
+            const hariIni = new Date();
+            if (targetMonth.getFullYear() !== hariIni.getFullYear() || targetMonth.getMonth() !== hariIni.getMonth()) {
+                return; 
+            }
         }
 
         if (!navigator.onLine) {
+            if (cachedData) return;
             const oldFallbackCache = localStorage.getItem(`cache_history_dates_${cleanEmail}`);
             if (oldFallbackCache) setHistoryDates(JSON.parse(oldFallbackCache));
             return;
@@ -242,71 +248,21 @@ export default function PclAssignmentPage() {
                 const uniqueDates = [...new Set(dateLogs.map(log => log.tanggal))];
                 setHistoryDates(uniqueDates);
                 localStorage.setItem(cacheKey, JSON.stringify(uniqueDates));
+                localStorage.setItem(`cache_history_dates_${cleanEmail}`, JSON.stringify(uniqueDates));
             }
         } catch (err) {
             console.error("Gagal memuat histori bulanan:", err.message);
         }
     }, [user, profile]);
 
-    // Pemicu otomatis penarikan log histori saat panel bulan diubah ATAU saat tab digeser ke kalender (Smart Validation)
-// Pemicu otomatis penarikan log histori saat panel bulan diubah ATAU saat tab digeser ke kalender (Smart Dynamic Validation)
+    // Pemicu otomatis penarikan log histori saat bulan diubah atau tab kalender diaktifkan
     useEffect(() => {
-        const checkAndFetchHistory = async () => {
-            if (!user || authLoading) return;
-
-            const pclEmail = user?.email || profile?.email;
-            if (!pclEmail) return;
-
-            const sekarang = new Date();
-            const tahunSekarang = sekarang.getFullYear();
-            const bulanSekarang = sekarang.getMonth();
-            const tanggalHariIni = sekarang.getDate(); // Angka tanggal 1 - 31
-
-            const targetTahun = currentMonth.getFullYear();
-            const targetBulan = currentMonth.getMonth();
-
-            const monthKey = `${targetTahun}-${String(targetBulan + 1).padStart(2, '0')}`;
-            const cleanEmail = pclEmail.toLowerCase().trim();
-            const cacheKey = `cache_history_${cleanEmail}_${monthKey}`;
-            const currentCache = localStorage.getItem(cacheKey);
-
-            if (activeTab === 1 && currentCache && navigator.onLine) {
-                const parsedCache = JSON.parse(currentCache);
-
-                if (targetTahun === tahunSekarang && targetBulan === bulanSekarang) {
-                    
-                    // =========================================================================
-                    // LOGIKA AMBANG BATAS DINAMIS BERJENJANG
-                    // =========================================================================
-                    let batasToleransiMaksimal = 3; // Nilai default cadangan
-
-                    if (tanggalHariIni <= 10) {
-                        batasToleransiMaksimal = 2;
-                    } else if (tanggalHariIni <= 20) {
-                        batasToleransiMaksimal = 5;
-                    } else {
-                        batasToleransiMaksimal = 8;
-                    }
-
-                    // Hitung selisih: Tanggal hari ini dikurangi jumlah data yang ada di HP
-                    const selisihDataBolong = tanggalHariIni - parsedCache.length;
-
-                    // Jika jumlah bolongnya melebihi batas toleransi berjenjang, paksa ambil ulang dari server
-                    if (selisihDataBolong > batasToleransiMaksimal) {
-                        console.log(`Cache bolong terdeteksi (${selisihDataBolong} hari). Batas maks tgl ${tanggalHariIni}: ${batasToleransiMaksimal}. Menghapus cache dan refetch...`);
-                        localStorage.removeItem(cacheKey);
-                        await fetchHistoryForMonth(currentMonth);
-                        return;
-                    }
-                    // =========================================================================
-                }
-            }
-
-            fetchHistoryForMonth(currentMonth);
-        };
-
-        checkAndFetchHistory();
-    }, [currentMonth, user, authLoading, activeTab, fetchHistoryForMonth, profile]);
+        if (!user || authLoading) return;
+        
+        // Cukup panggil fungsinya langsung. Mekanisme internal Stale-While-Revalidate di atas
+        // yang akan mengamankan Supabase dari request berlebihan.
+        fetchHistoryForMonth(currentMonth, activeTab === 1);
+    }, [currentMonth, user, authLoading, activeTab, fetchHistoryForMonth]);
 
     // =========================================================================
     // ENGINE BYPASS UTAMA: EKSEKUSI PENGIRIMAN LOG ABSENSI
@@ -426,26 +382,8 @@ export default function PclAssignmentPage() {
             setTodayCheckIns(updatedCacheCheckins);
             localStorage.setItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`, JSON.stringify(updatedCacheCheckins));
 
-            const [tahunAbsen, bulanAbsen] = tanggalResmiServer.split("-");
-            const cacheKeyKalender = `cache_history_${cleanEmail}_${tahunAbsen}-${bulanAbsen}`;
-            const currentCache = localStorage.getItem(cacheKeyKalender);
-
-            if (currentCache) {
-                const parsedCache = JSON.parse(currentCache);
-                
-                if (parsedCache.length < 2 && manualMode) {
-                    localStorage.removeItem(cacheKeyKalender);
-                    await fetchHistoryForMonth(new Date(tanggalResmiServer));
-                } else {
-                    setHistoryDates(prev => prev.includes(tanggalResmiServer) ? prev : [...prev, tanggalResmiServer]);
-                    if (!parsedCache.includes(tanggalResmiServer)) {
-                        parsedCache.push(tanggalResmiServer);
-                        localStorage.setItem(cacheKeyKalender, JSON.stringify(parsedCache));
-                    }
-                }
-            } else {
-                await fetchHistoryForMonth(new Date(tanggalResmiServer));
-            }
+            // Paksa pembaruan data kalender bulan ini dari database pasca input sukses
+            await fetchHistoryForMonth(new Date(tanggalResmiServer), true);
 
             alert("Absensi Lapangan Sukses Disimpan!");
             resetForm();
@@ -569,10 +507,14 @@ export default function PclAssignmentPage() {
             hasFetched.current = true;
             initPclPage();
         }
+    }, [profile, authLoading, user]);
+
+    // Cleanup Object URL secara aman saat unmount komponen
+    useEffect(() => {
         return () => {
             if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
         };
-    }, [profile, authLoading, user]);
+    }, [photoPreviewUrl]);
 
     useEffect(() => {
         const handleSignalToggle = () => checkOfflineQueueCount();
@@ -596,6 +538,12 @@ export default function PclAssignmentPage() {
     const handleCapturePhoto = (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        
+        // Bersihkan memori Blob pratinjau lama sebelum me-load berkas baru
+        if (photoPreviewUrl) {
+            URL.revokeObjectURL(photoPreviewUrl);
+            setPhotoPreviewUrl(null);
+        }
         setRawPhotoFile(file);
     };
 
@@ -645,6 +593,8 @@ export default function PclAssignmentPage() {
                     }
 
                     const canvas = canvasRef.current;
+                    if (!canvas) return;
+                    
                     canvas.width = width;
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
@@ -721,7 +671,6 @@ export default function PclAssignmentPage() {
 
                     canvas.toBlob((blob) => {
                         if (blob && isSubscribed) {
-                            if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
                             const previewBlobUrl = URL.createObjectURL(blob);
                             setPhotoPreviewUrl(previewBlobUrl);
                         }
@@ -977,7 +926,7 @@ export default function PclAssignmentPage() {
 
                             <button
                                 onClick={logout}
-                                className="p-2 bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 text-rose-400 rounded-xl border border-rose-500/20 transition-all"
+                                className="p-2 bg-rose-500/10 hover:bg-rose-50/20 active:scale-95 text-rose-400 rounded-xl border border-rose-500/20 transition-all"
                                 title="Keluar Akun"
                             >
                                 <LogOut size={14} />
@@ -1078,7 +1027,7 @@ export default function PclAssignmentPage() {
                                         <span>Di Luar Wilayah Tugas</span>
                                     </div>
                                     <p className="text-[11px] text-rose-600 font-bold leading-relaxed">
-                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah to area lokasi tugas asli Anda.
+                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah ke area lokasi tugas asli Anda.
                                     </p>
                                     <button
                                         onClick={resetForm}
@@ -1155,7 +1104,7 @@ export default function PclAssignmentPage() {
                                             value={selectedManualSls}
                                             onChange={(e) => setSelectedManualSls(e.target.value)}
                                         >
-                                            <option value="">-- Pilih Wilayah SLS Tugas Anda --</option>
+                                            <option value="">-- Pilih Wilayah SLS Tugas --</option>
                                             {allMySls.map(s => (
                                                 <option key={s.idsubsls} value={s.idsubsls}>
                                                     ({s.kdsls}) {s.nmsls} - Desa {s.nmdesa}
@@ -1164,7 +1113,6 @@ export default function PclAssignmentPage() {
                                         </select>
                                     </div>
 
-                                    {/* POSISI TOMBOL MEDIA UTAMA: Berada di bawah form, kokoh dan anti-race condition */}
                                     <div>
                                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Pilih Dokumen Bukti</label>
                                         <div className="flex gap-2">
@@ -1298,7 +1246,7 @@ export default function PclAssignmentPage() {
 
                     <div className="mt-4 p-3 bg-white border border-slate-200 rounded-2xl flex items-center gap-3 text-xs">
                         <div className="h-5 w-5 bg-green-500 rounded-lg shadow-sm"></div>
-                        <span className="font-bold text-slate-600">Hari Jalan Lapangan (Ada Log Absensi Lapangan)</span>
+                        <span className="font-bold text-slate-600">Hari Jalan Lapangan (Ada Log Absensi)</span>
                     </div>
                 </div>
             </div>
