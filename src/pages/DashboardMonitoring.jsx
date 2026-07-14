@@ -157,7 +157,8 @@ export default function DashboardMonitoring() {
     const [staffLookup, setStaffLookup] = useState({});
     const [pclToPmlLookup, setPclToPmlLookup] = useState({});
     const [lastSyncedTime, setLastSyncedTime] = useState(null);
-
+// Tambahkan di bawah state includeDraft Anda
+const [viewSlsPercentage, setViewSlsPercentage] = useState(false);
     const [showKpiModal, setShowKpiModal] = useState(false);
     const [modalCurrentPage, setModalCurrentPage] = useState(1);
     const [lowPerformersList, setLowPerformersList] = useState([]);
@@ -732,9 +733,11 @@ export default function DashboardMonitoring() {
             : dataMonitoringWilayah.desa.filter(d => d.kodeKec === selectedKecTab);
     }, [viewModeTab, selectedKecTab, selectedPml, selectedPetugasEmail, selectedDesaCode, dataMonitoringWilayah]);
 
-    const isPetugasMode = viewModeTab === "PETUGAS";
-    const unitSatuanYAxis = isPetugasMode ? "" : "%";
-    const formatSuffixTooltip = isPetugasMode ? " Dokumen" : "%";
+// Cari baris ini di kode Anda dan ubah menjadi:
+const isPetugasMode = viewModeTab === "PETUGAS";
+// MODIFIKASI: Jika viewSlsPercentage aktif, unit tetap "%" meskipun di mode petugas
+const unitSatuanYAxis = (isPetugasMode && !viewSlsPercentage) ? "" : "%";
+const formatSuffixTooltip = (isPetugasMode && !viewSlsPercentage) ? " Dokumen" : "%";
 
     const TANGGAL_MULAI = new Date("2026-06-15");
     const TANGGAL_SELESAI = new Date("2026-08-31");
@@ -917,60 +920,85 @@ const metrikEstimasiProyek = useMemo(() => {
         }
     }, [profile, rawData]); // 👈 Kunci dependency
     // 2. Lakukan transformasi data barChartData berdasarkan status switch:
-    const processedBarChartData = useMemo(() => {
-        if (!barChartData) return [];
+const processedBarChartData = useMemo(() => {
+    if (!barChartData) return [];
 
-        // 1. Transformasikan data
-        let updatedData = barChartData.map(item => {
-            // Cek apakah data saat ini berada di mode persentase (Kecamatan/Desa)
-            const isPersenMode = viewModeTab !== "PETUGAS" && viewModeTab !== "SLS";
+    let updatedData = barChartData.map(item => {
+        const isPersenMode = viewModeTab !== "PETUGAS" && viewModeTab !== "SLS";
 
-            if (!includeDraft) {
-                const draftValue = parseFloat(item.draft) || 0;
-                const openValue = parseFloat(item.open) || 0;
-                const originalRealisasi = parseFloat(item.total_realisasi) || 0;
+        // 1. LOGIKA LAMA: Proteksi Switch Include Draft (Tetap Pertahankan)
+        if (!includeDraft) {
+            const draftValue = parseFloat(item.draft) || 0;
+            const openValue = parseFloat(item.open) || 0;
+            const originalRealisasi = parseFloat(item.total_realisasi) || 0;
+            const newRealisasi = Math.max(0, originalRealisasi - draftValue);
+            let newOpen = openValue + draftValue;
 
-                // Hitung sisa realisasi setelah dikurangi draft
-                const newRealisasi = Math.max(0, originalRealisasi - (isPersenMode ? draftValue : draftValue));
-
-                // Pindahkan nilai draft menjadi open
-                let newOpen = openValue + draftValue;
-
-                // 🔥 KUNCI UTAMA: Jika di mode persentase, pastikan total akumulasi tumpukan tidak over-budget dari 100%
-                if (isPersenMode) {
-                    const totalTanpaOpen = (parseFloat(item.submitted) || 0) +
-                        (parseFloat(item.rejected) || 0) +
-                        (parseFloat(item.revoked) || 0) +
-                        (parseFloat(item.approved) || 0) +
-                        (parseFloat(item.edited) || 0) +
-                        (parseFloat(item.edited_admin) || 0) +
-                        (parseFloat(item.complete_admin) || 0);
-
-                    // Open dipaksa mengisi sisa kuota persen agar total tepat 100%
-                    newOpen = Math.max(0, 100 - totalTanpaOpen);
-                }
-
-                return {
-                    ...item,
-                    draft: 0,           // Visual batang draft di-nol-kan
-                    open: newOpen,      // Nilai open menyesuaikan sisa slot persen
-                    total_realisasi: newRealisasi
-                };
+            if (isPersenMode) {
+                const totalTanpaOpen = (parseFloat(item.submitted) || 0) +
+                    (parseFloat(item.rejected) || 0) +
+                    (parseFloat(item.revoked) || 0) +
+                    (parseFloat(item.approved) || 0) +
+                    (parseFloat(item.edited) || 0) +
+                    (parseFloat(item.edited_admin) || 0) +
+                    (parseFloat(item.complete_admin) || 0);
+                newOpen = Math.max(0, 100 - totalTanpaOpen);
             }
-            return item;
-        });
 
-        // 2. KHUSUS MODE PETUGAS: Urutkan ulang berdasarkan total_realisasi terbaru secara descending
-        if (viewModeTab === "PETUGAS") {
-            updatedData = updatedData.sort((a, b) => {
-                const realisasiA = parseFloat(a.total_realisasi) || 0;
-                const realisasiB = parseFloat(b.total_realisasi) || 0;
-                return realisasiB - realisasiA;
-            });
+            item = {
+                ...item,
+                draft: 0,
+                open: newOpen,
+                total_realisasi: newRealisasi
+            };
         }
 
-        return updatedData;
-    }, [barChartData, includeDraft, viewModeTab]);
+        // 2. LOGIKA BARU: Jika Mode Petugas & Switch Persentase SLS Aktif
+        if (viewModeTab === "PETUGAS" && viewSlsPercentage) {
+            const totalSlsPetugas = parseInt(item.jml_sls) || 1;
+            const slsSelesaiMurni = parseInt(item.sls_selesai) || 0; 
+            
+            // Catatan: Di rawData Anda, SLS dikategorikan "sedang" atau "selesai" jika open < total target.
+            // Maka, SLS yang sudah disentuh/dikerjakan (ada status selain open) adalah: Total SLS - SLS Belum Mulai.
+            // Namun, jika Anda ingin menyamakan dengan definisi "SLS yang progresnya berjalan/selesai", 
+            // kita bisa menghitung SLS yang sudah selesai + SLS yang sedang berjalan.
+            // Berdasarkan baris ~247 kode Anda: fSlsBelum ditingkatkan jika s_open === totalTarget.
+            
+            // Mari kita hitung SLS yang sudah dikerjakan (Selesai + Sedang)
+            // Karena kita hanya punya data agregat `jml_sls` dan `sls_selesai` di level petugasMap,
+            // mari kita cari tahu berapa SLS yang berstatus 'belum mulai' secara presisi dari slsList:
+            const slsMilikPetugas = dataMonitoringWilayah.sls.filter(s => s.petugas_id === item.email);
+            const slsSudahDikerjakan = slsMilikPetugas.filter(s => s.open < 100).length;
+
+// Menggunakan 2 angka di belakang koma
+const persenSlsDikerjakan = parseFloat(((slsSudahDikerjakan / totalSlsPetugas) * 100).toFixed(2));
+const persenSlsOpen = parseFloat((100 - persenSlsDikerjakan).toFixed(2));
+
+            return {
+                ...item,
+                // Timpa nilai status utama menjadi persentase untuk Recharts Stacked Bar
+                // Kita masukkan nilai persentase ini ke kolom 'approved' (atau 'submitted') sebagai visual realisasi
+                approved: persenSlsDikerjakan,
+                submitted: 0, draft: 0, rejected: 0, revoked: 0, edited: 0, edited_admin: 0, complete_admin: 0,
+                open: persenSlsOpen,
+                total_realisasi: persenSlsDikerjakan // Digunakan untuk sorting descending di bawah
+            };
+        }
+
+        return item;
+    });
+
+    // 3. Sorting Descending (Tetap Pertahankan)
+    if (viewModeTab === "PETUGAS") {
+        updatedData = updatedData.sort((a, b) => {
+            const realisasiA = parseFloat(a.total_realisasi) || 0;
+            const realisasiB = parseFloat(b.total_realisasi) || 0;
+            return realisasiB - realisasiA;
+        });
+    }
+
+    return updatedData;
+}, [barChartData, includeDraft, viewModeTab, viewSlsPercentage, dataMonitoringWilayah.sls]);
     // Tambahkan useMemo baru ini di bawah processedBarChartData atau di atas baris Return JSX
     const processedPetugasData = useMemo(() => {
         // Ambil basis data petugas murni
@@ -1024,20 +1052,32 @@ const metrikEstimasiProyek = useMemo(() => {
                     let warnaTeks = "#475569";
                     let ketebalanTeks = 700;
 
-                    if (viewModeTab === "PETUGAS" && itemData) {
-                        const realisasi = itemData.total_realisasi || 0;
-                        const target = nilaiTargetYAxis || 0;
-
-                        if (realisasi < target) {
-                            if (realisasi < (target / 2)) {
-                                warnaTeks = "#ef4444";
-                                ketebalanTeks = 900;
-                            } else {
-                                warnaTeks = "#f97316";
-                                ketebalanTeks = 800;
-                            }
-                        }
-                    }
+if (viewModeTab === "PETUGAS" && itemData) {
+    const realisasi = itemData.total_realisasi || 0;
+    
+    // 🟢 KONDISI BARU: Jika sedang melihat analisis persen SLS dan di atas 40%
+    if (viewSlsPercentage) {
+        if (realisasi > 40) {
+            warnaTeks = "#16a34a"; // Hijau Emerald (Emerald 600)
+            ketebalanTeks = 900;   // Sangat tebal
+        } else {
+            warnaTeks = "#475569"; // Warna slate normal
+            ketebalanTeks = 500;   // Ketebalan normal
+        }
+    } else {
+        // Logika nominal dokumen bawaan Anda sebelumnya
+        const target = nilaiTargetYAxis || 0;
+        if (realisasi < target) {
+            if (realisasi < (target / 2)) {
+                warnaTeks = "#ef4444";
+                ketebalanTeks = 900;
+            } else {
+                warnaTeks = "#f97316";
+                ketebalanTeks = 800;
+            }
+        }
+    }
+}
 
                     return (
                         <g transform={`translate(${x},${y})`}>
@@ -1060,14 +1100,16 @@ const metrikEstimasiProyek = useMemo(() => {
                     );
                 }}
             />
-            <YAxis
-                stroke="#94a3b8"
-                fontSize={9}
-                tickLine={false}
-                unit={unitSatuanYAxis}
-                domain={isPetugasMode ? [0, 'auto'] : [0, 100]}
-                allowDataOverflow={!isPetugasMode}
-            />
+// Di dalam memoizedBarChartElement, cari YAxis dan ubah domainnya:
+<YAxis
+    stroke="#94a3b8"
+    fontSize={9}
+    tickLine={false}
+    unit={unitSatuanYAxis}
+    // MODIFIKASI DI SINI
+    domain={(isPetugasMode && !viewSlsPercentage) ? [0, 'auto'] : [0, 100]}
+    allowDataOverflow={!isPetugasMode || viewSlsPercentage}
+/>
 
             <ReferenceLine
                 y={nilaiTargetYAxis}
@@ -1149,7 +1191,7 @@ const metrikEstimasiProyek = useMemo(() => {
 
                             return {
                                 jumlah: jumlahDokumen.toLocaleString('id-ID'),
-                                persen: nilaiPersentase.toFixed(1)
+                                persen: nilaiPersentase.toFixed(2)
                             };
                         };
 
@@ -1261,9 +1303,10 @@ const metrikEstimasiProyek = useMemo(() => {
                                 if (viewModeTab === "PETUGAS") {
                                     return rData.total_realisasi > 0 ? `${rData.total_realisasi.toLocaleString('id-ID')}` : "0";
                                 } else {
-                                    const totalProgres = 100 - (parseFloat(rData.open) || 0);
-                                    return totalProgres > 0 ? `${totalProgres.toFixed(0)}%` : "0%";
-                                }
+    const totalProgres = 100 - (parseFloat(rData.open) || 0);
+    // 🟢 Diubah menjadi toFixed(2) agar memunculkan 2 angka di belakang koma
+    return totalProgres > 0 ? `${totalProgres.toFixed(2)}%` : "0.00%";
+}
                             }}
                         />
                     )}
@@ -1271,7 +1314,8 @@ const metrikEstimasiProyek = useMemo(() => {
             ))}
         </BarChart>
         // 👈 JANGAN LUPA menambahkan processedBarChartData ke dependency array di bawah ini
-    ), [processedBarChartData, viewModeTab, selectedKecTab, isPetugasMode, unitSatuanYAxis, formatSuffixTooltip, nilaiTargetYAxis, teksLabelTarget, HARI_KE]);
+    // Di paling akhir memoizedBarChartElement, ubah menjadi:
+), [processedBarChartData, viewModeTab, selectedKecTab, isPetugasMode, unitSatuanYAxis, formatSuffixTooltip, nilaiTargetYAxis, teksLabelTarget, HARI_KE, viewSlsPercentage]);
 
     // ==========================================
     // PERBAIKAN LOGIKA: GARIS RATA-RATA BERDASARKAN KLIK & HOVER
@@ -2259,54 +2303,70 @@ const metrikEstimasiProyek = useMemo(() => {
                     </div>
 
                     {/* BARIS 2: Panel Kontrol Dinamis (Switch Draft & Indikator Sumbu X) */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5">
-                        {/* Sektor Kiri: Switch Opsi Data */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Opsi Tampilan:</span>
-                            <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs h-7">
-                                <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wide">Perhitungkan Draft</span>
-                                <button
-                                    type="button"
-                                    onClick={() => setIncludeDraft(!includeDraft)}
-                                    className={`relative inline-flex h-4 w-9 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none items-center ${includeDraft ? 'bg-indigo-600 border-indigo-600' : 'bg-slate-200 border-slate-300'
-                                        }`}
-                                >
-                                    <span className={`absolute text-[6px] font-black font-sans text-white uppercase tracking-tighter transition-all ${includeDraft ? 'left-1 opacity-100' : 'left-3 opacity-0'
-                                        }`}>
-                                        YA
-                                    </span>
-                                    <span className={`absolute text-[6px] font-black font-sans text-slate-400 uppercase tracking-tighter transition-all ${includeDraft ? 'right-3 opacity-0' : 'right-1 opacity-100'
-                                        }`}>
-                                        TDK
-                                    </span>
-                                    <span
-                                        className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${includeDraft ? 'translate-x-5' : 'translate-x-0'
-                                            }`}
-                                    />
-                                </button>
-                            </div>
-                        </div>
+{/* BARIS 2: Panel Kontrol Dinamis (Switch Draft & Indikator Sumbu X) */}
+<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5">
+    
+    {/* Sektor Kiri: Wadah Utama Semua Switch Opsi Data agar Berjejer */}
+    <div className="flex flex-wrap items-center gap-3">
+        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Opsi Tampilan:</span>
+        
+        {/* 1. SWITCH DRAFT */}
+        <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs h-7">
+            <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wide">Perhitungkan Draft</span>
+            <button
+                type="button"
+                onClick={() => setIncludeDraft(!includeDraft)}
+                className={`relative inline-flex h-4 w-9 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none items-center ${
+                    includeDraft ? 'bg-indigo-600 border-indigo-600' : 'bg-slate-200 border-slate-300'
+                }`}
+            >
+                <span className={`absolute text-[6px] font-black font-sans text-white uppercase tracking-tighter transition-all ${includeDraft ? 'left-1 opacity-100' : 'left-3 opacity-0'}`}>
+                    YA
+                </span>
+                <span className={`absolute text-[6px] font-black font-sans text-slate-400 uppercase tracking-tighter transition-all ${includeDraft ? 'right-3 opacity-0' : 'right-1 opacity-100'}`}>
+                    TDK
+                </span>
+                <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${includeDraft ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+        </div>
 
-                        {/* Sektor Kanan: Indikator Kinerja Sumbu X Petugas (Hanya muncul saat mode PETUGAS) */}
-                        {viewModeTab === "PETUGAS" && (
-                            <div className="flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-wider animate-fade-in">
-                                <span className="text-slate-400 mr-1">Indikator Warna Sumbu X:</span>
-                                <div className="flex items-center gap-1 bg-slate-200/80 border border-slate-300/40 text-slate-700 px-2 py-0.5 rounded-lg font-bold">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-                                    <span>Sesuai Target</span>
-                                </div>
-                                <div className="flex items-center gap-1 bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-lg font-black">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
-                                    <span>&lt; Target</span>
-                                </div>
-                                <div className="flex items-center gap-1 bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded-lg font-black relative">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping absolute opacity-75"></span>
-                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 relative"></span>
-                                    <span>&lt; 50%</span>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+        {/* 🟢 SWITCH BARU (Dipindahkan ke dalam wadah flex agar ikut berjejer) */}
+        {viewModeTab === "PETUGAS" && (
+            <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded-xl border border-slate-200/60 shadow-2xs h-7 animate-fade-in">
+                <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wide">Lihat % SLS</span>
+                <button
+                    type="button"
+                    onClick={() => setViewSlsPercentage(!viewSlsPercentage)}
+                    className={`relative inline-flex h-4 w-9 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none items-center ${viewSlsPercentage ? 'bg-emerald-600 border-emerald-600' : 'bg-slate-200 border-slate-300'}`}
+                >
+                    <span className={`absolute text-[6px] font-black font-sans text-white uppercase tracking-tighter transition-all ${viewSlsPercentage ? 'left-1 opacity-100' : 'left-3 opacity-0'}`}>SLS</span>
+                    <span className={`absolute text-[6px] font-black font-sans text-slate-400 uppercase tracking-tighter transition-all ${viewSlsPercentage ? 'right-3 opacity-0' : 'right-1 opacity-100'}`}>DOK</span>
+                    <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${viewSlsPercentage ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+            </div>
+        )}
+    </div>
+
+    {/* Sektor Kanan: Indikator Kinerja Sumbu X Petugas (Tetap di kanan karena pembungkus utamanya 'justify-between') */}
+    {viewModeTab === "PETUGAS" && (
+        <div className="flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-wider animate-fade-in">
+            <span className="text-slate-400 mr-1">Indikator Warna Sumbu X:</span>
+            <div className="flex items-center gap-1 bg-slate-200/80 border border-slate-300/40 text-slate-700 px-2 py-0.5 rounded-lg font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                <span>Sesuai Target</span>
+            </div>
+            <div className="flex items-center gap-1 bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-lg font-black">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
+                <span>&lt; Target</span>
+            </div>
+            <div className="flex items-center gap-1 bg-red-50 text-red-700 border border-red-200 px-2 py-0.5 rounded-lg font-black relative">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping absolute opacity-75"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 relative"></span>
+                <span>&lt; 50%</span>
+            </div>
+        </div>
+    )}
+</div>
                 </div>
 
                 {/* AREA GRAFIK UTAMA & REKAP STATUS WILAYAH */}
