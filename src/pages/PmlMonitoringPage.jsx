@@ -134,16 +134,8 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
                 {/* 🎯 MODIFIKASI HANYA PADA TEKS IDENTIFIKASI TARGET */}
                 <div className="flex justify-between items-start text-[9px] font-mono font-bold text-slate-400 leading-tight">
                     <div className="flex flex-col">
-                        <span>Real: <strong className="text-slate-700 font-black">{totalRealisasi}</strong> / {totalTarget} target (Fasih)</span>
-                        <span className="text-indigo-600">Muatan Hasil Pemetaan: <strong className="font-black">{targetKuota}</strong></span>
-                    </div>
-                    <div className="flex flex-col items-end">
-                        <span className={isSelesaiOtomatis ? "text-emerald-600 font-black" : "text-amber-600 font-black"}>{persen}%</span>
-                        {totalTarget !== targetKuota && (
-                            <span className="text-[7px] text-blue-600 font-sans font-extrabold uppercase bg-blue-50 px-1 rounded border border-blue-200/40 mt-0.5">
-                                Selisih (Digunakan sebagai kontrol muatan): {totalTarget - targetKuota > 0 ? `+${totalTarget - targetKuota}` : totalTarget - targetKuota}
-                            </span>
-                        )}
+                        <span>Kirim: <strong className="text-slate-700 font-black">{totalRealisasi}</strong> / {totalTarget} target berjalan</span>
+                        <span className="text-indigo-600">Prelist Awal: <strong className="font-black">{targetKuota}</strong></span>
                     </div>
                 </div>
             </div>
