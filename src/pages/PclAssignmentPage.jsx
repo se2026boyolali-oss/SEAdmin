@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
     MapPin, Navigation, RefreshCw, CheckCircle2, ShieldAlert,
     Calendar, ChevronLeft, ChevronRight, Camera, WifiOff,
-    CloudLightning, AlertOctagon, LogOut, HelpCircle, Image, BarChart3
+    CloudLightning, AlertOctagon, LogOut, HelpCircle, Image
 } from 'lucide-react';
 
 // Cache global memori untuk menampung file GeoJSON kecamatan agar tidak di-fetch berulang kali via jaringan
@@ -52,9 +52,6 @@ export default function PclAssignmentPage() {
     const [allMySls, setAllMySls] = useState([]);
     const [todayCheckIns, setTodayCheckIns] = useState([]);
     const [historyDates, setHistoryDates] = useState([]);
-    
-    // 🎯 STATE BARU: Menampung data capaian pendataan Fasih untuk PCL
-    const [myProgressData, setMyProgressData] = useState([]);
 
     // State Hasil Deteksi Posisi GPS & Konfigurasi Fitur Admin
     const [detectedSls, setDetectedSls] = useState(null);
@@ -261,6 +258,9 @@ export default function PclAssignmentPage() {
     // Pemicu otomatis penarikan log histori saat bulan diubah atau tab kalender diaktifkan
     useEffect(() => {
         if (!user || authLoading) return;
+        
+        // Cukup panggil fungsinya langsung. Mekanisme internal Stale-While-Revalidate di atas
+        // yang akan mengamankan Supabase dari request berlebihan.
         fetchHistoryForMonth(currentMonth, activeTab === 1);
     }, [currentMonth, user, authLoading, activeTab, fetchHistoryForMonth]);
 
@@ -408,7 +408,7 @@ export default function PclAssignmentPage() {
     }, [user, profile, currentCoords, manualMode, selectedManualDate, allMySls, detectedSls, todayCheckIns, resetForm, actionLoading, fetchHistoryForMonth]);
 
     // =========================================================================
-    // INITIALIZATION UTAMA: BEBAN KERJA & DATA PROGRES FASIH PCL
+    // INITIALIZATION UTAMA: HANYA MEMUAT DATA BEBAN KERJA & HARI INI
     // =========================================================================
     const initPclPage = async () => {
         const pclEmail = user?.email || profile?.email;
@@ -428,38 +428,20 @@ export default function PclAssignmentPage() {
 
             const cachedToday = localStorage.getItem(`cache_today_checkins_${cleanEmail}_${tglHariIni}`);
             if (cachedToday) setTodayCheckIns(JSON.parse(cachedToday));
-            
-            const cachedProgress = localStorage.getItem(`cache_progress_pcl_${cleanEmail}`);
-            if (cachedProgress) setMyProgressData(JSON.parse(cachedProgress));
 
             setLoading(false);
             return;
         }
 
         try {
-            // 🌟 1. AMBIL DATA MASTER SLS (Sertakan perkiraan_jumlah_beban untuk instrumen kontrol)
             const { data: slsData } = await supabase
                 .from('muatan_sls')
-                .select('idsubsls, kdsls, nmsls, nmdesa, nmkec, perkiraan_jumlah_beban')
+                .select('idsubsls, kdsls, nmsls, nmdesa, nmkec')
                 .eq('petugas_id', cleanEmail);
 
             const currentMySls = slsData || [];
             setAllMySls(currentMySls);
             localStorage.setItem(`cache_sls_beban_${cleanEmail}`, JSON.stringify(currentMySls));
-
-            // 🌟 2. AMBIL DATA CAPAIAN PENDATAAN FASIH (progress_boyolali) UNTUK TIM INTERNAL PCL
-            if (currentMySls.length > 0) {
-                const idsubslsBeban = currentMySls.map(s => String(s.idsubsls).trim());
-                const { data: progressData } = await supabase
-                    .from('progress_boyolali')
-                    .select('idsubsls, total, draft, submitted_pencacah, submitted_respondent, approved_pengawas, edited_pengawas, rejected_pengawas, revoked_pengawas, open, edited_admin_kabupaten, complete_admin_kabupaten')
-                    .in('idsubsls', idsubslsBeban);
-                
-                if (progressData) {
-                    setMyProgressData(progressData);
-                    localStorage.setItem(`cache_progress_pcl_${cleanEmail}`, JSON.stringify(progressData));
-                }
-            }
 
             const { data: todayLogsRaw } = await supabase
                 .from('log_checkin_pcl')
@@ -556,6 +538,8 @@ export default function PclAssignmentPage() {
     const handleCapturePhoto = (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        
+        // Bersihkan memori Blob pratinjau lama sebelum me-load berkas baru
         if (photoPreviewUrl) {
             URL.revokeObjectURL(photoPreviewUrl);
             setPhotoPreviewUrl(null);
@@ -564,7 +548,7 @@ export default function PclAssignmentPage() {
     };
 
     // =========================================================================
-    // AUTOMATIC WATERMARK ENGINE RAMAH RAM
+    // AUTOMATIC WATERMARK ENGINE RAMAH RAM (OBJECT URL PREVIEW BLOB)
     // =========================================================================
     useEffect(() => {
         if (!rawPhotoFile || gpsLoading) return;
@@ -848,52 +832,6 @@ export default function PclAssignmentPage() {
         }
     };
 
-    // =========================================================================
-    // 🎯 [BARU] USEMEMO LOGIKA ENGINE AGREGASI PERFORMA DUAL TARGET UNTUK PCL
-    // =========================================================================
-    const pclKumulatifStats = useMemo(() => {
-        let totalTargetFasih = 0;
-        let totalRealisasiRiil = 0;
-        let totalMuatanPemetaan = 0;
-
-        // Hitung Target A (Fasih) & Realisasi murni dari tabel progress
-        myProgressData.forEach(match => {
-            const approved = parseInt(match.approved_pengawas) || 0;
-            const edited = parseInt(match.edited_pengawas) || 0;
-            const submitted = parseInt(match.submitted_pencacah) || 0;
-            const submitted_resp = parseInt(match.submitted_respondent) || 0;
-            const draft = parseInt(match.draft) || 0;
-            const rejected = parseInt(match.rejected_pengawas) || 0;
-            const revoked = parseInt(match.revoked_pengawas) || 0;
-            const open = parseInt(match.open) || 0;
-            const edAdmin = parseInt(match.edited_admin_kabupaten) || 0;
-            const compAdmin = parseInt(match.complete_admin_kabupaten) || 0;
-
-            const targetSls = parseInt(match.total) || (
-                approved + edited + submitted + submitted_resp + draft + rejected + revoked + open + edAdmin + compAdmin
-            );
-
-            totalTargetFasih += targetSls;
-            totalRealisasiRiil += (approved + edited + submitted + submitted_resp + rejected + revoked + edAdmin + compAdmin);
-        });
-
-        // Hitung Target B (Pemetaan) dari master tabel muatan_sls milik PCL
-        allMySls.forEach(sls => {
-            totalMuatanPemetaan += (parseInt(sls.perkiraan_jumlah_beban) || 0);
-        });
-
-        const persenFasih = totalTargetFasih > 0 ? Math.min(Math.round((totalRealisasiRiil / totalTargetFasih) * 100), 100) : 0;
-        const persenPemetaan = totalMuatanPemetaan > 0 ? Math.min(Math.round((totalRealisasiRiil / totalMuatanPemetaan) * 100), 100) : 0;
-
-        return {
-            fasihTarget: totalTargetFasih,
-            realisasi: totalRealisasiRiil,
-            pemetaanKontrol: totalMuatanPemetaan,
-            persenFasih,
-            persenPemetaan
-        };
-    }, [myProgressData, allMySls]);
-
     const calendarCells = useMemo(() => {
         const year = currentMonth.getFullYear();
         const month = currentMonth.getMonth();
@@ -1089,7 +1027,7 @@ export default function PclAssignmentPage() {
                                         <span>Di Luar Wilayah Tugas</span>
                                     </div>
                                     <p className="text-[11px] text-rose-600 font-bold leading-relaxed">
-                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah to area lokasi tugas asli Anda.
+                                        Satelit GPS mendeteksi posisi Anda berada di luar cakupan batas poligon SLS beban kerja Anda. Silakan berpindah ke area lokasi tugas asli Anda.
                                     </p>
                                     <button
                                         onClick={resetForm}
@@ -1217,51 +1155,6 @@ export default function PclAssignmentPage() {
                                     )}
                                 </div>
                             )}
-                        </div>
-
-                        {/* 🎯 [BARU] CARD RINGKASAN PROGRES DUAL TARGET UNTUK PCL */}
-                        <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3.5">
-                            <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-                                <div className="bg-slate-100 p-1.5 rounded-xl text-slate-700 shrink-0">
-                                    <BarChart3 size={14} className="text-orange-500" />
-                                </div>
-                                <div className="text-left">
-                                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">Ringkasan Progres Lapangan</span>
-                                    <span className="text-[9px] text-slate-500 font-medium">Realisasi Kirim Saat Ini (Selain Draft): <strong className="text-slate-800 font-black font-mono">{pclKumulatifStats.realisasi} Assignment</strong></span>
-                                </div>
-                            </div>
-
-                            {/* BAR 1: PROGRES FASIH */}
-                            <div className="space-y-1 text-left">
-                                <div className="flex justify-between items-center text-[9px] font-bold text-slate-500">
-                                    <span>1. Capaian Target Fasih + Tambah Assignment (Total : {pclKumulatifStats.fasihTarget})</span>
-                                    <span className="font-mono text-orange-600 font-black">{pclKumulatifStats.persenFasih}%</span>
-                                </div>
-                                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner">
-                                    <div 
-                                        className="h-full bg-orange-500 rounded-full transition-all duration-500"
-                                        style={{ width: `${pclKumulatifStats.persenFasih}%` }}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* BAR 2: INSTRUMEN KONTROL HASIL PEMETAAN */}
-                            <div className="space-y-1 text-left">
-                                <div className="flex justify-between items-center text-[9px] font-bold text-slate-500">
-                                    <span>2. Pembanding Muatan Hasil Pemetaan (Muatan : {pclKumulatifStats.pemetaanKontrol})</span>
-                                    <span className="font-mono text-indigo-600 font-black">{pclKumulatifStats.persenPemetaan}%</span>
-                                </div>
-                                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden shadow-inner">
-                                    <div 
-                                        className="h-full bg-indigo-600 rounded-full transition-all duration-500"
-                                        style={{ width: `${pclKumulatifStats.persenPemetaan}%` }}
-                                    />
-                                </div>
-                            </div>
-                            
-                            <p className="text-[8px] leading-relaxed font-medium text-slate-400 border-t border-slate-100 pt-2 text-center">
-                                *Gunakan Bar Muatan Hasil Pemetaan di atas hanya untuk kontrol/pembanding muatan bukan sebagai target.
-                            </p>
                         </div>
 
                         {/* HISTORI ABSENSI */}

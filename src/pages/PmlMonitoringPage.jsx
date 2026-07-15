@@ -72,8 +72,8 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
     // Target total diambil dari kolom 'total' (Target A - Fasih)
     const totalTarget = parseInt(matchProgress?.total) || 0;
 
-    // 🎯 TARGET B: Diambil dari kolom perkiraan_jumlah_beban di muatan_sls
-    const targetKuota = parseInt(sls.perkiraan_jumlah_beban) || 0;
+    // 🎯 TARGET B: Diambil dari kolom jml_muatan di muatan_sls
+    const targetKuota = parseInt(sls.jml_muatan) || 0;
 
     // Hitung total realisasi yang sudah dikerjakan (Semua dokumen non-OPEN)
     const totalRealisasi = approved + edited + submitted + submitted_resp + rejected + revoked;
@@ -466,7 +466,7 @@ const fetchPmlData = async () => {
         const [pmlCheckInLog, rentangLogs, masterSls] = await Promise.all([
             supabase.from('log_checkin_pml').select('id').eq('pml_email', cleanPmlEmail).eq('tanggal', tglHariIni),
             supabase.from('log_checkin_pcl').select('petugas_email, tanggal, idsubsls, foto_bukti').in('petugas_email', daftarEmailBinaan).gte('tanggal', tglHMinus6).lte('tanggal', tglHariIni).order('tanggal', { ascending: false }),
-            supabase.from('muatan_sls').select('idsubsls, kdsls, nmsls, nmdesa, petugas_id, jml_muatan, realisasi_pencacahan, is_selesai, perkiraan_jumlah_beban').in('petugas_id', daftarEmailBinaan)
+            supabase.from('muatan_sls').select('idsubsls, kdsls, nmsls, nmdesa, petugas_id, jml_muatan, realisasi_pencacahan, is_selesai, jml_muatan').in('petugas_id', daftarEmailBinaan)
         ]);
 
         const isCheckedIn = pmlCheckInLog.data && pmlCheckInLog.data.length > 0;
@@ -2046,10 +2046,7 @@ const fetchPmlData = async () => {
         <p className="font-medium text-amber-700/90">
             1. Seluruh volume capaian dokumen (*Draft, Submit, Approve, Reject*) <strong className="font-black text-green-600 bg-green-50 px-1 py-0.5 rounded">ditarik otomatis dari aplikasi Fasih</strong> secara berkala. Anda tidak perlu lagi melakukan entri data manual per SLS. Klik nama petugas untuk melihat progress per SLS.<br />
 
-            {/* 🎯 PENJELASAN PANDUAN KONTROL DUAL TARGET */}
-            2. Indikator <strong className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">Muatan Hasil Pemetaan</strong> digunakan sebagai <strong className="font-black text-green-600 bg-green-50 px-1 py-0.5 rounded">instrumen pembanding muatan</strong>, BUKAN sebagai target pencacahan.<br />
-
-            3. Tombol <strong className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">Kirim Rekap Untuk Evaluasi</strong> digunakan saat jadwal evaluasi berkala (pola 2-1-2-1) dan jadwal evaluasi lainnya untuk mengirim rekaman kendala dan solusi tim ke Kabupaten.
+            2. Tombol <strong className="font-black text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">Kirim Rekap Untuk Evaluasi</strong> digunakan saat jadwal evaluasi berkala (pola 2-1-2-1) dan jadwal evaluasi lainnya untuk mengirim rekaman kendala dan solusi tim ke Kabupaten.
         </p>
 
         {/* INDIKATOR TERAKHIR SINKRONISASI SERVER */}
@@ -2152,7 +2149,7 @@ const fetchPmlData = async () => {
     // 🎯 [BARU] 1B. HITUNG TOTAL TARGET KUOTA PRELIST DARI MUATAN_SLS (TARGET B)
     // =========================================================================
     const totalKuotaPrelistPcl = listSlsPetugas.reduce((acc, sls) => {
-        return acc + (parseInt(sls.perkiraan_jumlah_beban) || 0);
+        return acc + (parseInt(sls.jml_muatan) || 0);
     }, 0);
 
     // =========================================================================
@@ -2205,23 +2202,25 @@ return (
                             
                             {/* 🎯 MODIFIKASI SUBHEADER: Menampilkan Info Dua Target Sekaligus */}
                             <div className="text-[9px] font-bold text-slate-400 font-mono mt-0.5 space-y-0.5">
-                                <p>{listSlsPetugas.length} SLS • {totalRealisasiPcl} Kirim assignment</p>
-                                <p className="text-[8px]">
-                                    Target | Fasih: <span className="text-slate-600 font-black">{totalMuatanPcl}</span> | 
-                                    Pemetaan: <span className="text-indigo-600 font-black">{totalKuotaPrelistPcl}</span>
-                                </p>
-                            </div>
+    <p>
+        {listSlsPetugas.length} SLS • <span className="text-emerald-600 font-black">{totalRealisasiPcl}</span> Kirim assignment
+    </p>
+    <p className="text-[8px]">
+        Prelist | Berjalan: <span className="text-slate-600 font-black">{totalMuatanPcl}</span> | 
+        Awal: <span className="text-indigo-600 font-black">{totalKuotaPrelistPcl}</span>
+    </p>
+</div>
                         </div>
                     </div>
 
                     <div className="shrink-0 flex items-center gap-2">
                         <div className="flex flex-col items-end font-mono">
                             {/* Menampilkan Persentase berbasis Fasih & Kuota secara bertingkat */}
-                            <span className="text-xs font-black text-slate-700" title="Progres Fasih">
-                                {persenPcl}% <span className="text-[8px] font-bold text-slate-400">(Prelist Fasih)</span>
+                            <span className="text-[10px] font-black text-slate-700" title="Progres Fasih">
+                                {persenPcl}% <span className="text-[8px] font-bold text-slate-400">(Berjalan)</span>
                             </span>
-                            <span className="text-[10px] font-black text-indigo-600" title="Progres Kuota Prelist">
-                                {persenKuotaPcl}% <span className="text-[8px] font-bold text-indigo-400">(Muatan Pemetaan)</span>
+                            <span className="text-xs font-black text-indigo-600" title="Progres Kuota Prelist">
+                                {persenKuotaPcl}% <span className="text-[8px] font-bold text-indigo-400">(Awal)</span>
                             </span>
                         </div>
                         <div className="text-slate-400">
@@ -2234,7 +2233,7 @@ return (
                 <div className="space-y-2 pt-1">
                     {/* BAR 1: PROGRES FASIH (STALE/DYNAMIC REALTIME) */}
                     <div className="space-y-0.5">
-                        <span className="text-[7px] font-extrabold text-slate-400 uppercase tracking-wider block">1. Progress Berdasarkan Prelist Awal Fasih + Tambahan:</span>
+                        <span className="text-[7px] font-extrabold text-slate-400 uppercase tracking-wider block">1. Progress Berdasarkan Prelist Berjalan (Awal + Tambahan):</span>
                         <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex shadow-inner">
                             {persenApprove > 0 && (
                                 <div 
@@ -2269,7 +2268,7 @@ return (
                     
                     {/* BAR 2: PROGRES TARGET ABSOLUT (KUOTA PRELIST KABUPATEN) */}
                     <div className="space-y-0.5">
-                        <span className="text-[7px] font-extrabold text-indigo-400 uppercase tracking-wider block">2. Progress Berdasarkan Muatan Hasil Pemetaan (Pembanding Muatan):</span>
+                        <span className="text-[7px] font-extrabold text-indigo-400 uppercase tracking-wider block">2. Progress Berdasarkan Prelist Awal:</span>
                         <div className="w-full bg-slate-200/70 rounded-full h-1.5 overflow-hidden flex shadow-inner">
                             {/* Porsi Realisasi Riil Terhadap Kuota (Gunakan warna Indigo Khas PML) */}
                             {kalkulasiPersenKuota > 0 && (
