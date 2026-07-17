@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   RefreshCw, Search, User, ShieldAlert, Users, 
-  Building2, ChevronRight, ArrowLeft, MapPin, Briefcase 
+  Building2, ChevronRight, ArrowLeft, MapPin, Briefcase,
+  X, Upload, CheckCircle2, AlertTriangle
 } from 'lucide-react';
 import { 
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, 
   Tooltip as ChartTooltip, ResponsiveContainer, Label, 
   ReferenceLine, Cell, PieChart, Pie 
 } from 'recharts';
+import * as XLSX from 'xlsx';
 import { supabase } from '../supabaseClient';
 
 // ==========================================
@@ -22,6 +24,30 @@ const USAHA_COLORS = {
   '0. Tidak Ditemukan': '#e11d48', '1. Ditemukan': '#059669', '2. Baru': '#6366f1',
   '3. Tutup': '#d97706', '4. Ganda': '#ea580c'
 };
+
+const DB_FIELDS_KELUARGA = [
+  { key: 'nmsls', label: 'Nama SLS / Sub Satuan Lingkungan Setempat' },
+  { key: 'jml_prelist', label: 'Prelist Awal / Jml Prelist' },
+  { key: 'status_tidak_ditemukan_stop', label: '0. Tidak Ditemukan' },
+  { key: 'status_ditemukan_keluarga', label: '1. Ditemukan' },
+  { key: 'status_baru_keluarga', label: '2. Keluarga Baru' },
+  { key: 'status_meninggal', label: '3. Meninggal' },
+  { key: 'status_tidak_eligible', label: '4. Tidak Eligible (NE)' },
+  { key: 'status_tidak_dapat_ditemui', label: '5. Tidak Dapat Ditemui' },
+  { key: 'status_keluarga_khusus', label: '6. Keluarga Khusus' },
+  { key: 'jml_keluarga', label: 'Total Hasil Pendataan / Jml Keluarga' },
+];
+
+const DB_FIELDS_USAHA = [
+  { key: 'nmsls', label: 'Sub Satuan Lingkungan Setempat (Sub-SLS)' },
+  { key: 'jml_prelist', label: 'Jumlah Prelist Usaha' },
+  { key: 'bgn_ditemukan', label: '1. Ditemukan' },
+  { key: 'bgn_tutup', label: '3. Tutup' },
+  { key: 'bgn_ganda', label: '4. Ganda' },
+  { key: 'bgn_tidak_ditemukan', label: '0. Tidak Ditemukan' },
+  { key: 'bgn_baru', label: '2. Baru' },
+  { key: 'jml_bangunan', label: 'Jumlah Usaha BKU / Jml Bangunan' },
+];
 
 const processRawData = (progresData, muatanData, listPetugas) => {
   const petugasLookup = {};
@@ -81,7 +107,7 @@ const processRawData = (progresData, muatanData, listPetugas) => {
 };
 
 // ==========================================
-// 2. PRESENTATIONAL TOOLTIPS & LEGENDS
+// 2. PRESENTATIONAL COMPONENTS (TOOLTIPS & MODAL)
 // ==========================================
 const CustomTooltip = ({ active, payload }) => {
   if (active && payload && payload.length) {
@@ -95,7 +121,6 @@ const CustomTooltip = ({ active, payload }) => {
             <span>❌ Keluarga Tidak Ditemukan:</span>
             <span className="font-bold">{data.totalTidakDitemukan}</span>
           </div>
-          {/* 👇 Ganti bagian ini */}
           <div className="flex justify-between gap-4 text-amber-600">
             <span>🏠 Usaha Tdk Ditemukan + Tutup:</span>
             <span className="font-bold">{data.totalUsahaBermasalah}</span>
@@ -147,6 +172,273 @@ const RenderCustomLegend = ({ payload, colors }) => (
   </ul>
 );
 
+function ImportExcelModal({ isOpen, onClose, onRefresh }) {
+  const [dataType, setDataType] = useState('KELUARGA'); 
+  const [excelHeaders, setExcelHeaders] = useState([]);
+  const [excelRows, setExcelRows] = useState([]);
+  const [mapping, setMapping] = useState({}); 
+  const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState(null);
+
+  if (!isOpen) return null;
+
+  const currentDbFields = dataType === 'KELUARGA' ? DB_FIELDS_KELUARGA : DB_FIELDS_USAHA;
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const data = evt.target.result;
+      const workbook = XLSX.read(data, { type: 'binary' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rawJson = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      
+      if (rawJson.length > 0) {
+        let headerRowIndex = 0;
+        for (let i = 0; i < Math.min(rawJson.length, 5); i++) {
+          if (rawJson[i].includes('Kode') || rawJson[i].some(cell => String(cell).includes('Sub-SLS'))) {
+            headerRowIndex = i;
+            break;
+          }
+        }
+
+        const headers = rawJson[headerRowIndex].map(h => String(h).trim());
+        const rowsData = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex });
+
+        setExcelHeaders(headers);
+        setExcelRows(rowsData);
+        
+        const initialMapping = { level_6_full_code: headers.find(h => h.toLowerCase() === 'kode') || '' };
+        currentDbFields.forEach(field => {
+          const match = headers.find(h => h.toLowerCase().includes(field.label.toLowerCase().split('.')[0].trim()));
+          if (match) initialMapping[field.key] = match;
+        });
+        setMapping(initialMapping);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleMappingChange = (dbKey, excelHeader) => {
+    setMapping(prev => ({ ...prev, [dbKey]: excelHeader }));
+  };
+
+const handleProcessUpdate = async () => {
+    if (!mapping.level_6_full_code) {
+      alert("Kolom unik 'Kode (level_6_full_code)' wajib dipetakan!");
+      return;
+    }
+
+    setLoading(true);
+    setStatusMessage({ type: 'info', text: 'Mengecek data nama SLS yang ada di database...' });
+
+    try {
+      // 1. Ambil data nmsls yang sudah ada di DB saat ini untuk validasi "jika kosong"
+      const { data: existingDbData, error: fetchError } = await supabase
+        .from('progres_lapangan_sls')
+        .select('level_6_full_code, nmsls');
+
+      if (fetchError) throw fetchError;
+
+      // Buat lookup map untuk mempermudah pengecekan data existing di database
+      const dbLookup = {};
+      existingDbData.forEach(item => {
+        dbLookup[item.level_6_full_code.trim()] = item.nmsls;
+      });
+
+      const bulkData = [];
+      setStatusMessage({ type: 'info', text: 'Sedang menyiapkan data untuk bulk update...' });
+
+      excelRows.forEach((row) => {
+        const rawKode = String(row[mapping.level_6_full_code] || '').trim();
+        
+        // Filter: Hanya proses jika kode memiliki panjang 16 digit (Level SLS)
+        if (rawKode.length !== 16) return;
+
+        const updateRow = {
+          level_6_full_code: rawKode, // Key penanda untuk onConflict
+          updated_at: new Date().toISOString()
+        };
+
+        currentDbFields.forEach(field => {
+          const excelHeaderName = mapping[field.key];
+          if (excelHeaderName !== undefined && excelHeaderName !== '') {
+            const cellValue = row[excelHeaderName];
+
+            // 📑 PENANGANAN KHUSUS UNTUK NAMA SLS (TEKS STRING)
+            if (field.key === 'nmsls') {
+              const currentDbNmsls = dbLookup[rawKode];
+              
+              // Cek apakah nmsls di DB saat ini KOSONG (null, undefined, atau string kosong '')
+              const isDbNmslsEmpty = !currentDbNmsls || String(currentDbNmsls).trim() === '';
+
+              if (isDbNmslsEmpty && cellValue !== undefined && cellValue !== null) {
+                // HANYA UPDATE jika di DB kosong dan di Excel ada isinya
+                updateRow[field.key] = String(cellValue).trim();
+              } else {
+                // Jika di DB sudah ada isinya, pertahankan data DB (jangan kirim field nmsls agar tidak tertimpa)
+                updateRow[field.key] = currentDbNmsls;
+              }
+              return; // Selesai untuk field nmsls, lanjut ke field angka berikutnya
+            }
+
+            // 🔢 PENANGANAN UNTUK FIELD ANGKA (NUMERIK)
+            if (typeof cellValue === 'number') {
+              updateRow[field.key] = cellValue;
+            } else if (cellValue !== undefined && cellValue !== null && cellValue !== '') {
+              let valStr = String(cellValue).replace(/\./g, '').replace(/,/g, '.');
+              let valNum = parseFloat(valStr);
+              updateRow[field.key] = isNaN(valNum) ? 0 : valNum;
+            } else {
+              updateRow[field.key] = 0;
+            }
+          }
+        });
+
+        bulkData.push(updateRow);
+      });
+
+      if (bulkData.length === 0) {
+        throw new Error("Tidak ada data valid dengan kode SLS 16-digit yang ditemukan.");
+      }
+
+      setStatusMessage({ type: 'info', text: `Mengirim ${bulkData.length} data sekaligus ke Supabase...` });
+
+      // 2. Eksekusi menggunakan UPSERT secara massal (Solusi 1)
+      const { error } = await supabase
+        .from('progres_lapangan_sls')
+        .upsert(bulkData, { onConflict: 'level_6_full_code' });
+
+      if (error) throw error;
+
+      setStatusMessage({ 
+        type: 'success', 
+        text: `Berhasil memperbarui ${bulkData.length} wilayah SLS data ${dataType.toLowerCase()} secara massal!` 
+      });
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error(err);
+      setStatusMessage({ type: 'error', text: `Gagal memperbarui database: ${err.message}` });
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+          <div>
+            <h3 className="text-sm font-black uppercase text-slate-800 tracking-wider">🔄 Import & Update Data via Excel</h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">Sesuaikan kolom Excel dengan field database target.</p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded-lg text-slate-400 transition">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 flex-1 overflow-y-auto space-y-4">
+          <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
+            <button 
+              onClick={() => { setDataType('KELUARGA'); setExcelHeaders([]); setExcelRows([]); setStatusMessage(null); }}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${dataType === 'KELUARGA' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+            >
+              👨‍👩‍👧‍👦 Data Hasil Keluarga
+            </button>
+            <button 
+              onClick={() => { setDataType('USAHA'); setExcelHeaders([]); setExcelRows([]); setStatusMessage(null); }}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${dataType === 'USAHA' ? 'bg-white text-amber-600 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+            >
+              🏢 Data Hasil Usaha
+            </button>
+          </div>
+
+          <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center hover:bg-slate-50/50 transition relative">
+            <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+            <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+            <span className="text-xs font-bold text-slate-700 block">Pilih File Excel {dataType === 'KELUARGA' ? 'Keluarga' : 'Usaha'}</span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">Format file .xlsx atau .xls standar</span>
+          </div>
+
+          {excelHeaders.length > 0 && (
+            <div className="space-y-3">
+              <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3 text-[11px] text-indigo-800 font-medium">
+                💡 <strong>Sistem Mendeteksi:</strong> {excelRows.length} baris di dalam file. Silakan tentukan pemetaan kolom unik & isian data di bawah ini:
+              </div>
+
+              <div className="border border-slate-100 rounded-xl overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-100">
+                    <tr>
+                      <th className="py-2.5 px-3">Field Database Target</th>
+                      <th className="py-2.5 px-3">Nama Kolom di Excel Anda</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 font-medium text-slate-700">
+                    <tr className="bg-rose-50/30">
+                      <td className="py-2 px-3 font-bold text-rose-700">Kode SLS (16-Digit) <span className="text-red-500">*wajib</span></td>
+                      <td className="py-2 px-3">
+                        <select 
+                          value={mapping['level_6_full_code'] || ''} 
+                          onChange={(e) => handleMappingChange('level_6_full_code', e.target.value)}
+                          className="w-full bg-white border border-rose-200 rounded-lg p-1 text-xs focus:outline-none"
+                        >
+                          <option value="">-- Pilih Kolom Kode --</option>
+                          {excelHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                    {currentDbFields.map(field => (
+                      <tr key={field.key}>
+                        <td className="py-2 px-3 text-slate-600">{field.label}</td>
+                        <td className="py-2 px-3">
+                          <select 
+                            value={mapping[field.key] || ''} 
+                            onChange={(e) => handleMappingChange(field.key, e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg p-1 text-xs focus:outline-none"
+                          >
+                            <option value="">-- Abaikan (Jangan Update) --</option>
+                            {excelHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {statusMessage && (
+            <div className={`p-3 rounded-xl text-xs flex items-start gap-2 border ${
+              statusMessage.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' :
+              statusMessage.type === 'error' ? 'bg-red-50 border-red-100 text-red-800' : 'bg-blue-50 border-blue-100 text-blue-800'
+            }`}>
+              {statusMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />}
+              <div>{statusMessage.text}</div>
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+          <button onClick={onClose} disabled={loading} className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-600 transition">
+            Batal
+          </button>
+          <button 
+            onClick={handleProcessUpdate} 
+            disabled={loading || excelRows.length === 0} 
+            className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-40"
+          >
+            {loading ? 'Memproses...' : 'Mulai Jalankan Update'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ==========================================
 // 3. MAIN APP PANEL COMPONENT
 // ==========================================
@@ -162,6 +454,7 @@ export default function StatusPage() {
 
   // Drill-Down Level khusus untuk tampilan Struktur Tabel Wilayah
   const [drillLevel, setDrillLevel] = useState("KECAMATAN"); 
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -210,7 +503,6 @@ export default function StatusPage() {
   // Jika data terfilter berubah, pastikan target investigasi terbawah disesuaikan otomatis ke orang pertama yang relevan
   useEffect(() => {
     if (filteredPclData.length > 0) {
-      // Pertahankan terpilih jika masih ada di list baru, jika tidak ada, reset ke yang paling atas
       const masihAda = filteredPclData.some(p => p.email === selectedAuditPcl?.email);
       if (!masihAda) {
         setSelectedAuditPcl(filteredPclData[0]);
@@ -218,7 +510,7 @@ export default function StatusPage() {
     } else {
       setSelectedAuditPcl(null);
     }
-  }, [filteredPclData]);
+  }, [filteredPclData, selectedAuditPcl]);
 
   // Macro Metrics Memo (Otomatis ter-filter!)
   const pieChartsData = useMemo(() => {
@@ -272,7 +564,6 @@ export default function StatusPage() {
     } 
     else if (drillLevel === "PML") {
       const mapPml = {};
-      // Disaring berdasarkan Kecamatan aktif yang dipilih via baris tabel
       allPclData.filter(p => p.nmkec === selectedKecamatan).forEach(pcl => {
         if (!mapPml[pcl.namaPml]) mapPml[pcl.namaPml] = { id: pcl.namaPml, label: pcl.namaPml, type: 'PML Pengawas', ...initZero() };
         pcl.semuaSls.forEach(s => addSlsToAcc(mapPml[pcl.namaPml], s));
@@ -280,7 +571,6 @@ export default function StatusPage() {
       rowsRaw = Object.values(mapPml).sort((a, b) => a.label.localeCompare(b.label));
     }
     else if (drillLevel === "PCL") {
-      // Disaring berdasarkan Kecamatan dan PML aktif yang dipilih via baris tabel
       rowsRaw = allPclData
         .filter(p => p.nmkec === selectedKecamatan && p.namaPml === selectedPml)
         .map(pcl => {
@@ -327,7 +617,6 @@ export default function StatusPage() {
     });
   }, [selectedAuditPcl]);
 
-  // Fungsi pembantu tombol Back pada Tabel
   const handleBackTable = () => {
     if (drillLevel === "PCL") {
       setDrillLevel("PML");
@@ -338,7 +627,6 @@ export default function StatusPage() {
     }
   };
 
-  // Fungsi reset filter ke mode Kabupaten penuh
   const handleResetFilters = () => {
     setSelectedKecamatan("ALL");
     setSelectedPml("ALL");
@@ -363,6 +651,12 @@ export default function StatusPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setIsImportModalOpen(true)} 
+            className="px-4 py-2.5 bg-indigo-650 hover:bg-indigo-700 bg-indigo-600 rounded-xl text-xs font-bold text-white transition flex items-center shadow-xs gap-1.5"
+          >
+            <Upload className="w-3.5 h-3.5" /> Import Data Excel
+          </button>
           {(selectedKecamatan !== "ALL" || selectedPml !== "ALL") && (
             <button onClick={handleResetFilters} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition">
               Reset Filter Global
@@ -589,7 +883,7 @@ export default function StatusPage() {
                     <th rowSpan={2} className="py-3 px-4 text-left text-[11px] font-black text-slate-800 min-w-[280px] bg-slate-50 sticky left-0 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.02)] border-r border-slate-200">Nama SLS / ID Wilayah</th>
                     <th colSpan={2} className="py-1.5 px-2 border-r border-slate-150 bg-slate-100/60 text-slate-700 font-black">🎯 Target Sistem</th>
                     <th colSpan={8} className="py-1.5 px-2 border-r border-slate-150 bg-red-50/40 text-red-700 font-black">👨‍👩‍👧‍👦 Detail Hasil Lapangan (Keluarga)</th>
-                    <th colSpan={6} className="py-1.5 px-2 border-r border-slate-150 bg-amber-50/40 text-amber-700 font-black">🏠 Detail Kondisi Bangunan Riel</th>
+                    <th colSpan={6} className="py-1.5 px-2 border-r border-slate-150 bg-amber-50/40 text-amber-700 font-black">🏠 Detail Hasil Lapangan (Usaha)</th>
                     <th colSpan={2} className="py-1.5 px-2 bg-indigo-50/60 text-indigo-800 font-black">📈 Rasio Pembanding (%)</th>
                   </tr>
                   <tr className="bg-slate-50/30 divide-x divide-slate-100 border-b border-slate-150 text-[9px]">
@@ -613,39 +907,62 @@ export default function StatusPage() {
                     <th className="py-2.5 px-2 text-center text-indigo-700 font-black">Rasio Prelist</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-medium font-mono text-[11px] text-slate-600">
-                  {selectedAuditPcl.semuaSls.map((sls) => {
-                    const isHighAnomali = sls.status_tidak_ditemukan_stop > 15 || sls.bgn_tutup > 15;
-                    return (
-                      <tr key={sls.kode} className={`hover:bg-slate-50/60 transition-colors divide-x divide-slate-100/60 ${isHighAnomali ? 'bg-red-50/10' : ''}`}>
-                        <td className="py-2.5 px-4 font-sans text-left bg-white sticky left-0 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.01)] border-r border-slate-200">
-                          <div className="font-bold text-slate-800 text-xs">{sls.nama}</div>
-                          <div className="text-[10px] text-slate-400 font-bold mt-0.5">Desa {sls.desa} — <span className="font-mono text-[9px] text-slate-450">{sls.kode}</span></div>
-                        </td>
-                        <td className="py-2.5 px-2 text-center text-slate-400 font-bold">{sls.keluarga_wilkerstat}</td>
-                        <td className="py-2.5 px-2 text-center text-slate-800 font-bold bg-slate-50/30">{sls.jml_prelist}</td>
-                        <td className={`py-2.5 px-2 text-center font-black ${sls.status_tidak_ditemukan_stop > 15 ? 'text-red-650 bg-red-50/40 text-xs underline' : 'text-slate-600'}`}>{sls.status_tidak_ditemukan_stop}</td>
-                        <td className="py-2.5 px-2 text-center text-emerald-600 font-bold">{sls.status_ditemukan_keluarga}</td>
-                        <td className="py-2.5 px-2 text-center text-indigo-600">{sls.status_baru_keluarga}</td>
-                        <td className="py-2.5 px-2 text-center text-slate-400">{sls.status_meninggal}</td>
-                        <td className="py-2.5 px-2 text-center text-slate-400">{sls.status_tidak_eligible}</td>
-                        <td className="py-2.5 px-2 text-center text-slate-400">{sls.status_tidak_dapat_ditemui}</td>
-                        <td className="py-2.5 px-2 text-center text-purple-600">{sls.status_keluarga_khusus}</td>
-                        <td className="py-2.5 px-2 text-center font-black text-slate-800 bg-slate-50/30">{sls.jml_keluarga}</td>
-                        <td className="py-2.5 px-2 text-center text-slate-400 bg-amber-50/5">{sls.bgn_tidak_ditemukan}</td>
-                        <td className="py-2.5 px-2 text-center text-slate-400 bg-amber-50/5">{sls.bgn_ditemukan}</td>
-                        <td className="py-2.5 px-2 text-center text-indigo-500">{sls.bgn_baru}</td>
-                        <td className={`py-2.5 px-2 text-center font-black ${sls.bgn_tutup > 15 ? 'text-amber-600 bg-amber-50/40 text-xs underline' : 'text-slate-600'}`}>{sls.bgn_tutup}</td>
-                        <td className="py-2.5 px-2 text-center text-orange-600 bg-amber-50/5">{sls.bgn_ganda}</td>
-                        <td className="py-2.5 px-2 text-center font-black text-slate-800 bg-slate-50/30">{sls.jml_bangunan}</td>
-                        <td className="py-2.5 px-2 text-center text-slate-500 font-bold">{sls.perbandingan_keluarga_wilkerstat}%</td>
-                        <td className="py-2.5 px-2 text-center bg-slate-50/30">
-                          <span className={`px-1.5 py-0.5 rounded-md font-bold text-[10px] ${sls.perbandingan_keluarga_prelist < 70 ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-slate-100 text-slate-500'}`}>{sls.perbandingan_keluarga_prelist}%</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
+<tbody className="divide-y divide-slate-100 font-medium font-mono text-[11px] text-slate-600">
+  {selectedAuditPcl.semuaSls.map((sls) => {
+    const isHighAnomali = sls.status_tidak_ditemukan_stop > 15 || sls.bgn_tutup > 15;
+    return (
+      <tr key={sls.kode} className={`hover:bg-slate-50/60 transition-colors divide-x divide-slate-100/60 ${isHighAnomali ? 'bg-red-50/10' : ''}`}>
+        
+        {/* Nama SLS / ID Wilayah (Sticky) */}
+        <td className="py-2.5 px-4 font-sans text-left bg-white sticky left-0 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.01)] border-r border-slate-200">
+          <div className="font-bold text-slate-800 text-xs">{sls.nama}</div>
+          <div className="text-[10px] text-slate-400 font-bold mt-0.5">
+            Desa {sls.desa} — <span className="font-mono text-[9px] text-slate-500">{sls.kode}</span>
+          </div>
+        </td>
+        
+        {/* 🎯 Target Sistem */}
+        <td className="py-2.5 px-2 text-center text-slate-400 font-bold">{sls.keluarga_wilkerstat}</td>
+        <td className="py-2.5 px-2 text-center text-slate-700 font-bold bg-slate-50/30">{sls.jml_prelist}</td>
+        
+        {/* 👨‍👩‍👧‍👦 Detail Hasil Lapangan (Keluarga) - Mengikuti KELUARGA_COLORS */}
+        <td className={`py-2.5 px-2 text-center font-black bg-rose-50/20 text-[#f43f5e] ${sls.status_tidak_ditemukan_stop > 15 ? 'underline text-xs bg-rose-50/50' : ''}`}>
+          {sls.status_tidak_ditemukan_stop}
+        </td>
+        <td className="py-2.5 px-2 text-center text-[#10b981] bg-emerald-50/10 font-bold">{sls.status_ditemukan_keluarga}</td>
+        <td className="py-2.5 px-2 text-center text-[#3b82f6] bg-blue-50/10">{sls.status_baru_keluarga}</td>
+        <td className="py-2.5 px-2 text-center text-[#64748b] bg-slate-50">{sls.status_meninggal}</td>
+        <td className="py-2.5 px-2 text-center text-[#94a3b8] bg-slate-50/50">{sls.status_tidak_eligible}</td>
+        <td className="py-2.5 px-2 text-center text-[#f59e0b] bg-amber-50/10">{sls.status_tidak_dapat_ditemui}</td>
+        <td className="py-2.5 px-2 text-center text-[#a855f7] bg-purple-50/10">{sls.status_keluarga_khusus}</td>
+        
+        {/* Total Sektor Keluarga */}
+        <td className="py-2.5 px-2 text-center font-black text-slate-800 bg-slate-100/40 border-r border-slate-200">{sls.jml_keluarga}</td>
+        
+        {/* 🏠 Detail Hasil Lapangan (Usaha) - Mengikuti USAHA_COLORS */}
+        <td className="py-2.5 px-2 text-center text-[#e11d48] bg-rose-50/10">{sls.bgn_tidak_ditemukan}</td>
+        <td className="py-2.5 px-2 text-center text-[#059669] bg-emerald-50/10 font-bold">{sls.bgn_ditemukan}</td>
+        <td className="py-2.5 px-2 text-center text-[#6366f1] bg-indigo-50/10">{sls.bgn_baru}</td>
+        <td className={`py-2.5 px-2 text-center font-black bg-amber-50/20 text-[#d97706] ${sls.bgn_tutup > 15 ? 'underline text-xs bg-amber-50/50' : ''}`}>
+          {sls.bgn_tutup}
+        </td>
+        <td className="py-2.5 px-2 text-center text-[#ea580c] bg-orange-50/10">{sls.bgn_ganda}</td>
+        
+        {/* Total Sektor Usaha */}
+        <td className="py-2.5 px-2 text-center font-black text-slate-800 bg-slate-100/40 border-r border-slate-200">{sls.jml_bangunan}</td>
+        
+        {/* 📈 Rasio Pembanding */}
+        <td className="py-2.5 px-2 text-center text-slate-500 font-bold">{sls.perbandingan_keluarga_wilkerstat}%</td>
+        <td className="py-2.5 px-2 text-center bg-slate-50/30">
+          <span className={`px-1.5 py-0.5 rounded-md font-bold text-[10px] ${sls.perbandingan_keluarga_prelist < 70 ? 'bg-red-50 text-red-600 border border-red-100 animate-pulse' : 'bg-slate-100 text-slate-500'}`}>
+            {sls.perbandingan_keluarga_prelist}%
+          </span>
+        </td>
+        
+      </tr>
+    );
+  })}
+</tbody>
                 {grandTotals && (
                   <tfoot className="border-t-2 border-slate-300 font-mono text-[11px] font-black bg-slate-100 text-slate-900 divide-y divide-slate-200">
                     <tr className="divide-x divide-slate-200">
@@ -681,6 +998,13 @@ export default function StatusPage() {
           <div className="flex-1 flex items-center justify-center text-slate-400 font-sans font-bold text-xs p-10 text-center">Belum ada target investigasi terpilih. Silakan klik salah satu baris PCL pada tabel wilayah di atas atau koordinat grafik scatter plot.</div>
         )}
       </div>
+
+      {/* MODAL IMPORT INTEGRATION */}
+      <ImportExcelModal 
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onRefresh={loadData}
+      />
     </div>
   );
 }
