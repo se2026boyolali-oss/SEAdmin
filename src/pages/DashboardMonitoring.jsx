@@ -898,27 +898,40 @@ const metrikEstimasiProyek = useMemo(() => {
     // 4. Kalkulasi Laju Kirim Harian Riil Saat Ini
     const lajuHarianSaatIni = Math.max(parseFloat(((dW1 + dW2 + dW3) / 3).toFixed(1)), 0.1);
 
-    // 5. Jalankan Simulasi Pengurangan Dokumen Hari Demi Hari
+ // 5. Jalankan Simulasi Pengurangan Dokumen Hari Demi Hari
     let sisaHariDibutuhkan = 0;
     let sisaDokumenSimulasi = totalSisaOpenAktif;
     let totalLajuPrediktifKumulatif = 0;
+    
+    // ✨ ARRAY KOORDINAT GRAFIK DIBUAT DI SINI AGAR SINKRON
+    const arrayProyeksi = []; 
+    const tglSimulasi = new Date();
 
     if (sisaDokumenSimulasi > 0) {
         while (sisaDokumenSimulasi > 0 && sisaHariDibutuhkan < 365) {
             sisaHariDibutuhkan++;
+            tglSimulasi.setDate(tglSimulasi.getDate() + 1); // Prediksi mulai besok
 
             const rasioHariIni = sisaDokumenSimulasi / totalBebanAwal;
             let lajuHariIni = lajuHarianSaatIni;
 
-            // 🌟 RUMUS SMOOTHING BARU: Diterapkan di sini juga agar hitungan hari sama persis dengan kurva grafik
+            // 🌟 RUMUS SMOOTHING TUNGGAL (Digunakan Teks & Grafik)
             if (rasioHariIni <= 0.25) {
                 const rasioSkalaInternal = Math.max(rasioHariIni / 0.25, 0); 
-                const faktorPelambatanSmooth = 0.4 + (0.6 * rasioSkalaInternal);
+                const faktorPelambatanSmooth = 0.5 + (0.5 * rasioSkalaInternal); 
                 lajuHariIni = Math.max(lajuHarianSaatIni * faktorPelambatanSmooth, 0.1);
             }
 
             sisaDokumenSimulasi -= lajuHariIni;
             totalLajuPrediktifKumulatif += lajuHariIni;
+
+            // ✨ SIMPAN TITIK KOORDINAT KE ARRAY
+            arrayProyeksi.push({
+                tanggalRaw: tglSimulasi.toISOString().split('T')[0],
+                label: tglSimulasi.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+                "PREDIKSI JALAN HARIAN": parseFloat(lajuHariIni.toFixed(1)),
+                isProyeksi: true
+            });
         }
     }
 
@@ -959,7 +972,8 @@ const metrikEstimasiProyek = useMemo(() => {
         isTerlambat,
         selisihDariDeadline,
         totalSisaOpenAktif,
-        isModeIndividu: isSkupPetugasIndividu
+        isModeIndividu: isSkupPetugasIndividu,
+        arrayProyeksi // ✨ PENTING: Ekspor array ke AreaChart
     };
 }, [dataMonitoringWilayah.petugas, historyData, selectedKecTab, viewModeTab, selectedPetugasEmail, hoveredTrend, includeDraft]);
 
@@ -1471,7 +1485,7 @@ const metrikEstimasiProyek = useMemo(() => {
     }
 
     // 5. Hitung Target Harian Garis (Beban Individu / Sisa Hari)
-    const targetHarianGaris = parseFloat((openTargetDinamis / SISA_HARI_TREN).toFixed(2));
+
 
     // 6. Kondisi Pembatas Rata-Rata Harian
     const janganTampilkanRataRata = viewModeTab === "PETUGAS" && !selectedPetugasEmail && !hoveredTrend;
@@ -1496,7 +1510,7 @@ const metrikEstimasiProyek = useMemo(() => {
     }, 0);
 
     const nilaiRataRataHarian = parseFloat((totalDokumenKirimPeriode / jumlahHariData).toFixed(1));
-
+    const targetHarianGaris = parseFloat((openTargetDinamis+totalDokumenKirimPeriode) / (SISA_HARI_TREN+jumlahHariData)).toFixed(2);
     // =======================================================
     // 🌟 DETEKSI METRIK ESTIMASI
     // =======================================================
@@ -1549,64 +1563,24 @@ const metrikEstimasiProyek = useMemo(() => {
   // =======================================================
         // 🌟 GENERATE DATA PROYEKSI HARIAN GRAFIK (FIXED BUG)
         // =======================================================
-        const gabunganChartData = chartTrenData.map(d => ({
+       let gabunganChartData = chartTrenData.map(d => ({
             ...d,
             "PREDIKSI JALAN HARIAN": undefined
         }));
 
-        const lajuHarianSaatIni = metrikEstimasiProyek.rataKirimHarian || 0.1;
-        const totalSisaOpen = metrikEstimasiProyek.totalSisaOpenAktif;
-        
-        // KUNCI TOTAL HARI: Mengambil durasi simulasi hari langsung dari metrik estimasi utama
-        const targetHariMaksimal = metrikEstimasiProyek.sisaHariDibutuhkan;
-
-        let totalBebanTarget = petugasFilterGaris.reduce((sum, p) => sum + (p.total_target || 0), 0) || 1;
-        if (metrikEstimasiProyek.isModeIndividu && keyNamaGarisAktif) {
-            const objekPetugasTerpilih = dataMonitoringWilayah.petugas.find(p => {
-                const namaMurni = (p.nama_asli || p.nama || "").toLowerCase().trim();
-                // 🌟 FIX: Menggunakan keyNamaGarisAktif (bukan keyAktif) sesuai variabel skop chart
-                return namaMurni === keyNamaGarisAktif.toLowerCase().trim() || p.email === selectedPetugasEmail;
-            });
-            if (objekPetugasTerpilih) {
-                totalBebanTarget = objekPetugasTerpilih.total_target || 1;
+        // Cukup ambil array yang sudah dihitung oleh metrik utama
+        if (tampilkanPrediksi && metrikEstimasiProyek.arrayProyeksi && metrikEstimasiProyek.arrayProyeksi.length > 0) {
+            
+            // Sambungkan titik ujung data aktual hari ini, dengan awal titik proyeksi besok (agar garis tidak putus)
+            if (gabunganChartData.length > 0) {
+                const dataTerakhir = gabunganChartData[gabunganChartData.length - 1];
+                dataTerakhir["PREDIKSI JALAN HARIAN"] = (dataTerakhir[keyNamaGarisAktif] !== undefined)
+                    ? dataTerakhir[keyNamaGarisAktif] 
+                    : metrikEstimasiProyek.rataKirimHarian;
             }
-        }
 
-        if (tampilkanPrediksi && gabunganChartData.length > 0 && totalSisaOpen > 0 && lajuHarianSaatIni > 0.05) {
-            const dataTerakhir = gabunganChartData[gabunganChartData.length - 1];
-            let tanggalSimulasi = new Date(dataTerakhir.tanggalRaw);
-            let sisaDokumenSimulasi = totalSisaOpen;
-            let counterHariSimulasi = 0;
-
-            dataTerakhir["PREDIKSI JALAN HARIAN"] = (dataTerakhir[keyNamaGarisAktif] !== undefined)
-                ? dataTerakhir[keyNamaGarisAktif] 
-                : lajuHarianSaatIni;
-
-            // Jalankan loop sepanjang total hari yang dihitung oleh metrik estimasi proyek
-            while (counterHariSimulasi < targetHariMaksimal && counterHariSimulasi < 365) {
-                counterHariSimulasi++;
-                tanggalSimulasi.setDate(tanggalSimulasi.getDate() + 1);
-
-                const rasioHariIni = sisaDokumenSimulasi / totalBebanTarget;
-                let lajuHariIni = lajuHarianSaatIni;
-
-                if (rasioHariIni <= 0.25) {
-                    const rasioSkalaInternal = Math.max(rasioHariIni / 0.25, 0); 
-                    const faktorPelambatanSmooth = 0.6 + (0.4 * rasioSkalaInternal);
-                    lajuHariIni = Math.max(lajuHarianSaatIni * faktorPelambatanSmooth, 0.1);
-                }
-
-                sisaDokumenSimulasi -= lajuHariIni;
-                const formatTglRaw = tanggalSimulasi.toISOString().split('T')[0];
-                const formatLabel = tanggalSimulasi.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-
-                gabunganChartData.push({
-                    label: formatLabel,
-                    tanggalRaw: formatTglRaw,
-                    "PREDIKSI JALAN HARIAN": parseFloat(lajuHariIni.toFixed(1)),
-                    isProyeksi: true
-                });
-            }
+            // GABUNGKAN
+            gabunganChartData = [...gabunganChartData, ...metrikEstimasiProyek.arrayProyeksi];
         }
     // 9. Cari Nilai Tertinggi Y-Axis
     const nilaiMaksimalData = gabunganChartData.reduce((max, item) => {
