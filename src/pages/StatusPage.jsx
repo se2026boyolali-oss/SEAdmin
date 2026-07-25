@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   RefreshCw, Search, User, ShieldAlert, Users, 
   Building2, ChevronRight, ArrowLeft, MapPin, Briefcase,
-  X, Upload, CheckCircle2, AlertTriangle
+  X, Upload, CheckCircle2, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react';
 import { 
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, 
@@ -16,13 +16,20 @@ import { supabase } from '../supabaseClient';
 // 1. DATA CONFIG & ENGINE UTILS (ISOLATED)
 // ==========================================
 const KELUARGA_COLORS = {
-  '0. Tidak Ditemukan': '#f43f5e', '1. Ditemukan': '#10b981', '2. Baru': '#3b82f6',
-  '3. Meninggal': '#64748b', '4. Tidak Eligible': '#94a3b8', '5. Tidak Dapat Ditemui': '#f59e0b', '6. Keluarga Khusus': '#a855f7'
+  '0. Tidak Ditemukan': '#f43f5e', 
+  '1. Ditemukan': '#10b981', 
+  '2. Baru': '#3b82f6',
+  '3. Meninggal': '#64748b', 
+  '4. Tidak Eligible': '#94a3b8', 
+  '5. Tidak Dapat Ditemui': '#f59e0b'
 };
 
 const USAHA_COLORS = {
-  '0. Tidak Ditemukan': '#e11d48', '1. Ditemukan': '#059669', '2. Baru': '#6366f1',
-  '3. Tutup': '#d97706', '4. Ganda': '#ea580c'
+  '0. Tidak Ditemukan': '#e11d48', 
+  '1. Ditemukan': '#059669', 
+  '2. Baru': '#6366f1',
+  '3. Tutup': '#d97706', 
+  '4. Ganda': '#ea580c'
 };
 
 const DB_FIELDS_KELUARGA = [
@@ -34,7 +41,6 @@ const DB_FIELDS_KELUARGA = [
   { key: 'status_meninggal', label: '3. Meninggal' },
   { key: 'status_tidak_eligible', label: '4. Tidak Eligible (NE)' },
   { key: 'status_tidak_dapat_ditemui', label: '5. Tidak Dapat Ditemui' },
-  { key: 'status_keluarga_khusus', label: '6. Keluarga Khusus' },
   { key: 'jml_keluarga', label: 'Total Hasil Pendataan / Jml Keluarga' },
 ];
 
@@ -76,7 +82,7 @@ const processRawData = (progresData, muatanData, listPetugas) => {
     if (!pclAgregat[emailPcl]) {
       pclAgregat[emailPcl] = {
         email: emailPcl, namaPcl, namaPml, kdkec: muatan.kdkec, nmkec: muatan.nmkec || "TIDAK TERPLOT",
-        totalTidakDitemukan: 0, totalBgnTutup: 0,totalUsahaBermasalah: 0, totalSlsDikerjakan: 0, semuaSls: []
+        totalTidakDitemukan: 0, totalBgnTutup: 0, totalUsahaBermasalah: 0, totalSlsDikerjakan: 0, semuaSls: []
       };
     }
 
@@ -95,7 +101,7 @@ const processRawData = (progresData, muatanData, listPetugas) => {
       status_tidak_ditemukan_stop: tTidakDitemukan, status_ditemukan_keluarga: row.status_ditemukan_keluarga || 0,
       status_baru_keluarga: row.status_baru_keluarga || 0, status_meninggal: row.status_meninggal || 0,
       status_tidak_eligible: row.status_tidak_eligible || 0, status_tidak_dapat_ditemui: row.status_tidak_dapat_ditemui || 0,
-      status_keluarga_khusus: row.status_keluarga_khusus || 0, jml_keluarga: row.jml_keluarga || 0,
+      jml_keluarga: row.jml_keluarga || 0,
       bgn_tidak_ditemukan: row.bgn_tidak_ditemukan || 0, bgn_ditemukan: row.bgn_ditemukan || 0,
       bgn_baru: row.bgn_baru || 0, bgn_tutup: tBgnTutup, bgn_ganda: row.bgn_ganda || 0,
       jml_bangunan: row.jml_bangunan || 0, perbandingan_keluarga_wilkerstat: row.perbandingan_keluarga_wilkerstat || 0,
@@ -226,7 +232,7 @@ function ImportExcelModal({ isOpen, onClose, onRefresh }) {
     setMapping(prev => ({ ...prev, [dbKey]: excelHeader }));
   };
 
-const handleProcessUpdate = async () => {
+  const handleProcessUpdate = async () => {
     if (!mapping.level_6_full_code) {
       alert("Kolom unik 'Kode (level_6_full_code)' wajib dipetakan!");
       return;
@@ -236,14 +242,12 @@ const handleProcessUpdate = async () => {
     setStatusMessage({ type: 'info', text: 'Mengecek data nama SLS yang ada di database...' });
 
     try {
-      // 1. Ambil data nmsls yang sudah ada di DB saat ini untuk validasi "jika kosong"
       const { data: existingDbData, error: fetchError } = await supabase
         .from('progres_lapangan_sls')
         .select('level_6_full_code, nmsls');
 
       if (fetchError) throw fetchError;
 
-      // Buat lookup map untuk mempermudah pengecekan data existing di database
       const dbLookup = {};
       existingDbData.forEach(item => {
         dbLookup[item.level_6_full_code.trim()] = item.nmsls;
@@ -255,11 +259,10 @@ const handleProcessUpdate = async () => {
       excelRows.forEach((row) => {
         const rawKode = String(row[mapping.level_6_full_code] || '').trim();
         
-        // Filter: Hanya proses jika kode memiliki panjang 16 digit (Level SLS)
         if (rawKode.length !== 16) return;
 
         const updateRow = {
-          level_6_full_code: rawKode, // Key penanda untuk onConflict
+          level_6_full_code: rawKode,
           updated_at: new Date().toISOString()
         };
 
@@ -268,24 +271,18 @@ const handleProcessUpdate = async () => {
           if (excelHeaderName !== undefined && excelHeaderName !== '') {
             const cellValue = row[excelHeaderName];
 
-            // 📑 PENANGANAN KHUSUS UNTUK NAMA SLS (TEKS STRING)
             if (field.key === 'nmsls') {
               const currentDbNmsls = dbLookup[rawKode];
-              
-              // Cek apakah nmsls di DB saat ini KOSONG (null, undefined, atau string kosong '')
               const isDbNmslsEmpty = !currentDbNmsls || String(currentDbNmsls).trim() === '';
 
               if (isDbNmslsEmpty && cellValue !== undefined && cellValue !== null) {
-                // HANYA UPDATE jika di DB kosong dan di Excel ada isinya
                 updateRow[field.key] = String(cellValue).trim();
               } else {
-                // Jika di DB sudah ada isinya, pertahankan data DB (jangan kirim field nmsls agar tidak tertimpa)
                 updateRow[field.key] = currentDbNmsls;
               }
-              return; // Selesai untuk field nmsls, lanjut ke field angka berikutnya
+              return;
             }
 
-            // 🔢 PENANGANAN UNTUK FIELD ANGKA (NUMERIK)
             if (typeof cellValue === 'number') {
               updateRow[field.key] = cellValue;
             } else if (cellValue !== undefined && cellValue !== null && cellValue !== '') {
@@ -307,7 +304,6 @@ const handleProcessUpdate = async () => {
 
       setStatusMessage({ type: 'info', text: `Mengirim ${bulkData.length} data sekaligus ke Supabase...` });
 
-      // 2. Eksekusi menggunakan UPSERT secara massal (Solusi 1)
       const { error } = await supabase
         .from('progres_lapangan_sls')
         .upsert(bulkData, { onConflict: 'level_6_full_code' });
@@ -326,6 +322,7 @@ const handleProcessUpdate = async () => {
       setLoading(false);
     }
   };
+
   return (
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -456,6 +453,9 @@ export default function StatusPage() {
   const [drillLevel, setDrillLevel] = useState("KECAMATAN"); 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
+  // STATE UNTUK SORTING TABEL REKAP WILAYAH
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -500,7 +500,6 @@ export default function StatusPage() {
     return result;
   }, [allPclData, selectedKecamatan, selectedPml, searchQuery]);
 
-  // Jika data terfilter berubah, pastikan target investigasi terbawah disesuaikan otomatis ke orang pertama yang relevan
   useEffect(() => {
     if (filteredPclData.length > 0) {
       const masihAda = filteredPclData.some(p => p.email === selectedAuditPcl?.email);
@@ -512,15 +511,14 @@ export default function StatusPage() {
     }
   }, [filteredPclData, selectedAuditPcl]);
 
-  // Macro Metrics Memo (Otomatis ter-filter!)
+  // Macro Metrics Memo (Tanpa K.6)
   const pieChartsData = useMemo(() => {
-    let fam = Array(7).fill(0), bgn = Array(5).fill(0);
+    let fam = Array(6).fill(0), bgn = Array(5).fill(0);
     filteredPclData.forEach(pcl => {
       pcl.semuaSls.forEach(sls => {
         fam[0] += sls.status_tidak_ditemukan_stop; fam[1] += sls.status_ditemukan_keluarga;
         fam[2] += sls.status_baru_keluarga;       fam[3] += sls.status_meninggal;
         fam[4] += sls.status_tidak_eligible;      fam[5] += sls.status_tidak_dapat_ditemui;
-        fam[6] += sls.status_keluarga_khusus;
         
         bgn[0] += sls.bgn_tidak_ditemukan; bgn[1] += sls.bgn_ditemukan;
         bgn[2] += sls.bgn_baru;            bgn[3] += sls.bgn_tutup; bgn[4] += sls.bgn_ganda;
@@ -529,7 +527,7 @@ export default function StatusPage() {
 
     const totalFam = fam.reduce((a, b) => a + b, 0);
     const totalBgn = bgn.reduce((a, b) => a + b, 0);
-    const fNames = ['0. Tidak Ditemukan', '1. Ditemukan', '2. Baru', '3. Meninggal', '4. Tidak Eligible', '5. Tidak Dapat Ditemui', '6. Keluarga Khusus'];
+    const fNames = ['0. Tidak Ditemukan', '1. Ditemukan', '2. Baru', '3. Meninggal', '4. Tidak Eligible', '5. Tidak Dapat Ditemui'];
     const bNames = ['0. Tidak Ditemukan', '1. Ditemukan', '2. Baru', '3. Tutup', '4. Ganda'];
 
     return {
@@ -541,12 +539,11 @@ export default function StatusPage() {
 
   // Core Matrix Hierarchical Engine
   const { tableRows, topThresholds } = useMemo(() => {
-    const initZero = () => ({ fam0:0, fam1:0, fam2:0, fam3:0, fam4:0, fam5:0, fam6:0, bgn0:0, bgn1:0, bgn2:0, bgn3:0, bgn4:0, totalSls:0 });
+    const initZero = () => ({ fam0:0, fam1:0, fam2:0, fam3:0, fam4:0, fam5:0, bgn0:0, bgn1:0, bgn2:0, bgn3:0, bgn4:0, totalSls:0 });
     const addSlsToAcc = (acc, sls) => {
       acc.fam0 += sls.status_tidak_ditemukan_stop; acc.fam1 += sls.status_ditemukan_keluarga;
       acc.fam2 += sls.status_baru_keluarga; acc.fam3 += sls.status_meninggal;
       acc.fam4 += sls.status_tidak_eligible; acc.fam5 += sls.status_tidak_dapat_ditemui;
-      acc.fam6 += sls.status_keluarga_khusus;
       acc.bgn0 += sls.bgn_tidak_ditemukan; acc.bgn1 += sls.bgn_ditemukan;
       acc.bgn2 += sls.bgn_baru; acc.bgn3 += sls.bgn_tutup; acc.bgn4 += sls.bgn_ganda;
       acc.totalSls++;
@@ -596,6 +593,56 @@ export default function StatusPage() {
     };
   }, [drillLevel, selectedKecamatan, selectedPml, allPclData]);
 
+  // Handler Sorting Dynamic
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    } else if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      setSortConfig({ key: null, direction: 'asc' });
+      return;
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedTableRows = useMemo(() => {
+    if (!sortConfig.key) return tableRows;
+
+    return [...tableRows].sort((a, b) => {
+      let aValue = a[sortConfig.key];
+      let bValue = b[sortConfig.key];
+
+      if (typeof aValue === 'string') {
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      }
+
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [tableRows, sortConfig]);
+
+  const renderSortIcon = (key) => {
+    if (sortConfig.key !== key) {
+      return <ArrowUpDown className="w-2.5 h-2.5 text-slate-300 group-hover:text-slate-500 inline ml-1" />;
+    }
+    return sortConfig.direction === 'asc' ? (
+      <ArrowUp className="w-3 h-3 text-indigo-600 font-bold inline ml-1" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-indigo-600 font-bold inline ml-1" />
+    );
+  };
+
+  const getHeaderSortClass = (key) => {
+    return sortConfig.key === key
+      ? 'bg-indigo-50/80 text-indigo-900 font-black cursor-pointer select-none transition group'
+      : 'hover:bg-slate-100 cursor-pointer select-none transition group';
+  };
+
   const daftarKecamatan = ["ALL", ...new Set(allPclData.map(item => item.nmkec))];
 
   const grandTotals = useMemo(() => {
@@ -605,7 +652,7 @@ export default function StatusPage() {
       acc.status_tidak_ditemukan_stop += curr.status_tidak_ditemukan_stop; acc.status_ditemukan_keluarga += curr.status_ditemukan_keluarga;
       acc.status_baru_keluarga += curr.status_baru_keluarga; acc.status_meninggal += curr.status_meninggal;
       acc.status_tidak_eligible += curr.status_tidak_eligible; acc.status_tidak_dapat_ditemui += curr.status_tidak_dapat_ditemui;
-      acc.status_keluarga_khusus += curr.status_keluarga_khusus; acc.jml_keluarga += curr.jml_keluarga;
+      acc.jml_keluarga += curr.jml_keluarga;
       acc.bgn_tidak_ditemukan += curr.bgn_tidak_ditemukan; acc.bgn_ditemukan += curr.bgn_ditemukan;
       acc.bgn_baru += curr.bgn_baru; acc.bgn_tutup += curr.bgn_tutup; acc.bgn_ganda += curr.bgn_ganda;
       acc.jml_bangunan += curr.jml_bangunan;
@@ -613,7 +660,7 @@ export default function StatusPage() {
     }, {
       keluarga_wilkerstat: 0, jml_prelist: 0, status_tidak_ditemukan_stop: 0, status_ditemukan_keluarga: 0,
       status_baru_keluarga: 0, status_meninggal: 0, status_tidak_eligible: 0, status_tidak_dapat_ditemui: 0,
-      status_keluarga_khusus: 0, jml_keluarga: 0, bgn_tidak_ditemukan: 0, bgn_ditemukan: 0, bgn_baru: 0, bgn_tutup: 0, bgn_ganda: 0, jml_bangunan: 0
+      jml_keluarga: 0, bgn_tidak_ditemukan: 0, bgn_ditemukan: 0, bgn_baru: 0, bgn_tutup: 0, bgn_ganda: 0, jml_bangunan: 0
     });
   }, [selectedAuditPcl]);
 
@@ -653,7 +700,7 @@ export default function StatusPage() {
         <div className="flex items-center gap-2">
           <button 
             onClick={() => setIsImportModalOpen(true)} 
-            className="px-4 py-2.5 bg-indigo-650 hover:bg-indigo-700 bg-indigo-600 rounded-xl text-xs font-bold text-white transition flex items-center shadow-xs gap-1.5"
+            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-bold text-white transition flex items-center shadow-xs gap-1.5"
           >
             <Upload className="w-3.5 h-3.5" /> Import Data Excel
           </button>
@@ -718,7 +765,7 @@ export default function StatusPage() {
         ))}
       </div>
 
-      {/* 4. DRILL-DOWN REGION MATRIX TABLE WITH LIVE TOP 5 HEATMAPS */}
+      {/* 4. DRILL-DOWN REGION MATRIX TABLE WITH DYNAMIC SORTING */}
       <div className="bg-white border border-slate-100 rounded-2xl p-4 mb-4 shadow-xs flex flex-col">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3 mb-3">
           <div className="flex items-center gap-2">
@@ -738,37 +785,88 @@ export default function StatusPage() {
               </div>
             </div>
           </div>
-          <span className="text-[10px] font-mono font-bold bg-amber-50 px-2.5 py-1 text-amber-700 rounded-full flex items-center gap-1.5 border border-amber-100">
-            <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" /> Live Top 5 Heatmap Active
-          </span>
+          
+          <div className="flex items-center gap-2">
+            {sortConfig.key && (
+              <button 
+                onClick={() => setSortConfig({ key: null, direction: 'asc' })}
+                className="text-[10px] font-mono text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-full font-bold transition"
+              >
+                Reset Sortir ({sortConfig.key})
+              </button>
+            )}
+            <span className="text-[10px] font-mono font-bold bg-amber-50 px-2.5 py-1 text-amber-700 rounded-full flex items-center gap-1.5 border border-amber-100">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" /> Live Top 5 Heatmap Active
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto rounded-xl border border-slate-100">
-          <table className="w-full text-left border-collapse text-xs min-w-[1500px]">
+          <table className="w-full text-left border-collapse text-xs min-w-[1400px]">
             <thead className="bg-slate-50 text-[9px] text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100">
               <tr className="bg-slate-50 text-slate-600">
-                <th rowSpan={2} className="py-3 px-4 text-left font-black text-[10px] min-w-[220px] sticky left-0 bg-slate-50 z-10 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.01)]">Nama Kecamatan / Petugas</th>
-                <th colSpan={7} className="py-1 px-2 text-center bg-red-50/40 text-red-700 font-black border-r border-slate-100">Isian Status Keluarga</th>
-                <th colSpan={5} className="py-1 px-2 text-center bg-amber-50/40 text-amber-700 font-black border-r border-slate-100">Isian Status Usaha</th>
-                <th rowSpan={2} className="py-3 px-2 text-center text-slate-700 font-black">Beban SLS</th>
+                <th 
+                  rowSpan={2} 
+                  onClick={() => handleSort('label')}
+                  className={`py-3 px-4 text-left font-black text-[10px] min-w-[220px] sticky left-0 z-20 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.01)] ${getHeaderSortClass('label')}`}
+                >
+                  Nama Kecamatan / Petugas {renderSortIcon('label')}
+                </th>
+                <th colSpan={6} className="py-1 px-2 text-center bg-red-50/40 text-red-700 font-black border-r border-slate-100">
+                  Isian Status Keluarga
+                </th>
+                <th colSpan={5} className="py-1 px-2 text-center bg-amber-50/40 text-amber-700 font-black border-r border-slate-100">
+                  Isian Status Usaha
+                </th>
+                <th 
+                  rowSpan={2} 
+                  onClick={() => handleSort('totalSls')}
+                  className={`py-3 px-2 text-center text-slate-700 font-black ${getHeaderSortClass('totalSls')}`}
+                >
+                  Beban SLS {renderSortIcon('totalSls')}
+                </th>
               </tr>
+
               <tr className="bg-slate-50/50 divide-x divide-slate-100 text-[9px]">
-                <th className="py-2 px-1 text-center text-red-500">K.0 (Tdk)</th>
-                <th className="py-2 px-1 text-center text-emerald-600">K.1 (Dtm)</th>
-                <th className="py-2 px-1 text-center text-blue-600">K.2 (Baru)</th>
-                <th className="py-2 px-1 text-center text-slate-500">K.3 (Mng)</th>
-                <th className="py-2 px-1 text-center text-slate-400">K.4 (NE)</th>
-                <th className="py-2 px-1 text-center text-amber-600">K.5 (TMet)</th>
-                <th className="py-2 px-1 text-center text-purple-600 border-r border-slate-100">K.6 (Khs)</th>
-                <th className="py-2 px-1 text-center text-red-500">U.0 (Tdk)</th>
-                <th className="py-2 px-1 text-center text-emerald-600">U.1 (Dtm)</th>
-                <th className="py-2 px-1 text-center text-blue-600">U.2 (Baru)</th>
-                <th className="py-2 px-1 text-center text-amber-600">U.3 (Ttp)</th>
-                <th className="py-2 px-1 text-center text-orange-600 border-r border-slate-100">U.4 (Gda)</th>
+                <th onClick={() => handleSort('fam0')} className={`py-2 px-1 text-center text-red-500 ${getHeaderSortClass('fam0')}`}>
+                  K.0 (Tdk) {renderSortIcon('fam0')}
+                </th>
+                <th onClick={() => handleSort('fam1')} className={`py-2 px-1 text-center text-emerald-600 ${getHeaderSortClass('fam1')}`}>
+                  K.1 (Dtm) {renderSortIcon('fam1')}
+                </th>
+                <th onClick={() => handleSort('fam2')} className={`py-2 px-1 text-center text-blue-600 ${getHeaderSortClass('fam2')}`}>
+                  K.2 (Baru) {renderSortIcon('fam2')}
+                </th>
+                <th onClick={() => handleSort('fam3')} className={`py-2 px-1 text-center text-slate-500 ${getHeaderSortClass('fam3')}`}>
+                  K.3 (Mng) {renderSortIcon('fam3')}
+                </th>
+                <th onClick={() => handleSort('fam4')} className={`py-2 px-1 text-center text-slate-400 ${getHeaderSortClass('fam4')}`}>
+                  K.4 (NE) {renderSortIcon('fam4')}
+                </th>
+                <th onClick={() => handleSort('fam5')} className={`py-2 px-1 text-center text-amber-600 border-r border-slate-100 ${getHeaderSortClass('fam5')}`}>
+                  K.5 (TMet) {renderSortIcon('fam5')}
+                </th>
+
+                <th onClick={() => handleSort('bgn0')} className={`py-2 px-1 text-center text-red-500 ${getHeaderSortClass('bgn0')}`}>
+                  U.0 (Tdk) {renderSortIcon('bgn0')}
+                </th>
+                <th onClick={() => handleSort('bgn1')} className={`py-2 px-1 text-center text-emerald-600 ${getHeaderSortClass('bgn1')}`}>
+                  U.1 (Dtm) {renderSortIcon('bgn1')}
+                </th>
+                <th onClick={() => handleSort('bgn2')} className={`py-2 px-1 text-center text-blue-600 ${getHeaderSortClass('bgn2')}`}>
+                  U.2 (Baru) {renderSortIcon('bgn2')}
+                </th>
+                <th onClick={() => handleSort('bgn3')} className={`py-2 px-1 text-center text-amber-600 ${getHeaderSortClass('bgn3')}`}>
+                  U.3 (Ttp) {renderSortIcon('bgn3')}
+                </th>
+                <th onClick={() => handleSort('bgn4')} className={`py-2 px-1 text-center text-orange-600 border-r border-slate-100 ${getHeaderSortClass('bgn4')}`}>
+                  U.4 (Gda) {renderSortIcon('bgn4')}
+                </th>
               </tr>
             </thead>
+
             <tbody className="divide-y divide-slate-50 font-mono text-[11px] font-semibold text-slate-600">
-              {tableRows.map((row) => {
+              {sortedTableRows.map((row) => {
                 const checkTop = (key, style) => row[key] >= topThresholds[key] && row[key] > 0 ? style : '';
                 return (
                   <tr key={row.id} onClick={() => {
@@ -794,18 +892,20 @@ export default function StatusPage() {
                       </div>
                       <ChevronRight className="w-3 h-3 text-slate-300" />
                     </td>
+
                     <td className={`text-center font-bold text-red-600 ${checkTop('fam0', 'bg-red-50 text-red-700 font-black')}`}>{row.fam0}</td>
                     <td className="text-center text-emerald-600">{row.fam1}</td>
                     <td className={`text-center text-blue-600 ${checkTop('fam2', 'bg-blue-50 text-blue-700 font-black')}`}>{row.fam2}</td>
                     <td className={`text-center text-slate-500 ${checkTop('fam3', 'bg-slate-100 text-slate-800 font-black')}`}>{row.fam3}</td>
                     <td className={`text-center text-slate-400 ${checkTop('fam4', 'bg-slate-100 text-slate-700 font-black')}`}>{row.fam4}</td>
-                    <td className={`text-center text-amber-600 ${checkTop('fam5', 'bg-amber-50 text-amber-700 font-black')}`}>{row.fam5}</td>
-                    <td className="text-center text-purple-600 border-r border-slate-100">{row.fam6}</td>
+                    <td className={`text-center text-amber-600 border-r border-slate-100 ${checkTop('fam5', 'bg-amber-50 text-amber-700 font-black')}`}>{row.fam5}</td>
+
                     <td className={`text-center text-red-500 ${checkTop('bgn0', 'bg-red-50 text-red-700 font-black')}`}>{row.bgn0}</td>
                     <td className="text-center text-emerald-600">{row.bgn1}</td>
                     <td className="text-center text-blue-600">{row.bgn2}</td>
                     <td className={`text-center font-bold text-amber-600 ${checkTop('bgn3', 'bg-amber-50 text-amber-700 font-black')}`}>{row.bgn3}</td>
                     <td className={`text-center text-orange-600 border-r border-slate-100 ${checkTop('bgn4', 'bg-orange-50 text-orange-700 font-black')}`}>{row.bgn4}</td>
+
                     <td className="text-center text-slate-800 font-bold bg-slate-50/50">{row.totalSls} SLS</td>
                   </tr>
                 );
@@ -819,7 +919,7 @@ export default function StatusPage() {
       <div className="h-[500px] bg-white border border-slate-100 rounded-2xl p-4 flex flex-col mb-4 shadow-xs">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-            📊 Peta Sebaran Keluarga dan Usaha Tidak Ditemukan Per Petugas ({selectedKecamatan === "ALL" ? "Semua Wilayah" : `Kec. ${selectedKecamatan}`}{selectedPml !== "ALL" ? ` | PML: ${selectedPml}` : ''})
+            📊 Peta Sebaran Keluarga dan Usaha Tidak Ditemukan Per Petugas ({selectedKecamatan === "ALL" ? "Semua Wilayah" : `Kec. ${selectedKecamatan}`}${selectedPml !== "ALL" ? ` | PML: ${selectedPml}` : ''})
           </h3>
           <div className="text-[10px] font-bold bg-slate-50 border border-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-mono">
             Terplot: {filteredPclData.length} Petugas
@@ -853,7 +953,7 @@ export default function StatusPage() {
         </div>
       </div>
 
-      {/* 6. LOWER PANEL: 17-COLUMN COMPREHENSIVE WORKSPACE TABEL */}
+      {/* 6. LOWER PANEL: COMPREHENSIVE WORKSPACE TABEL */}
       <div className="bg-white border border-slate-100 rounded-2xl flex flex-col overflow-hidden shadow-xs">
         {selectedAuditPcl ? (
           <div className="flex flex-col flex-1">
@@ -877,12 +977,12 @@ export default function StatusPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse font-sans text-xs min-w-[2200px]">
+              <table className="w-full text-left border-collapse font-sans text-xs min-w-[2100px]">
                 <thead className="bg-slate-50 font-bold uppercase tracking-wider text-[9px] text-slate-500 sticky top-0 z-10 border-b border-slate-200 text-center select-none">
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th rowSpan={2} className="py-3 px-4 text-left text-[11px] font-black text-slate-800 min-w-[280px] bg-slate-50 sticky left-0 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.02)] border-r border-slate-200">Nama SLS / ID Wilayah</th>
                     <th colSpan={2} className="py-1.5 px-2 border-r border-slate-150 bg-slate-100/60 text-slate-700 font-black">🎯 Target Sistem</th>
-                    <th colSpan={8} className="py-1.5 px-2 border-r border-slate-150 bg-red-50/40 text-red-700 font-black">👨‍👩‍👧‍👦 Detail Hasil Lapangan (Keluarga)</th>
+                    <th colSpan={7} className="py-1.5 px-2 border-r border-slate-150 bg-red-50/40 text-red-700 font-black">👨‍👩‍👧‍👦 Detail Hasil Lapangan (Keluarga)</th>
                     <th colSpan={6} className="py-1.5 px-2 border-r border-slate-150 bg-amber-50/40 text-amber-700 font-black">🏠 Detail Hasil Lapangan (Usaha)</th>
                     <th colSpan={2} className="py-1.5 px-2 bg-indigo-50/60 text-indigo-800 font-black">📈 Rasio Pembanding (%)</th>
                   </tr>
@@ -895,7 +995,6 @@ export default function StatusPage() {
                     <th className="py-2.5 px-2 text-center text-slate-500 font-bold">3. Meninggal</th>
                     <th className="py-2.5 px-2 text-center text-slate-400 font-bold">4. Not Eligible</th>
                     <th className="py-2.5 px-2 text-center text-slate-400 font-bold">5. Tdk Ditemui</th>
-                    <th className="py-2.5 px-2 text-center text-purple-600 font-bold">6. Khusus</th>
                     <th className="py-2.5 px-2 text-center font-black text-slate-800 border-r border-slate-200">Jml Keluarga</th>
                     <th className="py-2.5 px-2 text-center text-red-500 font-bold bg-amber-50/10">0. Tdk Ditemukan</th>
                     <th className="py-2.5 px-2 text-center text-emerald-600 font-bold bg-amber-50/10">1. Ditemukan</th>
@@ -907,62 +1006,52 @@ export default function StatusPage() {
                     <th className="py-2.5 px-2 text-center text-indigo-700 font-black">Rasio Prelist</th>
                   </tr>
                 </thead>
-<tbody className="divide-y divide-slate-100 font-medium font-mono text-[11px] text-slate-600">
-  {selectedAuditPcl.semuaSls.map((sls) => {
-    const isHighAnomali = sls.status_tidak_ditemukan_stop > 15 || sls.bgn_tutup > 15;
-    return (
-      <tr key={sls.kode} className={`hover:bg-slate-50/60 transition-colors divide-x divide-slate-100/60 ${isHighAnomali ? 'bg-red-50/10' : ''}`}>
-        
-        {/* Nama SLS / ID Wilayah (Sticky) */}
-        <td className="py-2.5 px-4 font-sans text-left bg-white sticky left-0 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.01)] border-r border-slate-200">
-          <div className="font-bold text-slate-800 text-xs">{sls.nama}</div>
-          <div className="text-[10px] text-slate-400 font-bold mt-0.5">
-            Desa {sls.desa} — <span className="font-mono text-[9px] text-slate-500">{sls.kode}</span>
-          </div>
-        </td>
-        
-        {/* 🎯 Target Sistem */}
-        <td className="py-2.5 px-2 text-center text-slate-400 font-bold">{sls.keluarga_wilkerstat}</td>
-        <td className="py-2.5 px-2 text-center text-slate-700 font-bold bg-slate-50/30">{sls.jml_prelist}</td>
-        
-        {/* 👨‍👩‍👧‍👦 Detail Hasil Lapangan (Keluarga) - Mengikuti KELUARGA_COLORS */}
-        <td className={`py-2.5 px-2 text-center font-black bg-rose-50/20 text-[#f43f5e] ${sls.status_tidak_ditemukan_stop > 15 ? 'underline text-xs bg-rose-50/50' : ''}`}>
-          {sls.status_tidak_ditemukan_stop}
-        </td>
-        <td className="py-2.5 px-2 text-center text-[#10b981] bg-emerald-50/10 font-bold">{sls.status_ditemukan_keluarga}</td>
-        <td className="py-2.5 px-2 text-center text-[#3b82f6] bg-blue-50/10">{sls.status_baru_keluarga}</td>
-        <td className="py-2.5 px-2 text-center text-[#64748b] bg-slate-50">{sls.status_meninggal}</td>
-        <td className="py-2.5 px-2 text-center text-[#94a3b8] bg-slate-50/50">{sls.status_tidak_eligible}</td>
-        <td className="py-2.5 px-2 text-center text-[#f59e0b] bg-amber-50/10">{sls.status_tidak_dapat_ditemui}</td>
-        <td className="py-2.5 px-2 text-center text-[#a855f7] bg-purple-50/10">{sls.status_keluarga_khusus}</td>
-        
-        {/* Total Sektor Keluarga */}
-        <td className="py-2.5 px-2 text-center font-black text-slate-800 bg-slate-100/40 border-r border-slate-200">{sls.jml_keluarga}</td>
-        
-        {/* 🏠 Detail Hasil Lapangan (Usaha) - Mengikuti USAHA_COLORS */}
-        <td className="py-2.5 px-2 text-center text-[#e11d48] bg-rose-50/10">{sls.bgn_tidak_ditemukan}</td>
-        <td className="py-2.5 px-2 text-center text-[#059669] bg-emerald-50/10 font-bold">{sls.bgn_ditemukan}</td>
-        <td className="py-2.5 px-2 text-center text-[#6366f1] bg-indigo-50/10">{sls.bgn_baru}</td>
-        <td className={`py-2.5 px-2 text-center font-black bg-amber-50/20 text-[#d97706] ${sls.bgn_tutup > 15 ? 'underline text-xs bg-amber-50/50' : ''}`}>
-          {sls.bgn_tutup}
-        </td>
-        <td className="py-2.5 px-2 text-center text-[#ea580c] bg-orange-50/10">{sls.bgn_ganda}</td>
-        
-        {/* Total Sektor Usaha */}
-        <td className="py-2.5 px-2 text-center font-black text-slate-800 bg-slate-100/40 border-r border-slate-200">{sls.jml_bangunan}</td>
-        
-        {/* 📈 Rasio Pembanding */}
-        <td className="py-2.5 px-2 text-center text-slate-500 font-bold">{sls.perbandingan_keluarga_wilkerstat}%</td>
-        <td className="py-2.5 px-2 text-center bg-slate-50/30">
-          <span className={`px-1.5 py-0.5 rounded-md font-bold text-[10px] ${sls.perbandingan_keluarga_prelist < 70 ? 'bg-red-50 text-red-600 border border-red-100 animate-pulse' : 'bg-slate-100 text-slate-500'}`}>
-            {sls.perbandingan_keluarga_prelist}%
-          </span>
-        </td>
-        
-      </tr>
-    );
-  })}
-</tbody>
+                <tbody className="divide-y divide-slate-100 font-medium font-mono text-[11px] text-slate-600">
+                  {selectedAuditPcl.semuaSls.map((sls) => {
+                    const isHighAnomali = sls.status_tidak_ditemukan_stop > 15 || sls.bgn_tutup > 15;
+                    return (
+                      <tr key={sls.kode} className={`hover:bg-slate-50/60 transition-colors divide-x divide-slate-100/60 ${isHighAnomali ? 'bg-red-50/10' : ''}`}>
+                        <td className="py-2.5 px-4 font-sans text-left bg-white sticky left-0 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.01)] border-r border-slate-200">
+                          <div className="font-bold text-slate-800 text-xs">{sls.nama}</div>
+                          <div className="text-[10px] text-slate-400 font-bold mt-0.5">
+                            Desa {sls.desa} — <span className="font-mono text-[9px] text-slate-500">{sls.kode}</span>
+                          </div>
+                        </td>
+                        
+                        <td className="py-2.5 px-2 text-center text-slate-400 font-bold">{sls.keluarga_wilkerstat}</td>
+                        <td className="py-2.5 px-2 text-center text-slate-700 font-bold bg-slate-50/30">{sls.jml_prelist}</td>
+                        
+                        <td className={`py-2.5 px-2 text-center font-black bg-rose-50/20 text-[#f43f5e] ${sls.status_tidak_ditemukan_stop > 15 ? 'underline text-xs bg-rose-50/50' : ''}`}>
+                          {sls.status_tidak_ditemukan_stop}
+                        </td>
+                        <td className="py-2.5 px-2 text-center text-[#10b981] bg-emerald-50/10 font-bold">{sls.status_ditemukan_keluarga}</td>
+                        <td className="py-2.5 px-2 text-center text-[#3b82f6] bg-blue-50/10">{sls.status_baru_keluarga}</td>
+                        <td className="py-2.5 px-2 text-center text-[#64748b] bg-slate-50">{sls.status_meninggal}</td>
+                        <td className="py-2.5 px-2 text-center text-[#94a3b8] bg-slate-50/50">{sls.status_tidak_eligible}</td>
+                        <td className="py-2.5 px-2 text-center text-[#f59e0b] bg-amber-50/10">{sls.status_tidak_dapat_ditemui}</td>
+                        
+                        <td className="py-2.5 px-2 text-center font-black text-slate-800 bg-slate-100/40 border-r border-slate-200">{sls.jml_keluarga}</td>
+                        
+                        <td className="py-2.5 px-2 text-center text-[#e11d48] bg-rose-50/10">{sls.bgn_tidak_ditemukan}</td>
+                        <td className="py-2.5 px-2 text-center text-[#059669] bg-emerald-50/10 font-bold">{sls.bgn_ditemukan}</td>
+                        <td className="py-2.5 px-2 text-center text-[#6366f1] bg-indigo-50/10">{sls.bgn_baru}</td>
+                        <td className={`py-2.5 px-2 text-center font-black bg-amber-50/20 text-[#d97706] ${sls.bgn_tutup > 15 ? 'underline text-xs bg-amber-50/50' : ''}`}>
+                          {sls.bgn_tutup}
+                        </td>
+                        <td className="py-2.5 px-2 text-center text-[#ea580c] bg-orange-50/10">{sls.bgn_ganda}</td>
+                        
+                        <td className="py-2.5 px-2 text-center font-black text-slate-800 bg-slate-100/40 border-r border-slate-200">{sls.jml_bangunan}</td>
+                        
+                        <td className="py-2.5 px-2 text-center text-slate-500 font-bold">{sls.perbandingan_keluarga_wilkerstat}%</td>
+                        <td className="py-2.5 px-2 text-center bg-slate-50/30">
+                          <span className={`px-1.5 py-0.5 rounded-md font-bold text-[10px] ${sls.perbandingan_keluarga_prelist < 70 ? 'bg-red-50 text-red-600 border border-red-100 animate-pulse' : 'bg-slate-100 text-slate-500'}`}>
+                            {sls.perbandingan_keluarga_prelist}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
                 {grandTotals && (
                   <tfoot className="border-t-2 border-slate-300 font-mono text-[11px] font-black bg-slate-100 text-slate-900 divide-y divide-slate-200">
                     <tr className="divide-x divide-slate-200">
@@ -978,7 +1067,6 @@ export default function StatusPage() {
                       <td className="py-3 px-2 text-center text-slate-500">{grandTotals.status_meninggal}</td>
                       <td className="py-3 px-2 text-center text-slate-500">{grandTotals.status_tidak_eligible}</td>
                       <td className="py-3 px-2 text-center text-slate-500">{grandTotals.status_tidak_dapat_ditemui}</td>
-                      <td className="py-3 px-2 text-center text-purple-600">{grandTotals.status_keluarga_khusus}</td>
                       <td className="py-3 px-2 text-center bg-slate-200/40">{grandTotals.jml_keluarga}</td>
                       <td className="py-3 px-2 text-center text-slate-500">{grandTotals.bgn_tidak_ditemukan}</td>
                       <td className="py-3 px-2 text-center text-slate-500">{grandTotals.bgn_ditemukan}</td>
