@@ -180,6 +180,7 @@ export default function DashboardMonitoring() {
 
     const [metriksKpiHarian, setMetriksKpiHarian] = useState({
         hariKe: 1,
+        sisaHari: 0,
         rata2RealisasiPerPetugas: 0,
         rata2DokPerHariPerPetugas: 0,
         petugasDiBawahRata2: 0
@@ -537,6 +538,10 @@ export default function DashboardMonitoring() {
         const selisihMilidetik = tanggalHariIni - tanggalAwalSensus;
         const kalkulasiHariKe = selisihMilidetik > 0 ? Math.floor(selisihMilidetik / (1000 * 60 * 60 * 24)) + 1 : 1;
 
+        const tanggalAkhirSensus = new Date("2026-08-31");
+        const selisihMilidetikAkhir = tanggalAkhirSensus - tanggalHariIni;
+        const kalkulasiSisaHari = selisihMilidetikAkhir > 0 ? Math.floor(selisihMilidetikAkhir / (1000 * 60 * 60 * 24)) + 1 : 1;
+
         const totalMuatanSelainOpen = fSubmitted + fDraft + fRejected + fRevoked + fApproved + fEdited + fEditedAdmin + fCompleteAdmin;
         const daftarPetugasValid = Object.values(petugasMap).filter(p => p.email !== "Tanpa Petugas" && (selectedKecTab === "SEMUA" || p.kodeKec === selectedKecTab) && (selectedPml === "SEMUA" || p.emailPml === selectedPml.toLowerCase().trim()));
         const jumlahPetugasAktif = daftarPetugasValid.length;
@@ -598,6 +603,7 @@ export default function DashboardMonitoring() {
 
         setMetriksKpiHarian({
             hariKe: kalkulasiHariKe,
+            sisaHari: kalkulasiSisaHari,
             rata2RealisasiPerPetugas: hitungRata2RealisasiPerPetugas,
             rata2DokPerHariPerPetugas: hitungRata2DokPerHariPerPetugas,
             petugasDiBawahRata2: counterPetugasDiBawahRata2
@@ -2394,7 +2400,7 @@ export default function DashboardMonitoring() {
                     <span className="text-3xl">📅</span>
                     <div>
                         <div className="text-[9px] uppercase font-black text-slate-400 tracking-wider">Hari Kegiatan Lapangan</div>
-                        <div className="text-sm font-black font-mono mt-0.5">HARI KE-{metriksKpiHarian.hariKe} <span className="text-xs font-sans text-slate-400 font-normal">(Mulai 15 Juni 2026)</span></div>
+                        <div className="text-sm font-black font-mono mt-0.5">HARI KE-{metriksKpiHarian.hariKe} <span className="text-xs font-sans text-slate-400 font-normal">(Sisa hari: {metriksKpiHarian.sisaHari} hari)</span></div>
                     </div>
                 </div>
                 <div className="flex items-center gap-4 md:border-r border-slate-800 pr-2">

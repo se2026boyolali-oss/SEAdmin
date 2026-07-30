@@ -56,32 +56,28 @@ const simpanAbsenKeOfflineDB = async (payload) => {
 // ====== PERBAIKAN BG-6: PARSING DATA JSONB STATUS PROGRES ======
 // ====== BG-6: REWORK TOTAL KOMPONEN ANAK SLS CARD ROW (KOLOM NUMERIK TERPISAH) ======
 const SlsCardRow = React.memo(({ sls, progressData }) => {
-    // Cari data progress milik SLS ini
     const matchProgress = progressData?.find(p => String(p.idsubsls).trim() === String(sls.idsubsls).trim());
 
-    // 🚀 LANGSUNG EXTRACT DARI KOLOM NUMERIK SUPABASE
     const approved = parseInt(matchProgress?.approved_pengawas) || 0;
-    const edited = parseInt(matchProgress?.edited_pengawas) || 0; // Status Baru
+    const edited = parseInt(matchProgress?.edited_pengawas) || 0;
     const submitted = parseInt(matchProgress?.submitted_pencacah) || 0;
-    const submitted_resp = parseInt(matchProgress?.submitted_respondent) || 0; // Status Baru
+    const submitted_resp = parseInt(matchProgress?.submitted_respondent) || 0;
     const draft = parseInt(matchProgress?.draft) || 0;
     const rejected = parseInt(matchProgress?.rejected_pengawas) || 0;
     const revoked = parseInt(matchProgress?.revoked_pengawas) || 0;
     const open = parseInt(matchProgress?.open) || 0;
 
-    // Target total diambil dari kolom 'total' (Target A - Fasih)
-    const totalTarget = parseInt(matchProgress?.total) || 0;
+    // 🎯 SUNTIKAN: Extract Status Admin
+    const edited_admin = parseInt(matchProgress?.edited_admin_kabupaten) || 0;
+    const complete_admin = parseInt(matchProgress?.complete_admin_kabupaten) || 0;
 
-    // 🎯 TARGET B: Diambil dari kolom jml_muatan di muatan_sls
+    const totalTarget = parseInt(matchProgress?.total) || 0;
     const targetKuota = parseInt(sls.jml_muatan) || 0;
 
-    // Hitung total realisasi yang sudah dikerjakan (Semua dokumen non-OPEN)
-    const totalRealisasi = approved + edited + submitted + submitted_resp + rejected + revoked;
+    // 🎯 SUNTIKAN: Tambahkan edited_admin dan complete_admin ke total realisasi SLS
+    const totalRealisasi = approved + edited + submitted + submitted_resp + rejected + revoked + edited_admin + complete_admin;
 
-    // Hitung persentase capaian riil terhadap target total
     const persen = totalTarget > 0 ? Math.min(Math.round((totalRealisasi / totalTarget) * 100), 100) : 0;
-
-    // SLS otomatis dianggap selesai mutlak jika total pengerjaan sudah memenuhi atau melebihi target
     const isSelesaiOtomatis = totalRealisasi >= totalTarget && totalTarget > 0;
 
     const borderWarna = isSelesaiOtomatis
@@ -93,7 +89,6 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
     return (
         <div className={`bg-white border border-slate-200 border-l-4 ${borderWarna} rounded-2xl p-3 shadow-2xs flex flex-col gap-2.5 relative`}>
 
-            {/* Bagian Atas: Info SLS & Badge Status */}
             <div className="flex justify-between items-start gap-2">
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
@@ -107,7 +102,6 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
                     </p>
                 </div>
 
-                {/* Auto Badge Status Selesai */}
                 {isSelesaiOtomatis ? (
                     <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-black text-[8px] uppercase tracking-wider">
                         ✓ Selesai
@@ -123,7 +117,6 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
                 )}
             </div>
 
-            {/* Bagian Tengah: Progress Bar Capaian */}
             <div className="space-y-1">
                 <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
                     <div
@@ -131,7 +124,6 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
                         style={{ width: `${persen}%` }}
                     ></div>
                 </div>
-                {/* 🎯 MODIFIKASI HANYA PADA TEKS IDENTIFIKASI TARGET */}
                 <div className="flex justify-between items-start text-[9px] font-mono font-bold text-slate-400 leading-tight">
                     <div className="flex flex-col">
                         <span>Kirim: <strong className="text-slate-700 font-black">{totalRealisasi}</strong> / {totalTarget} target berjalan</span>
@@ -140,11 +132,11 @@ const SlsCardRow = React.memo(({ sls, progressData }) => {
                 </div>
             </div>
 
-            {/* Bagian Bawah: Agregasi Detail Dokumen */}
+            {/* 🎯 SUNTIKAN: Hitung Total Approved Termasuk Dari Admin */}
             <div className="flex flex-wrap justify-end gap-x-2.5 gap-y-0.5 pt-2 border-t border-slate-100 text-[9px] font-mono font-bold text-slate-400">
                 <span>Draft: <strong className="text-amber-600 font-black">{draft}</strong></span>
                 <span>Submit: <strong className="text-blue-600 font-black">{submitted + submitted_resp}</strong></span>
-                <span>Approve: <strong className="text-emerald-600 font-black">{approved + edited}</strong></span>
+                <span>Approve: <strong className="text-emerald-600 font-black">{approved + edited + edited_admin + complete_admin}</strong></span>
                 {(rejected + revoked) > 0 && <span>Reject: <strong className="text-rose-600 font-black">{rejected + revoked}</strong></span>}
             </div>
 
