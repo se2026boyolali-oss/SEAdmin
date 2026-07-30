@@ -1246,7 +1246,7 @@ export default function StatusPage() {
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'ANOMALI' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
           >
             <AlertOctagon className="w-4 h-4 text-indigo-600" />
-            <span>⚠️ Perbandingan & Anomali SLS ({selectedKecamatan === "ALL" ? "Semua Kec." : `Kec. ${selectedKecamatan}`})</span>
+            <span>⚠️ Perbandingan dengan Wilkerstat ({selectedKecamatan === "ALL" ? "Semua Kec." : `Kec. ${selectedKecamatan}`})</span>
             <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-rose-50 text-rose-600 font-bold border border-rose-100">
               {comparisonData.length}
             </span>
@@ -1257,7 +1257,7 @@ export default function StatusPage() {
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'REKAP' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
           >
             <Layers className="w-4 h-4 text-emerald-600" />
-            <span>📊 Rekap Distribusi Wilayah</span>
+            <span>📊 Rekap per Wilayah</span>
             <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-100 text-slate-600 font-bold">
               {drillLevel}
             </span>
@@ -1268,7 +1268,7 @@ export default function StatusPage() {
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'WORKSPACE' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
           >
             <FileText className="w-4 h-4 text-amber-600" />
-            <span>🔍 Workspace Detail PCL</span>
+            <span>🔍 Detail per PPL</span>
             {selectedAuditPcl && (
               <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-amber-50 text-amber-700 font-bold border border-amber-100 truncate max-w-[120px]">
                 {selectedAuditPcl.namaPcl}
