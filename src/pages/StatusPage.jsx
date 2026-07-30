@@ -668,10 +668,9 @@ export default function StatusPage() {
   };
 
   // ⚡ ENGINES EGRESS SAVER LOGIC WITH INDEXEDDB
-  const loadData = async (forceFetch = false) => {
+const loadData = async (forceFetch = false) => {
     setLoading(true);
     try {
-      // 1. Cek timestamp sync_status terbaru dari Supabase (Hanya memakan egress sangat kecil ~1KB)
       const { data: syncData, error: syncErr } = await supabase
         .from('sync_status')
         .select('nama_tabel, last_update');
@@ -696,11 +695,9 @@ export default function StatusPage() {
       setLastSyncUsaha(currentUsahaTs);
       setLastSyncBoyolali(currentBoyolaliTs);
 
-      // 2. Buka data Cache dari IndexedDB
       const cachedBoyolaliTs = await getCache('cached_boyolali_ts');
       const cachedRawData = await getCache('cached_raw_db_data');
 
-      // 3. LOGIKA EVALUASI: Pakai IndexedDB atau Tarik Supabase?
       const isCacheValid = 
         !forceFetch && 
         cachedBoyolaliTs && 
@@ -711,12 +708,10 @@ export default function StatusPage() {
       let finalRawData;
 
       if (isCacheValid) {
-        // 🚀 SKENARIO A: HEMAT EGRESS (Ambil dari IndexedDB)
         console.log('⚡ [EGRESS SAVED] Menggunakan data dari IndexedDB lokal.');
         finalRawData = cachedRawData;
         setDataCacheSource('INDEXEDDB');
       } else {
-        // 🌐 SKENARIO B: TARIK DARI SUPABASE & UPDATE INDEXEDDB
         console.log('🌐 [SUPABASE FETCH] Fetching data baru dari server...');
         const [progres, muatan, petugas, boyolali] = await Promise.all([
           supabase.from('progres_lapangan_sls').select('*'),
@@ -736,7 +731,6 @@ export default function StatusPage() {
           boyolali: boyolali.data
         };
 
-        // Simpan ke IndexedDB
         await setCache('cached_raw_db_data', finalRawData);
         if (currentBoyolaliTs) {
           await setCache('cached_boyolali_ts', currentBoyolaliTs);
@@ -754,7 +748,7 @@ export default function StatusPage() {
 
     } catch (err) {
       console.error('Data Loading Error:', err.message);
-    } fontally: {
+    } finally { // 👈 DIPERBAIKI (Sebelumnya fontally)
       setLoading(false);
     }
   };
@@ -816,16 +810,16 @@ export default function StatusPage() {
     return result;
   }, [allPclData, selectedKecamatan, selectedPml, searchQuery]);
 
-  useEffect(() => {
+useEffect(() => {
     if (filteredPclData.length > 0) {
-      const masihAda = filteredPclData.some(p => p.email === selectedAuditPcl?.email);
-      if (!masihAda) {
-        setSelectedAuditPcl(filteredPclData[0]);
-      }
+      setSelectedAuditPcl(prev => {
+        const masihAda = filteredPclData.some(p => p.email === prev?.email);
+        return masihAda ? prev : filteredPclData[0];
+      });
     } else {
       setSelectedAuditPcl(null);
     }
-  }, [filteredPclData, selectedAuditPcl]);
+  }, [filteredPclData]);
 
   const pieChartsData = useMemo(() => {
     let fam = Array(6).fill(0), bgn = Array(5).fill(0);
