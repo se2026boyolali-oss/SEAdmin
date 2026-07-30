@@ -1210,7 +1210,7 @@ useEffect(() => {
                     <Label value="❌ KELUARGA 'TIDAK DITEMUKAN'" offset={-8} position="insideBottom" fill="#ef4444" style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }} />
                   </XAxis>
                   <YAxis type="number" dataKey="totalUsahaBermasalah" name="Usaha Tidak Ditemukan/Tutup" stroke="#cbd5e1" tick={{ fontSize: 9, fontFamily: 'monospace', fontSpread: 'bold' }}>
-                    <Label value="🏠 USAHA BERMASALAH" angle={-90} position="insideLeft" offset={20} fill="#f59e0b" style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }} />
+                    <Label value="🏠 USAHA TIDAK DITEMUKAN/TUTUP" angle={-90} position="insideLeft" offset={20} fill="#f59e0b" style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }} />
                   </YAxis>
                   <ChartTooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3', stroke: '#e2e8f0' }} />
                   <ReferenceLine x={40} stroke="#f43f5e" strokeDasharray="5 5" />
