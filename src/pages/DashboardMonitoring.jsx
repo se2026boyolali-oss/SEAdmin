@@ -1329,9 +1329,47 @@ export default function DashboardMonitoring() {
         return dataPetugas;
     }, [dataMonitoringWilayah.petugas, includeDraft, selectedKecTab]);
     // Membekukan elemen Barchart agar tidak terpengaruh re-render tidak perlu
-    const memoizedBarChartElement = useMemo(() => (
+const memoizedBarChartElement = useMemo(() => {
+    if (!processedBarChartData) return null;
+
+    // 1. DUPLIKAT DATA & GUNAKAN LOGIKA SORTING HANYA PADA MODE "PETUGAS"
+    const sortedData = [...processedBarChartData].sort((a, b) => {
+        // Jika BUKAN mode PETUGAS, jangan ubah urutan data (biarkan seperti sebelumnya)
+        if (viewModeTab !== "PETUGAS") return 0;
+
+        const getPriorityGroup = (item) => {
+            const sisaOpen = parseFloat(item.open_dokumen ?? item.open) || 0;
+            const realisasi = item.total_realisasi || 0;
+            const target = nilaiTargetYAxis || 0;
+
+            // Kelompok 1: Selesai (open = 0) -> Paling Kiri
+            if (sisaOpen === 0) return 1;
+
+            // Kelompok 2: Sesuai / Di atas Target
+            if (realisasi >= target) return 2;
+
+            // Kelompok 3: Di bawah Target (>= 50%)
+            if (realisasi >= (target / 2)) return 3;
+
+            // Kelompok 4: Jauh di bawah Target (< 50%) -> Paling Kanan
+            return 4;
+        };
+
+        const groupA = getPriorityGroup(a);
+        const groupB = getPriorityGroup(b);
+
+        // Jika beda kelompok, urutkan berdasarkan prioritas kelompok (1 ke 4)
+        if (groupA !== groupB) {
+            return groupA - groupB;
+        }
+
+        // Jika dalam kelompok yang sama, urutkan berdasarkan realisasi tertinggi
+        return (b.total_realisasi || 0) - (a.total_realisasi || 0);
+    });
+
+    return (
         <BarChart
-            data={processedBarChartData} // 👈 UBAH DI SINI (Ganti barChartData menjadi processedBarChartData)
+            data={sortedData}
             margin={{ bottom: 40, left: -15, right: 10, top: 20 }}
             barCategoryGap="25%"
         >
@@ -1348,35 +1386,38 @@ export default function DashboardMonitoring() {
                 height={50}
                 tick={(props) => {
                     const { x, y, payload } = props;
-                    // 👈 UBAH DI SINI agar mengecek data yang sudah diproses
-                    const itemData = processedBarChartData[payload.index];
+                    const itemData = sortedData[payload.index];
 
                     let warnaTeks = "#475569";
                     let ketebalanTeks = 700;
 
+                    // 2. PEWARNAAN TEKS SUMBU X KHUSUS MODE PETUGAS
                     if (viewModeTab === "PETUGAS" && itemData) {
+                        const sisaOpen = parseFloat(itemData.open_dokumen ?? itemData.open) || 0;
                         const realisasi = itemData.total_realisasi || 0;
+                        const target = nilaiTargetYAxis || 0;
 
-                        // 🟢 KONDISI BARU: Jika sedang melihat analisis persen SLS dan di atas 40%
-                        if (viewSlsPercentage) {
+                        if (sisaOpen === 0) {
+                            warnaTeks = "#16a34a"; // 🟢 Hijau Emerald (Selesai)
+                            ketebalanTeks = 900;
+                        } else if (viewSlsPercentage) {
                             if (realisasi > 40) {
-                                warnaTeks = "#16a34a"; // Hijau Emerald (Emerald 600)
-                                ketebalanTeks = 900;   // Sangat tebal
+                                warnaTeks = "#16a34a";
+                                ketebalanTeks = 900;
                             } else {
-                                warnaTeks = "#475569"; // Warna slate normal
-                                ketebalanTeks = 500;   // Ketebalan normal
+                                warnaTeks = "#475569";
+                                ketebalanTeks = 500;
                             }
                         } else {
-                            // Logika nominal dokumen bawaan Anda sebelumnya
-                            const target = nilaiTargetYAxis || 0;
-                            if (realisasi < target) {
-                                if (realisasi < (target / 2)) {
-                                    warnaTeks = "#ef4444";
-                                    ketebalanTeks = 900;
-                                } else {
-                                    warnaTeks = "#f97316";
-                                    ketebalanTeks = 800;
-                                }
+                            if (realisasi >= target) {
+                                warnaTeks = "#64748b"; // ⚪ Slate/Putih Netral (Sesuai Target)
+                                ketebalanTeks = 700;
+                            } else if (realisasi < (target / 2)) {
+                                warnaTeks = "#ef4444"; // 🔴 Merah (< 50% target)
+                                ketebalanTeks = 900;
+                            } else {
+                                warnaTeks = "#f97316"; // 🟡 Oranye/Kuning (Di Bawah Target)
+                                ketebalanTeks = 800;
                             }
                         }
                     }
@@ -1402,13 +1443,12 @@ export default function DashboardMonitoring() {
                     );
                 }}
             />
-// Di dalam memoizedBarChartElement, cari YAxis dan ubah domainnya:
+
             <YAxis
                 stroke="#94a3b8"
                 fontSize={9}
                 tickLine={false}
                 unit={unitSatuanYAxis}
-                // MODIFIKASI DI SINI
                 domain={(isPetugasMode && !viewSlsPercentage) ? [0, 'auto'] : [0, 100]}
                 allowDataOverflow={!isPetugasMode || viewSlsPercentage}
             />
@@ -1435,16 +1475,12 @@ export default function DashboardMonitoring() {
                     if (active && payload && payload.length) {
                         const data = payload[0].payload;
 
-                        // Tentukan nominal target wilayah dari data grafik
                         const totalTargetMurni = parseInt(data.total_target || data.target || data.t || data.total) || 0;
-                        const isPersenMode = viewModeTab !== "PETUGAS" && viewModeTab !== "SLS";
 
-                        // Fungsi pembantu untuk mengekstrak Jumlah & Persen secara akurat
                         const dapatkanDetailNilai = (fieldKey) => {
                             let jumlahDokumen = 0;
                             let nilaiPersentase = 0;
 
-                            // 🏃 Mode PETUGAS murni: Nilai grafik di sini adalah JUMLAH DOKUMEN asli
                             if (viewModeTab === "PETUGAS") {
                                 if (!includeDraft && fieldKey === 'open') {
                                     const openAsli = parseFloat(data.open) || 0;
@@ -1457,8 +1493,6 @@ export default function DashboardMonitoring() {
                                 }
                                 nilaiPersentase = totalTargetMurni > 0 ? (jumlahDokumen / totalTargetMurni) * 100 : 0;
                             }
-
-                            // 🏠 Mode SLS: Nilai grafik berupa PERSENTASE, hitung balik ke JUMLAH DOKUMEN murni
                             else if (viewModeTab === "SLS") {
                                 let persenStatus = parseFloat(data[fieldKey]) || 0;
 
@@ -1470,12 +1504,9 @@ export default function DashboardMonitoring() {
                                     persenStatus = 0;
                                 }
 
-                                // Konversi dari persen kembali ke jumlah dokumen asli
                                 jumlahDokumen = Math.round((persenStatus / 100) * totalTargetMurni);
                                 nilaiPersentase = persenStatus;
                             }
-
-                            // 📍 Mode KECAMATAN / DESA: Ambil dari cadangan dokumen murni (`_dokumen`)
                             else {
                                 const keyDokumenAsli = `${fieldKey}_dokumen`;
 
@@ -1497,7 +1528,6 @@ export default function DashboardMonitoring() {
                             };
                         };
 
-                        // Ekstrak data untuk masing-masing kategori status
                         const approved = dapatkanDetailNilai('approved');
                         const submitted = dapatkanDetailNilai('submitted');
                         const draft = dapatkanDetailNilai('draft');
@@ -1514,7 +1544,6 @@ export default function DashboardMonitoring() {
                                     {viewModeTab === "PETUGAS" ? "🏃‍♂️" : viewModeTab === "SLS" ? "🏠" : "📍"} {data.nama_asli}
                                 </div>
                                 <div className="space-y-1 font-medium text-slate-500">
-                                    {/* Target Utama Wilayah */}
                                     <div className="flex justify-between border-b border-slate-100 pb-1 mb-1 bg-slate-50/50 px-1 rounded">
                                         <span className="font-bold">Total Target:</span>
                                         <strong className="text-slate-800 font-mono">
@@ -1522,7 +1551,6 @@ export default function DashboardMonitoring() {
                                         </strong>
                                     </div>
 
-                                    {/* Baris Data: Menampilkan "Jumlah Dok (Persen%)" */}
                                     <div className="flex justify-between items-center px-1">
                                         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10b981]"></span> Approved:</span>
                                         <span className="font-mono text-right text-emerald-600 font-black">{approved.jumlah} <span className="text-[10px] text-slate-400 font-normal">({approved.persen}%)</span></span>
@@ -1566,9 +1594,15 @@ export default function DashboardMonitoring() {
                     return null;
                 }}
             />
+
             {susunanBarStatus.map((b) => (
                 <Bar
-                    key={b.key} dataKey={b.key} stackId="a" fill={b.fill} maxBarSize={30} radius={b.radius}
+                    key={b.key}
+                    dataKey={b.key}
+                    stackId="a"
+                    fill={b.fill}
+                    maxBarSize={30}
+                    radius={b.radius}
                     style={{ cursor: (viewModeTab !== 'SLS') ? 'pointer' : 'default' }}
                     onClick={(clickedItem) => {
                         if (!clickedItem) return;
@@ -1596,7 +1630,8 @@ export default function DashboardMonitoring() {
                 >
                     {b.key === "open" && (
                         <LabelList
-                            position="insideBottom" offset={8}
+                            position="insideBottom"
+                            offset={8}
                             style={{ fill: '#1e293b', fontSize: '10px', fontWeight: '900', fontFamily: 'monospace' }}
                             valueAccessor={(entry) => {
                                 if (!entry) return "";
@@ -1606,7 +1641,6 @@ export default function DashboardMonitoring() {
                                     return rData.total_realisasi > 0 ? `${rData.total_realisasi.toLocaleString('id-ID')}` : "0";
                                 } else {
                                     const totalProgres = 100 - (parseFloat(rData.open) || 0);
-                                    // 🟢 Diubah menjadi toFixed(2) agar memunculkan 2 angka di belakang koma
                                     return totalProgres > 0 ? `${totalProgres.toFixed(0)}%` : "0.00%";
                                 }
                             }}
@@ -1615,10 +1649,23 @@ export default function DashboardMonitoring() {
                 </Bar>
             ))}
         </BarChart>
-        // 👈 JANGAN LUPA menambahkan processedBarChartData ke dependency array di bawah ini
-        // Di paling akhir memoizedBarChartElement, ubah menjadi:
-    ), [processedBarChartData, viewModeTab, selectedKecTab, isPetugasMode, unitSatuanYAxis, formatSuffixTooltip, nilaiTargetYAxis, teksLabelTarget, HARI_KE, viewSlsPercentage]);
-    const memoizedPmlChartElement = useMemo(() => (
+    );
+}, [
+    processedBarChartData,
+    viewModeTab,
+    selectedKecTab,
+    isPetugasMode,
+    unitSatuanYAxis,
+    formatSuffixTooltip,
+    nilaiTargetYAxis,
+    teksLabelTarget,
+    HARI_KE,
+    viewSlsPercentage,
+    includeDraft,
+    susunanBarStatus
+]);
+
+const memoizedPmlChartElement = useMemo(() => (
         <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
                 data={processedPmlChartData}
@@ -2439,263 +2486,334 @@ export default function DashboardMonitoring() {
                 </div>
             </div>
 
-            {/* GRID UTAMA CRITICAL MONITORING (5 KOLOM) */}
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+<div className="grid grid-cols-1 md:grid-cols-6 gap-4">
 
-                {/* 1. CARD PETUGAS TIDAK AKTIF */}
-                <div
-                    onClick={() => {
-                        if (criticalPcl.macet.length === 0) return;
+    {/* 🟢 CARD BARU: PETUGAS SUDAH SELESAI (OPEN = 0) */}
+    {(() => {
+        const listPetugasSelesai = dataMonitoringWilayah.petugas
+            .filter(p => {
+                // Menghitung total sisa gabungan (Open + Draft)
+const nilaiOpen = parseFloat(p.open_dokumen ?? p.open) || 0;
+const nilaiDraft = parseFloat(p.draft_dokumen ?? p.draft) || 0;
+const sisaOpen = nilaiOpen + nilaiDraft;
+                return sisaOpen === 0 && p.email !== "Tanpa Petugas";
+            })
+            .map(p => {
+                const pmlName = staffLookup[p.emailPml] || p.emailPml;
+                return {
+                    nama: p.nama_asli,
+                    pengawas: pmlName === "tanpa pengawas" ? "Tanpa Pengawas" : pmlName,
+                    kecamatan: p.namaKec,
+                    totalRealisasi: p.total_realisasi,
+                    target: p.total_target,
+                    sisaOpen: 0
+                };
+            });
 
-                        const tglHariIni = new Date();
-                        const tglH1 = new Date(); tglH1.setDate(tglHariIni.getDate() - 1);
-                        const tglH2 = new Date(); tglH2.setDate(tglHariIni.getDate() - 2);
-                        const tglH3 = new Date(); tglH3.setDate(tglHariIni.getDate() - 3);
-                        const tglH4 = new Date(); tglH4.setDate(tglHariIni.getDate() - 4);
+        const totalSelesai = listPetugasSelesai.length;
 
-                        const strH1 = tglH1.toISOString().split('T')[0];
-                        const strH2 = tglH2.toISOString().split('T')[0];
-                        const strH3 = tglH3.toISOString().split('T')[0];
-                        const strH4 = tglH4.toISOString().split('T')[0];
+        return (
+            <div
+                onClick={() => {
+                    if (totalSelesai === 0) return;
 
-                        const listMacetMapped = dataMonitoringWilayah.petugas
-                            .filter(p => criticalPcl.macet.includes(p.email))
-                            .map(p => {
-                                const pmlName = staffLookup[p.emailPml] || p.emailPml;
-                                const emailClean = p.email.toLowerCase().trim();
+                    listPetugasSelesai.sort((a, b) => a.kecamatan.localeCompare(b.kecamatan));
 
-                                const logPetugasPaging = {};
-                                historyData.forEach(h => {
-                                    if (h.petugas_id?.toLowerCase().trim() === emailClean) {
-                                        logPetugasPaging[h.tanggal] = (logPetugasPaging[h.tanggal] || 0) + (h.total_capaian || 0);
-                                    }
-                                });
-
-                                const getDeltaGabungan = (targetDate, dateSebelumnya) => {
-                                    if (logPetugasPaging[targetDate] === undefined || logPetugasPaging[dateSebelumnya] === undefined) return 0;
-                                    return Math.max((logPetugasPaging[targetDate] || 0) - (logPetugasPaging[dateSebelumnya] || 0), 0);
-                                };
-
-                                return {
-                                    nama: p.nama_asli,
-                                    pengawas: pmlName === "tanpa pengawas" ? "Tanpa Pengawas" : pmlName,
-                                    kecamatan: p.namaKec,
-                                    totalRealisasi: p.total_realisasi,
-                                    target: p.total_target,
-                                    h1: getDeltaGabungan(strH1, strH2),
-                                    h2: getDeltaGabungan(strH2, strH3),
-                                    h3: getDeltaGabungan(strH3, strH4),
-                                };
-                            });
-
-                        listMacetMapped.sort((a, b) => a.kecamatan.localeCompare(b.kecamatan));
-
-                        setCriticalCurrentPage(1);
-                        setCriticalModalConfig({
-                            show: true,
-                            type: "macet",
-                            title: "⚠️ Daftar Petugas Tidak Aktif (3 hari tidak kirim assignment)",
-                            data: listMacetMapped
-                        });
-                    }}
-                    className={`bg-white border-l-4 border-rose-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${criticalPcl.macet.length > 0 ? 'cursor-pointer hover:bg-rose-50/40 active:scale-[0.99]' : ''}`}
-                >
-                    <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Petugas Tidak Aktif (3 Hari)</div>
-                    <div className="text-2xl font-mono font-black text-rose-600 mt-1 flex items-baseline gap-1">
-                        {criticalPcl.macet.length}
-                        <span className="text-xs text-slate-400 font-sans font-bold">Orang</span>
-                    </div>
-                    <p className="text-[8px] text-slate-400 mt-1 font-bold">Capaian stagnan / 0 kirim dokumen</p>
+                    setCriticalCurrentPage(1);
+                    setCriticalModalConfig({
+                        show: true,
+                        type: "selesai",
+                        title: "🎉 Daftar Petugas yang Sudah Selesai (Sisa Open = 0)",
+                        data: listPetugasSelesai
+                    });
+                }}
+                className={`bg-white border-l-4 border-emerald-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${
+                    totalSelesai > 0 ? 'cursor-pointer hover:bg-emerald-50/40 active:scale-[0.99]' : ''
+                }`}
+            >
+                <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Petugas Open = 0</div>
+                <div className="text-2xl font-mono font-black text-emerald-600 mt-1 flex items-baseline gap-1">
+                    {totalSelesai}
+                    <span className="text-xs text-slate-400 font-sans font-bold">Orang</span>
                 </div>
+                <p className="text-[8px] text-slate-400 mt-1 font-bold">Seluruh target prelist telah rampung</p>
+            </div>
+        );
+    })()}
 
-                {/* 2. CARD PETUGAS MELAMBAT */}
-                <div
-                    onClick={() => {
-                        if (criticalPcl.melambat.length === 0) return;
+    {/* 1. CARD PETUGAS TIDAK AKTIF */}
+    <div
+        onClick={() => {
+            const listMacetMapped = dataMonitoringWilayah.petugas
+                .filter(p => {
+                    const sisaOpen = parseFloat(p.open_dokumen ?? p.open) || 0;
+                    return sisaOpen > 0 && criticalPcl.macet.includes(p.email);
+                })
+                .map(p => {
+                    const pmlName = staffLookup[p.emailPml] || p.emailPml;
+                    const emailClean = p.email.toLowerCase().trim();
 
-                        const tglHariIni = new Date();
-                        const tglH1 = new Date(); tglH1.setDate(tglHariIni.getDate() - 1);
-                        const tglH2 = new Date(); tglH2.setDate(tglHariIni.getDate() - 2);
-                        const tglH3 = new Date(); tglH3.setDate(tglHariIni.getDate() - 3);
-                        const tglH4 = new Date(); tglH4.setDate(tglHariIni.getDate() - 4);
-
-                        const strH1 = tglH1.toISOString().split('T')[0];
-                        const strH2 = tglH2.toISOString().split('T')[0];
-                        const strH3 = tglH3.toISOString().split('T')[0];
-                        const strH4 = tglH4.toISOString().split('T')[0];
-
-                        const listMelambatMapped = dataMonitoringWilayah.petugas
-                            .filter(p => criticalPcl.melambat.includes(p.email))
-                            .map(p => {
-                                const pmlName = staffLookup[p.emailPml] || p.emailPml;
-                                const emailClean = p.email.toLowerCase().trim();
-
-                                const logPetugasPaging = {};
-                                historyData.forEach(h => {
-                                    if (h.petugas_id?.toLowerCase().trim() === emailClean) {
-                                        logPetugasPaging[h.tanggal] = (logPetugasPaging[h.tanggal] || 0) + (h.total_capaian || 0);
-                                    }
-                                });
-
-                                const getDeltaGabungan = (targetDate, dateSebelumnya) => {
-                                    if (logPetugasPaging[targetDate] === undefined || logPetugasPaging[dateSebelumnya] === undefined) return 0;
-                                    return Math.max((logPetugasPaging[targetDate] || 0) - (logPetugasPaging[dateSebelumnya] || 0), 0);
-                                };
-
-                                return {
-                                    nama: p.nama_asli,
-                                    pengawas: pmlName === "tanpa pengawas" ? "Tanpa Pengawas" : pmlName,
-                                    kecamatan: p.namaKec,
-                                    totalRealisasi: p.total_realisasi,
-                                    target: p.total_target,
-                                    h1: getDeltaGabungan(strH1, strH2),
-                                    h2: getDeltaGabungan(strH2, strH3),
-                                    h3: getDeltaGabungan(strH3, strH4),
-                                };
-                            });
-
-                        listMelambatMapped.sort((a, b) => a.kecamatan.localeCompare(b.kecamatan));
-
-                        setCriticalCurrentPage(1);
-                        setCriticalModalConfig({
-                            show: true,
-                            type: "melambat",
-                            title: "⚠️ Daftar Petugas Melambat (Produktivitas Rendah < 10 Assignment)",
-                            data: listMelambatMapped
-                        });
-                    }}
-                    className={`bg-white border-l-4 border-amber-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${criticalPcl.melambat.length > 0 ? 'cursor-pointer hover:bg-amber-50/40 active:scale-[0.99]' : ''}`}
-                >
-                    <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Petugas Melambat</div>
-                    <div className="text-2xl font-mono font-black text-amber-600 mt-1 flex items-baseline gap-1">
-                        {criticalPcl.melambat.length}
-                        <span className="text-xs text-slate-400 font-sans font-bold">Orang</span>
-                    </div>
-                    <p className="text-[8px] text-slate-400 mt-1 font-bold">Produktivitas 3 hari terakhir di bawah 10 dokumen</p>
-                </div>
-
-                {/* 3. CARD BARU: PENGAWAS (PML) BERMASALAH */}
-                {(() => {
-                    const pmlMap = {};
-
-                    dataMonitoringWilayah.petugas.forEach(p => {
-                        if (p.email === "Tanpa Petugas") return;
-                        const pmlKey = p.emailPml || "tanpa pengawas";
-
-                        if (!pmlMap[pmlKey]) {
-                            pmlMap[pmlKey] = {
-                                emailPml: pmlKey,
-                                namaPml: staffLookup[pmlKey] || (pmlKey === "tanpa pengawas" ? "Tanpa Pengawas" : pmlKey),
-                                kecamatan: p.namaKec || "-",
-                                jmlMacet: 0,
-                                jmlMelambat: 0
-                            };
+                    const logPetugasPaging = {};
+                    historyData.forEach(h => {
+                        if (h.petugas_id?.toLowerCase().trim() === emailClean) {
+                            logPetugasPaging[h.tanggal] = (logPetugasPaging[h.tanggal] || 0) + (h.total_capaian || 0);
                         }
-
-                        if (criticalPcl.macet.includes(p.email)) pmlMap[pmlKey].jmlMacet += 1;
-                        if (criticalPcl.melambat.includes(p.email)) pmlMap[pmlKey].jmlMelambat += 1;
                     });
 
-                    const listPmlBermasalah = Object.values(pmlMap).filter(pml => pml.jmlMacet > 0 || pml.jmlMelambat > 0);
-                    listPmlBermasalah.sort((a, b) => (b.jmlMacet + b.jmlMelambat) - (a.jmlMacet + a.jmlMelambat));
-                    const totalPmlBermasalah = listPmlBermasalah.length;
+                    const getDeltaGabungan = (targetDate, dateSebelumnya) => {
+                        if (logPetugasPaging[targetDate] === undefined || logPetugasPaging[dateSebelumnya] === undefined) return 0;
+                        return Math.max((logPetugasPaging[targetDate] || 0) - (logPetugasPaging[dateSebelumnya] || 0), 0);
+                    };
 
-                    return (
-                        <div
-                            onClick={() => {
-                                if (totalPmlBermasalah === 0) return;
+                    const tglHariIni = new Date();
+                    const tglH1 = new Date(); tglH1.setDate(tglHariIni.getDate() - 1);
+                    const tglH2 = new Date(); tglH2.setDate(tglHariIni.getDate() - 2);
+                    const tglH3 = new Date(); tglH3.setDate(tglHariIni.getDate() - 3);
+                    const tglH4 = new Date(); tglH4.setDate(tglHariIni.getDate() - 4);
 
-                                const formatUntukModal = listPmlBermasalah.map(item => ({
-                                    nama: item.namaPml,
-                                    emailPml: item.emailPml,
-                                    pengawas: "PENGONTROL WILAYAH",
-                                    kecamatan: item.kecamatan,
-                                    h3: item.jmlMacet,
-                                    h2: item.jmlMelambat,
-                                    h1: item.jmlMacet + item.jmlMelambat,
-                                    totalRealisasi: item.jmlMacet + item.jmlMelambat,
-                                    target: 0,
-                                    isModePml: true
-                                }));
+                    const strH1 = tglH1.toISOString().split('T')[0];
+                    const strH2 = tglH2.toISOString().split('T')[0];
+                    const strH3 = tglH3.toISOString().split('T')[0];
+                    const strH4 = tglH4.toISOString().split('T')[0];
 
-                                setCriticalCurrentPage(1);
-                                setCriticalModalConfig({
-                                    show: true,
-                                    type: "pml_critical",
-                                    title: "🚨 Daftar Pengawas (PML) dengan Petugas Macet & Melambat Terbanyak",
-                                    data: formatUntukModal
-                                });
-                            }}
-                            className={`bg-white border-l-4 border-indigo-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${totalPmlBermasalah > 0 ? 'cursor-pointer hover:bg-indigo-50/40 active:scale-[0.99]' : ''}`}
-                        >
-                            <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">TIM Perlu Atensi</div>
-                            <div className="text-2xl font-mono font-black text-indigo-600 mt-1 flex items-baseline gap-1">
-                                {totalPmlBermasalah}
-                                <span className="text-xs text-slate-400 font-sans font-bold">Tim PML</span>
-                            </div>
-                            <p className="text-[8px] text-slate-400 mt-1 font-bold">Tim yang memiliki beban petugas macet / melambat</p>
-                        </div>
-                    );
-                })()}
-                {/* 1. CARD PML APPROVE TIDAK WAJAR (SPAM HARIAN) */}
-                {(() => {
-                    const pmlSpam = (dataMonitoringWilayah.pmlPerformance || []).filter(p => p.approveHariIni >= 100 || (p.totalApprove >= 40 && Number(p.rejectRate) === 0));
-                    const totalSpam = pmlSpam.length;
+                    return {
+                        nama: p.nama_asli,
+                        pengawas: pmlName === "tanpa pengawas" ? "Tanpa Pengawas" : pmlName,
+                        kecamatan: p.namaKec,
+                        totalRealisasi: p.total_realisasi,
+                        target: p.total_target,
+                        h1: getDeltaGabungan(strH1, strH2),
+                        h2: getDeltaGabungan(strH2, strH3),
+                        h3: getDeltaGabungan(strH3, strH4),
+                    };
+                });
 
-                    return (
-                        <div
-                            onClick={() => {
-                                if (totalSpam === 0) return;
-                                setCriticalCurrentPage(1);
-                                setCriticalModalConfig({
-                                    show: true,
-                                    type: "pml_anomali_spam",
-                                    title: "🚨 Daftar PML Approve CEPAT (Approve > 100/hr atau approve > 40 dengan rate reject 0)",
-                                    data: pmlSpam
-                                });
-                            }}
-                            className={`bg-white border-l-4 border-rose-600 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${totalSpam > 0 ? 'cursor-pointer hover:bg-rose-50/40 active:scale-[0.99]' : ''}`}
-                        >
-                            <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">PML Approve Cepat</div>
-                            <div className="text-2xl font-mono font-black text-rose-600 mt-1 flex items-baseline gap-1">
-                                {totalSpam}
-                                <span className="text-xs text-slate-400 font-sans font-bold">PML</span>
-                            </div>
-                            <p className="text-[8px] text-slate-400 mt-1 font-bold">Approve &gt; 100 dok/hari</p>
-                        </div>
-                    );
-                })()}
+            if (listMacetMapped.length === 0) return;
 
-                {/* 2. CARD PML PASIF (0 PERIKSA & ANTREAN ADA) */}
-                {(() => {
-                    const pmlPasif = (dataMonitoringWilayah.pmlPerformance || []).filter(p => p.approveHariIni + p.rejectHariIni < 5 && p.pendingPml > 20);
-                    const totalPasif = pmlPasif.length;
+            listMacetMapped.sort((a, b) => a.kecamatan.localeCompare(b.kecamatan));
 
-                    return (
-                        <div
-                            onClick={() => {
-                                if (totalPasif === 0) return;
-                                setCriticalCurrentPage(1);
-                                setCriticalModalConfig({
-                                    show: true,
-                                    type: "pml_pasif",
-                                    title: "⚠️ Daftar PML Pasif (Kurang dari 5 Periksa Hari Ini & Antrean PPL Menumpuk)",
-                                    data: pmlPasif
-                                });
-                            }}
-                            className={`bg-white border-l-4 border-amber-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${totalPasif > 0 ? 'cursor-pointer hover:bg-amber-50/40 active:scale-[0.99]' : ''}`}
-                        >
-                            <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">PML Pasif Hari Ini</div>
-                            <div className="text-2xl font-mono font-black text-amber-600 mt-1 flex items-baseline gap-1">
-                                {totalPasif}
-                                <span className="text-xs text-slate-400 font-sans font-bold">PML</span>
-                            </div>
-                            <p className="text-[8px] text-slate-400 mt-1 font-bold">Antrean Periksa &gt; 20 Dok, Tapi Periksa Harian &lt; 5</p>
-                        </div>
-                    );
-                })()}
+            setCriticalCurrentPage(1);
+            setCriticalModalConfig({
+                show: true,
+                type: "macet",
+                title: "⚠️ Daftar Petugas Tidak Aktif (3 hari tidak kirim assignment)",
+                data: listMacetMapped
+            });
+        }}
+        className={`bg-white border-l-4 border-rose-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${
+            dataMonitoringWilayah.petugas.filter(p => (parseFloat(p.open_dokumen ?? p.open) || 0) > 0 && criticalPcl.macet.includes(p.email)).length > 0
+                ? 'cursor-pointer hover:bg-rose-50/40 active:scale-[0.99]'
+                : ''
+        }`}
+    >
+        <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Petugas Tidak Aktif (3 Hari)</div>
+        <div className="text-2xl font-mono font-black text-rose-600 mt-1 flex items-baseline gap-1">
+            {dataMonitoringWilayah.petugas.filter(p => (parseFloat(p.open_dokumen ?? p.open) || 0) > 0 && criticalPcl.macet.includes(p.email)).length}
+            <span className="text-xs text-slate-400 font-sans font-bold">Orang</span>
+        </div>
+        <p className="text-[8px] text-slate-400 mt-1 font-bold">Capaian stagnan / 0 kirim dokumen</p>
+    </div>
 
+    {/* 2. CARD PETUGAS MELAMBAT */}
+    <div
+        onClick={() => {
+            const listMelambatMapped = dataMonitoringWilayah.petugas
+                .filter(p => {
+                    const sisaOpen = parseFloat(p.open_dokumen ?? p.open) || 0;
+                    return sisaOpen > 0 && criticalPcl.melambat.includes(p.email);
+                })
+                .map(p => {
+                    const pmlName = staffLookup[p.emailPml] || p.emailPml;
+                    const emailClean = p.email.toLowerCase().trim();
+
+                    const logPetugasPaging = {};
+                    historyData.forEach(h => {
+                        if (h.petugas_id?.toLowerCase().trim() === emailClean) {
+                            logPetugasPaging[h.tanggal] = (logPetugasPaging[h.tanggal] || 0) + (h.total_capaian || 0);
+                        }
+                    });
+
+                    const getDeltaGabungan = (targetDate, dateSebelumnya) => {
+                        if (logPetugasPaging[targetDate] === undefined || logPetugasPaging[dateSebelumnya] === undefined) return 0;
+                        return Math.max((logPetugasPaging[targetDate] || 0) - (logPetugasPaging[dateSebelumnya] || 0), 0);
+                    };
+
+                    const tglHariIni = new Date();
+                    const tglH1 = new Date(); tglH1.setDate(tglHariIni.getDate() - 1);
+                    const tglH2 = new Date(); tglH2.setDate(tglHariIni.getDate() - 2);
+                    const tglH3 = new Date(); tglH3.setDate(tglHariIni.getDate() - 3);
+                    const tglH4 = new Date(); tglH4.setDate(tglHariIni.getDate() - 4);
+
+                    const strH1 = tglH1.toISOString().split('T')[0];
+                    const strH2 = tglH2.toISOString().split('T')[0];
+                    const strH3 = tglH3.toISOString().split('T')[0];
+                    const strH4 = tglH4.toISOString().split('T')[0];
+
+                    return {
+                        nama: p.nama_asli,
+                        pengawas: pmlName === "tanpa pengawas" ? "Tanpa Pengawas" : pmlName,
+                        kecamatan: p.namaKec,
+                        totalRealisasi: p.total_realisasi,
+                        target: p.total_target,
+                        h1: getDeltaGabungan(strH1, strH2),
+                        h2: getDeltaGabungan(strH2, strH3),
+                        h3: getDeltaGabungan(strH3, strH4),
+                    };
+                });
+
+            if (listMelambatMapped.length === 0) return;
+
+            listMelambatMapped.sort((a, b) => a.kecamatan.localeCompare(b.kecamatan));
+
+            setCriticalCurrentPage(1);
+            setCriticalModalConfig({
+                show: true,
+                type: "melambat",
+                title: "⚠️ Daftar Petugas Melambat (Produktivitas Rendah < 10 Assignment)",
+                data: listMelambatMapped
+            });
+        }}
+        className={`bg-white border-l-4 border-amber-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${
+            dataMonitoringWilayah.petugas.filter(p => (parseFloat(p.open_dokumen ?? p.open) || 0) > 0 && criticalPcl.melambat.includes(p.email)).length > 0
+                ? 'cursor-pointer hover:bg-amber-50/40 active:scale-[0.99]'
+                : ''
+        }`}
+    >
+        <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Petugas Melambat</div>
+        <div className="text-2xl font-mono font-black text-amber-600 mt-1 flex items-baseline gap-1">
+            {dataMonitoringWilayah.petugas.filter(p => (parseFloat(p.open_dokumen ?? p.open) || 0) > 0 && criticalPcl.melambat.includes(p.email)).length}
+            <span className="text-xs text-slate-400 font-sans font-bold">Orang</span>
+        </div>
+        <p className="text-[8px] text-slate-400 mt-1 font-bold">Produktivitas 3 hari terakhir di bawah 10 dokumen</p>
+    </div>
+
+    {/* 3. CARD: PENGAWAS (PML) BERMASALAH */}
+    {(() => {
+        const pmlMap = {};
+
+        dataMonitoringWilayah.petugas.forEach(p => {
+            if (p.email === "Tanpa Petugas") return;
+
+            const sisaOpen = parseFloat(p.open_dokumen ?? p.open) || 0;
+            if (sisaOpen === 0) return;
+
+            const pmlKey = p.emailPml || "tanpa pengawas";
+
+            if (!pmlMap[pmlKey]) {
+                pmlMap[pmlKey] = {
+                    emailPml: pmlKey,
+                    namaPml: staffLookup[pmlKey] || (pmlKey === "tanpa pengawas" ? "Tanpa Pengawas" : pmlKey),
+                    kecamatan: p.namaKec || "-",
+                    jmlMacet: 0,
+                    jmlMelambat: 0
+                };
+            }
+
+            if (criticalPcl.macet.includes(p.email)) pmlMap[pmlKey].jmlMacet += 1;
+            if (criticalPcl.melambat.includes(p.email)) pmlMap[pmlKey].jmlMelambat += 1;
+        });
+
+        const listPmlBermasalah = Object.values(pmlMap).filter(pml => pml.jmlMacet > 0 || pml.jmlMelambat > 0);
+        listPmlBermasalah.sort((a, b) => (b.jmlMacet + b.jmlMelambat) - (a.jmlMacet + a.jmlMelambat));
+        const totalPmlBermasalah = listPmlBermasalah.length;
+
+        return (
+            <div
+                onClick={() => {
+                    if (totalPmlBermasalah === 0) return;
+
+                    const formatUntukModal = listPmlBermasalah.map(item => ({
+                        nama: item.namaPml,
+                        emailPml: item.emailPml,
+                        pengawas: "PENGONTROL WILAYAH",
+                        kecamatan: item.kecamatan,
+                        h3: item.jmlMacet,
+                        h2: item.jmlMelambat,
+                        h1: item.jmlMacet + item.jmlMelambat,
+                        totalRealisasi: item.jmlMacet + item.jmlMelambat,
+                        target: 0,
+                        isModePml: true
+                    }));
+
+                    setCriticalCurrentPage(1);
+                    setCriticalModalConfig({
+                        show: true,
+                        type: "pml_critical",
+                        title: "🚨 Daftar Pengawas (PML) dengan Petugas Macet & Melambat Terbanyak",
+                        data: formatUntukModal
+                    });
+                }}
+                className={`bg-white border-l-4 border-indigo-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${totalPmlBermasalah > 0 ? 'cursor-pointer hover:bg-indigo-50/40 active:scale-[0.99]' : ''}`}
+            >
+                <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">TIM Perlu Atensi</div>
+                <div className="text-2xl font-mono font-black text-indigo-600 mt-1 flex items-baseline gap-1">
+                    {totalPmlBermasalah}
+                    <span className="text-xs text-slate-400 font-sans font-bold">Tim PML</span>
+                </div>
+                <p className="text-[8px] text-slate-400 mt-1 font-bold">Tim yang memiliki beban petugas macet / melambat</p>
             </div>
+        );
+    })()}
+
+    {/* 4. CARD PML APPROVE TIDAK WAJAR (SPAM HARIAN) */}
+    {(() => {
+        const pmlSpam = (dataMonitoringWilayah.pmlPerformance || []).filter(p => p.approveHariIni >= 100 || (p.totalApprove >= 40 && Number(p.rejectRate) === 0));
+        const totalSpam = pmlSpam.length;
+
+        return (
+            <div
+                onClick={() => {
+                    if (totalSpam === 0) return;
+                    setCriticalCurrentPage(1);
+                    setCriticalModalConfig({
+                        show: true,
+                        type: "pml_anomali_spam",
+                        title: "🚨 Daftar PML Approve CEPAT (Approve > 100/hr atau approve > 40 dengan rate reject 0)",
+                        data: pmlSpam
+                    });
+                }}
+                className={`bg-white border-l-4 border-rose-600 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${totalSpam > 0 ? 'cursor-pointer hover:bg-rose-50/40 active:scale-[0.99]' : ''}`}
+            >
+                <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">PML Approve Cepat</div>
+                <div className="text-2xl font-mono font-black text-rose-600 mt-1 flex items-baseline gap-1">
+                    {totalSpam}
+                    <span className="text-xs text-slate-400 font-sans font-bold">PML</span>
+                </div>
+                <p className="text-[8px] text-slate-400 mt-1 font-bold">Approve &gt; 100 dok/hari</p>
+            </div>
+        );
+    })()}
+
+    {/* 5. CARD PML PASIF (0 PERIKSA & ANTREAN ADA) */}
+    {(() => {
+        const pmlPasif = (dataMonitoringWilayah.pmlPerformance || []).filter(p => p.approveHariIni + p.rejectHariIni < 5 && p.pendingPml > 20);
+        const totalPasif = pmlPasif.length;
+
+        return (
+            <div
+                onClick={() => {
+                    if (totalPasif === 0) return;
+                    setCriticalCurrentPage(1);
+                    setCriticalModalConfig({
+                        show: true,
+                        type: "pml_pasif",
+                        title: "⚠️ Daftar PML Pasif (Kurang dari 5 Periksa Hari Ini & Antrean PPL Menumpuk)",
+                        data: pmlPasif
+                    });
+                }}
+                className={`bg-white border-l-4 border-amber-500 p-4 rounded-2xl shadow-xs transition-all duration-200 select-none ${totalPasif > 0 ? 'cursor-pointer hover:bg-amber-50/40 active:scale-[0.99]' : ''}`}
+            >
+                <div className="text-[9px] font-black uppercase text-slate-400 tracking-wider">PML Pasif Hari Ini</div>
+                <div className="text-2xl font-mono font-black text-amber-600 mt-1 flex items-baseline gap-1">
+                    {totalPasif}
+                    <span className="text-xs text-slate-400 font-sans font-bold">PML</span>
+                </div>
+                <p className="text-[8px] text-slate-400 mt-1 font-bold">Antrean Periksa &gt; 20 Dok, Tapi Periksa Harian &lt; 5</p>
+            </div>
+        );
+    })()}
+
+</div>
 
             <SmartAlertBanner />
             {/* BARIS GRAPH UTAMA: GRAFIK BATANG & REKAP BULAT */}
