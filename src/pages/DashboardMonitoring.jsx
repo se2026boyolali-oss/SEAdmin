@@ -1391,16 +1391,19 @@ const memoizedBarChartElement = useMemo(() => {
                     let warnaTeks = "#475569";
                     let ketebalanTeks = 700;
 
-                    // 2. PEWARNAAN TEKS SUMBU X KHUSUS MODE PETUGAS
-                    if (viewModeTab === "PETUGAS" && itemData) {
+                    // 2. PEWARNAAN TEKS SUMBU X DITERAPKAN UNIVERSAL (SELAIN PETUGAS JUGA BERLAKU)
+                    if (itemData) {
                         const sisaOpen = parseFloat(itemData.open_dokumen ?? itemData.open) || 0;
                         const realisasi = itemData.total_realisasi || 0;
                         const target = nilaiTargetYAxis || 0;
 
+                        // CONDITION 1: Selesai 100% / Open = 0 (Berlaku untuk PETUGAS, KECAMATAN, DESA, dan SLS)
                         if (sisaOpen === 0) {
                             warnaTeks = "#16a34a"; // 🟢 Hijau Emerald (Selesai)
                             ketebalanTeks = 900;
-                        } else if (viewSlsPercentage) {
+                        } 
+                        // CONDITION 2: Khusus Mode Petugas dengan View SLS Persentase
+                        else if (viewModeTab === "PETUGAS" && viewSlsPercentage) {
                             if (realisasi > 40) {
                                 warnaTeks = "#16a34a";
                                 ketebalanTeks = 900;
@@ -1408,15 +1411,17 @@ const memoizedBarChartElement = useMemo(() => {
                                 warnaTeks = "#475569";
                                 ketebalanTeks = 500;
                             }
-                        } else {
+                        } 
+                        // CONDITION 3: Evaluasi berbasis Target Harian (Petugas Murni / Modus Wilayah Persentase)
+                        else {
                             if (realisasi >= target) {
-                                warnaTeks = "#64748b"; // ⚪ Slate/Putih Netral (Sesuai Target)
+                                warnaTeks = "#64748b"; // ⚪ Slate/Netral (Sesuai Target)
                                 ketebalanTeks = 700;
                             } else if (realisasi < (target / 2)) {
                                 warnaTeks = "#ef4444"; // 🔴 Merah (< 50% target)
                                 ketebalanTeks = 900;
                             } else {
-                                warnaTeks = "#f97316"; // 🟡 Oranye/Kuning (Di Bawah Target)
+                                warnaTeks = "#f97316"; // 🟡 Oranye (Di Bawah Target)
                                 ketebalanTeks = 800;
                             }
                         }
@@ -1453,21 +1458,6 @@ const memoizedBarChartElement = useMemo(() => {
                 allowDataOverflow={!isPetugasMode || viewSlsPercentage}
             />
 
-            <ReferenceLine
-                y={nilaiTargetYAxis}
-                stroke="#f59e0b"
-                strokeDasharray="4 4"
-                strokeWidth={2}
-                className="z-30"
-                label={{
-                    value: `Target Hari ke-${HARI_KE}: ${teksLabelTarget}`,
-                    position: 'top',
-                    fill: '#d97706',
-                    fontSize: 10,
-                    fontWeight: 900,
-                    style: { textShadow: '1px 1px 2px white, -1px -1px 2px white' }
-                }}
-            />
 
             <Tooltip
                 cursor={{ fill: '#f8fafc', opacity: 0.5 }}
@@ -1602,6 +1592,7 @@ const memoizedBarChartElement = useMemo(() => {
                     stackId="a"
                     fill={b.fill}
                     maxBarSize={30}
+                    minPointSize={0.1}
                     radius={b.radius}
                     style={{ cursor: (viewModeTab !== 'SLS') ? 'pointer' : 'default' }}
                     onClick={(clickedItem) => {
