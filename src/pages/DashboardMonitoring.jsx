@@ -1391,41 +1391,46 @@ const memoizedBarChartElement = useMemo(() => {
                     let warnaTeks = "#475569";
                     let ketebalanTeks = 700;
 
-                    // 2. PEWARNAAN TEKS SUMBU X DITERAPKAN UNIVERSAL (SELAIN PETUGAS JUGA BERLAKU)
-                    if (itemData) {
-                        const sisaOpen = parseFloat(itemData.open_dokumen ?? itemData.open) || 0;
-                        const realisasi = itemData.total_realisasi || 0;
-                        const target = nilaiTargetYAxis || 0;
+// 2. PEWARNAAN TEKS SUMBU X DITERAPKAN UNIVERSAL
+if (itemData) {
+    // Tentukan sisa open berdasarkan mode tampilan
+    // Pada mode Kecamatan/Desa (bukan PETUGAS/SLS), itemData.open berisi persentase sisa tugas
+    const sisaOpen = (viewModeTab === "PETUGAS" || viewModeTab === "SLS")
+        ? (parseFloat(itemData.open) || 0)
+        : (parseFloat(itemData.open) ?? parseFloat(itemData.open_dokumen) ?? 0);
 
-                        // CONDITION 1: Selesai 100% / Open = 0 (Berlaku untuk PETUGAS, KECAMATAN, DESA, dan SLS)
-                        if (sisaOpen === 0) {
-                            warnaTeks = "#16a34a"; // 🟢 Hijau Emerald (Selesai)
-                            ketebalanTeks = 900;
-                        } 
-                        // CONDITION 2: Khusus Mode Petugas dengan View SLS Persentase
-                        else if (viewModeTab === "PETUGAS" && viewSlsPercentage) {
-                            if (realisasi > 40) {
-                                warnaTeks = "#16a34a";
-                                ketebalanTeks = 900;
-                            } else {
-                                warnaTeks = "#475569";
-                                ketebalanTeks = 500;
-                            }
-                        } 
-                        // CONDITION 3: Evaluasi berbasis Target Harian (Petugas Murni / Modus Wilayah Persentase)
-                        else {
-                            if (realisasi >= target) {
-                                warnaTeks = "#64748b"; // ⚪ Slate/Netral (Sesuai Target)
-                                ketebalanTeks = 700;
-                            } else if (realisasi < (target / 2)) {
-                                warnaTeks = "#ef4444"; // 🔴 Merah (< 50% target)
-                                ketebalanTeks = 900;
-                            } else {
-                                warnaTeks = "#f97316"; // 🟡 Oranye (Di Bawah Target)
-                                ketebalanTeks = 800;
-                            }
-                        }
-                    }
+    const realisasi = parseFloat(itemData.total_realisasi) || 0;
+    const target = nilaiTargetYAxis || 0;
+
+    // CONDITION 1: Selesai 100% jika sisa open benar-benar 0
+    if (sisaOpen === 0) {
+        warnaTeks = "#16a34a"; // 🟢 Hijau Emerald (Selesai 100%)
+        ketebalanTeks = 900;
+    } 
+    // CONDITION 2: Khusus Mode Petugas dengan View SLS Persentase
+    else if (viewModeTab === "PETUGAS" && viewSlsPercentage) {
+        if (realisasi > 40) {
+            warnaTeks = "#16a34a";
+            ketebalanTeks = 900;
+        } else {
+            warnaTeks = "#475569";
+            ketebalanTeks = 500;
+        }
+    } 
+    // CONDITION 3: Evaluasi berbasis Target Harian
+    else {
+        if (realisasi >= target) {
+            warnaTeks = "#64748b"; // ⚪ Slate/Netral (Sesuai Target)
+            ketebalanTeks = 700;
+        } else if (realisasi < (target / 2)) {
+            warnaTeks = "#ef4444"; // 🔴 Merah (< 50% target)
+            ketebalanTeks = 900;
+        } else {
+            warnaTeks = "#f97316"; // 🟡 Oranye (Di Bawah Target)
+            ketebalanTeks = 800;
+        }
+    }
+}
 
                     return (
                         <g transform={`translate(${x},${y})`}>
