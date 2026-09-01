@@ -1392,19 +1392,33 @@ const memoizedBarChartElement = useMemo(() => {
                     let ketebalanTeks = 700;
 
 // 2. PEWARNAAN TEKS SUMBU X DITERAPKAN UNIVERSAL
+// 2. PEWARNAAN TEKS SUMBU X DITERAPKAN UNIVERSAL
 if (itemData) {
-    // Tentukan sisa open berdasarkan mode tampilan
-    // Pada mode Kecamatan/Desa (bukan PETUGAS/SLS), itemData.open berisi persentase sisa tugas
-    const sisaOpen = (viewModeTab === "PETUGAS" || viewModeTab === "SLS")
-        ? (parseFloat(itemData.open) || 0)
-        : (parseFloat(itemData.open) ?? parseFloat(itemData.open_dokumen) ?? 0);
+    // 🟢 PERBAIKAN: Selalu utamakan dokumen riil (open_dokumen) jika ada!
+    let sisaOpenRiil = 0;
+
+    if (viewModeTab === "PETUGAS") {
+        sisaOpenRiil = parseFloat(itemData.open) || 0;
+    } else {
+        // Untuk Mode KEC, DESA, dan SLS, gunakan dokumen riil bukan persentase
+        if (itemData.open_dokumen !== undefined && itemData.open_dokumen !== null) {
+            sisaOpenRiil = parseFloat(itemData.open_dokumen);
+        } else {
+            sisaOpenRiil = parseFloat(itemData.open) || 0;
+        }
+
+        // Jika includeDraft MATI, tambahkan draft_dokumen ke sisa open riil
+        if (!includeDraft && itemData.draft_dokumen) {
+            sisaOpenRiil += parseFloat(itemData.draft_dokumen);
+        }
+    }
 
     const realisasi = parseFloat(itemData.total_realisasi) || 0;
     const target = nilaiTargetYAxis || 0;
 
-    // CONDITION 1: Selesai 100% jika sisa open benar-benar 0
-    if (sisaOpen === 0) {
-        warnaTeks = "#16a34a"; // 🟢 Hijau Emerald (Selesai 100%)
+    // CONDITION 1: Selesai 100% HANYA jika dokumen open riil BENAR-BENAR 0
+    if (sisaOpenRiil === 0) {
+        warnaTeks = "#16a34a"; // 🟢 Hijau Emerald (Selesai 100% murni)
         ketebalanTeks = 900;
     } 
     // CONDITION 2: Khusus Mode Petugas dengan View SLS Persentase
@@ -1417,7 +1431,7 @@ if (itemData) {
             ketebalanTeks = 500;
         }
     } 
-    // CONDITION 3: Evaluasi berbasis Target Harian
+    // CONDITION 3: Evaluasi berbasis Target Harian (Masih ada sisa open > 0)
     else {
         if (realisasi >= target) {
             warnaTeks = "#64748b"; // ⚪ Slate/Netral (Sesuai Target)
